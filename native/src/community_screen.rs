@@ -173,7 +173,7 @@ impl Reading {
                 .collect(),
             Reading::Post(post) => post.images.iter().cloned().chain(post.image.iter().cloned()).chain(post.videos.iter().filter_map(|video| video.thumb.clone())).collect(),
             Reading::Build(_) | Reading::Title { .. } => Vec::new(),
-            Reading::Score(scored) => scored.map.cover().into_iter().collect(),
+            Reading::Score(scored) => scored.map.sharp_cover().into_iter().collect(),
         }
     }
 }
@@ -252,7 +252,6 @@ pub enum Message {
     Metric(crate::dossier::Metric),
     Span(u32),
     GradeHover(Option<usize>),
-    TitlePick(String),
     Wear(Option<String>),
     PlayClip(Option<String>, String),
     Go(Section, Option<PeopleFrom>),
@@ -328,7 +327,6 @@ pub struct Ground<'a> {
     pub metric: crate::dossier::Metric,
     pub span: u32,
     pub grade_hover: Option<usize>,
-    pub title_pick: Option<&'a str>,
     pub boards: &'a HashMap<u64, crate::community::wire::MapBoard>,
     pub boards_waiting: &'a std::collections::HashSet<u64>,
     pub boards_failed: &'a std::collections::HashSet<u64>,

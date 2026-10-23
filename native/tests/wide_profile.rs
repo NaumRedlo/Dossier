@@ -10,8 +10,8 @@ fn profile_columns_keep_a_readable_width_on_large_displays() {
     main.height = 1600.0;
     let backdrop = dossier_native::ui::backdrop_handle();
     let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
-    let best = ui.find("ЛУЧШИЕ ИГРЫ").unwrap().bounds();
-    let activity = ui.find("АКТИВНОСТЬ").unwrap().bounds();
+    let best = ui.find("Лучшие игры").unwrap().bounds();
+    let activity = ui.find("Активность").unwrap().bounds();
     assert!(best.x > 500.0, "the profile must stay centered: {}", best.x);
     assert!(activity.x - best.x < 1200.0, "the middle column must not stretch across the screen: {}", activity.x - best.x);
 }
@@ -51,17 +51,17 @@ fn a_top_play_and_a_title_in_the_profile_open_their_sheets_where_they_are() {
         ui.simulate(iced_test::simulator::click());
         ui.into_messages().collect::<Vec<_>>()
     };
-    let result = pressed("Результат");
+    let result = pressed("Astral Quantization");
     assert!(result.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::Read(Reading::Score(scored)))) if scored.name == "NaumRedlo" && scored.play.pp > 400.0)), "{result:?}");
-    let holders = pressed("Обладатели");
-    assert!(holders.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::Read(Reading::Title { code, who: Some(_) }))) if code == "wysi")), "{holders:?}");
+    let titles = pressed("Титулы");
+    assert!(titles.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Community(C::Go(Section::Titles, None))))), "{titles:?}");
 
     let mut opened = main.clone();
     let _ = opened.update(M::Community(C::Read(Reading::Title { code: "wysi".into(), who: None })));
     assert_eq!(opened.community_section, Section::Profile);
     opened.read_fade = iced::Animation::new(true);
     let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&opened, &backdrop));
-    assert!(ui.find("ОБЛАДАТЕЛИ В БЕСЕДЕ").is_ok() && ui.find("Снять").is_ok(), "the title sheet opens over the profile with its wear button");
+    assert!(ui.find("Обладатели в беседе").is_ok() && ui.find("Снять").is_ok(), "the title sheet opens over the profile with its wear button");
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn a_sheet_opened_from_a_dossier_lies_over_it_and_another_dossier_closes_it() {
     main.read_fade = iced::Animation::new(true);
     {
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
-        assert!(ui.find("ОБЛАДАТЕЛИ В БЕСЕДЕ").is_ok(), "the sheet is not drawn over the dossier");
+        assert!(ui.find("Обладатели в беседе").is_ok(), "the sheet is not drawn over the dossier");
     }
     let _ = main.update(M::Community(C::Person(Some(0))));
     assert!(!main.read_fade.value(), "the sheet stayed over the dossier it opened");

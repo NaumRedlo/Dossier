@@ -365,13 +365,16 @@ struct Heat {
 
 const CELL_GAP: f32 = 4.0;
 
-fn heat_cell(wide: f32) -> f32 { ((wide - 2.0 * HEAT_PAD - 12.0 * CELL_GAP) / 13.0).max(1.0) }
+const CELL_MOST: f32 = 20.0;
+
+fn heat_cell(wide: f32) -> f32 { ((wide - 2.0 * HEAT_PAD - 12.0 * CELL_GAP) / 13.0).clamp(1.0, CELL_MOST) }
+fn heat_left(wide: f32) -> f32 { ((wide - 13.0 * heat_cell(wide) - 12.0 * CELL_GAP) / 2.0).max(HEAT_PAD) }
 fn heat_height(wide: f32) -> f32 { 2.0 * HEAT_PAD + 7.0 * heat_cell(wide) + 6.0 * CELL_GAP + 40.0 }
 
 impl Heat {
     fn cell_at(&self, bounds: Rectangle, at: Point) -> Option<usize> {
         let cell = heat_cell(bounds.width);
-        let x = at.x - HEAT_PAD;
+        let x = at.x - heat_left(bounds.width);
         let y = at.y - HEAT_PAD;
         if x < 0.0 || y < 0.0 { return None; }
         let column = (x / (cell + CELL_GAP)).floor() as usize;
@@ -410,12 +413,13 @@ impl canvas::Program<Message> for Heat {
         let mut frame = Frame::new(renderer, bounds.size());
         let k = self.alpha;
         let cell = heat_cell(bounds.width);
+        let left = heat_left(bounds.width);
         for (index, (_, n)) in self.days.iter().enumerate() {
             let column = (index / 7) as f32;
             let line = (index % 7) as f32;
             let lit = state.at == Some(index);
             let grow = if lit { 2.0 } else { 0.0 };
-            let corner = Point::new(HEAT_PAD + column * (cell + CELL_GAP) - grow / 2.0, HEAT_PAD + line * (cell + CELL_GAP) - grow / 2.0);
+            let corner = Point::new(left + column * (cell + CELL_GAP) - grow / 2.0, HEAT_PAD + line * (cell + CELL_GAP) - grow / 2.0);
             let side = iced::Size::new(cell + grow, cell + grow);
             frame.fill(&Path::rounded_rectangle(corner, side, 3.0.into()), Color::from_rgba(0.886, 0.282, 0.282, heat_share(*n) * k));
             if lit {
@@ -430,14 +434,14 @@ impl canvas::Program<Message> for Heat {
         };
         frame.fill_text(canvas::Text {
             content: said,
-            position: Point::new(HEAT_PAD, foot + 6.0),
+            position: Point::new(left, foot + 6.0),
             color: Color { a: k, ..MUTED },
             size: 12.0.into(),
             font: theme::SANS,
             align_y: iced::alignment::Vertical::Center,
             ..canvas::Text::default()
         });
-        let legend_right = bounds.width;
+        let legend_right = left + 13.0 * cell + 12.0 * CELL_GAP;
         let mut x = legend_right - 5.0 * 13.0 - 4.0;
         frame.fill_text(canvas::Text {
             content: self.more.clone(),
@@ -702,8 +706,8 @@ fn places<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Mes
         tiles.push(ui::hover(
             button(
                 column![
-                    row![container(ui::label(w.t(board.short_key()), FAINT)).width(Length::Fill).clip(true), shift(moved)].spacing(4).align_y(iced::Center),
-                    text(format!("#{}", ((place as f64 * f).round() as usize).max(1))).font(theme::SANS_SEMI).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(colour)),
+                    container(ui::label(w.t(board.short_key()), FAINT)).width(Length::Fill).clip(true),
+                    row![text(format!("#{}", ((place as f64 * f).round() as usize).max(1))).font(theme::SANS_SEMI).size(22.0).wrapping(text::Wrapping::None).color(ui::faded(colour)), shift(moved)].spacing(6).align_y(iced::Center),
                     standing(share, if place <= 3 { colour } else { ACCENT }),
                 ]
                 .spacing(6),
@@ -1185,62 +1189,35 @@ fn titles<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
         }
         bars = bars.push(container(inner).width(Length::FillPortion(all as u16)).style(move |_| container::Style { background: Some(Background::Color(Color { a: 0.15 * k, ..colour })), border: Border { radius: 3.0.into(), ..Border::default() }, ..container::Style::default() }));
     }
-    let mut owned: Vec<&Title> = catalog.titles.iter().filter(|t| held(t)).collect();
-    owned.sort_by_key(|t| std::cmp::Reverse(Rarity::ALL.iter().position(|r| *r == t.rarity)));
-    let mut locked: Vec<&Title> = catalog.titles.iter().filter(|t| !held(t)).collect();
-    locked.sort_by_key(|t| std::cmp::Reverse(Rarity::ALL.iter().position(|r| *r == t.rarity)));
-    let chosen_code = ground.title_pick.map(str::to_owned).or_else(|| you.title.clone()).or_else(|| owned.first().map(|t| t.code.clone()));
-    let mut chips: Vec<Element<'a, Message>> = Vec::new();
-    for (title, got) in owned.iter().map(|t| (*t, true)).chain(locked.iter().take(5).map(|t| (*t, false))) {
-        let name = title.name(w.lang()).to_owned();
-        let on = chosen_code.as_deref() == Some(title.code.as_str());
-        chips.push(ui::hover(
-            button(text(name).font(theme::SANS_SEMI).size(11.5))
-                .padding([4, 9])
-                .style(ui::button_faded(ui::calm(chip_style(title.rarity.colour(), got, on))))
-                .on_press(Message::TitlePick(title.code.clone())),
-            ui::Glow::tile(10.0).edge(Color { a: 0.45, ..title.rarity.colour() }),
-        ));
-    }
-    let detail: Element<'a, Message> = match chosen_code.as_deref().and_then(|code| catalog.title_of(code)) {
-        Some(title) => {
-            let got = held(title);
-            let colour = title.rarity.colour();
-            let when = match (got, whose.me.and_then(|me| me.title_dates.get(&title.code))) {
-                (true, Some(at)) => format!("{} {}", w.t("title-got"), w.day(*at, ground.now_unix)),
-                (true, None) => w.t("title-got"),
-                (false, _) => w.t("title-not-yet"),
-            };
-            let k = ui::fade();
-            container(
-                column![
-                    text(title.name(w.lang()).to_owned()).font(theme::SANS_SEMI).size(14.0).color(ui::faded(colour)),
-                    text(title.about(w.lang()).to_owned()).font(theme::SANS).size(12.0).color(ui::faded(MUTED)),
-                    row![
-                        ui::mono_small(when, FAINT),
-                        ui::grow(),
-                        ui::hover(
-                            button(text(w.t("title-see-holders")).font(theme::SANS_SEMI).size(11.5))
-                                .padding([4, 11])
-                                .style(ui::button_faded(ui::calm(chip_style(colour, false, false))))
-                                .on_press(Message::Read(screen::Reading::Title { code: title.code.clone(), who: Some(you.id) })),
-                            ui::Glow::tile(10.0).edge(Color { a: 0.45, ..colour }),
-                        ),
-                        wear_button(ground, you, title),
-                    ]
-                    .spacing(6)
-                    .align_y(iced::Center),
-                ]
-                .spacing(3),
-            )
-            .padding([10, 12])
-            .width(Length::Fill)
-            .style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.24 * k))), border: Border { radius: 10.0.into(), ..Border::default() }, ..container::Style::default() })
-            .into()
+    let mut tiles = row![].spacing(5);
+    for rarity in Rarity::ALL {
+        let all = catalog.titles.iter().filter(|t| t.rarity == rarity).count();
+        if all == 0 {
+            continue;
         }
-        None => Space::new().height(0.0).into(),
-    };
-    slab(column![caption(w.t("community-titles")), bars.width(Length::Fill), ui::wrap(chips, 6.0), detail].spacing(10), [14, 16]).into()
+        let got = catalog.titles.iter().filter(|t| t.rarity == rarity && held(t)).count();
+        let colour = rarity.colour();
+        let k = ui::fade();
+        let tile = container(
+            column![
+                text(got.to_string()).font(theme::SANS_SEMI).size(20.0).color(ui::faded(if got > 0 { colour } else { FAINT })),
+                ui::mono_small(format!("{}%", (got as f32 / all as f32 * 100.0).round()), FAINT),
+            ]
+            .spacing(1)
+            .align_x(iced::alignment::Horizontal::Center),
+        )
+        .padding([8, 0])
+        .center_x(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.18 * k))),
+            border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.012 * k)), width: 1.0, radius: 10.0.into() },
+            ..container::Style::default()
+        });
+        tiles = tiles.push(container(ui::tip(tile, w.t(rarity.key()))).width(Length::FillPortion(1)));
+    }
+    let body: Element<'a, Message> = column![caption(w.t("community-titles")), tiles, bars.width(Length::Fill)].spacing(10).into();
+    let body: Element<'a, Message> = if you.you { mouse_area(body).on_press(Message::Go(screen::Section::Titles, None)).interaction(mouse::Interaction::Pointer).into() } else { body };
+    slab(body, [14, 16]).into()
 }
 
 pub fn wear_button<'a>(ground: &Ground<'a>, you: &crate::community::Person, title: &Title) -> Element<'a, Message> {
@@ -1353,7 +1330,7 @@ fn plan(width: f32) -> Vec<Lane<Block>> {
         vec![Lane::stack(x, left, [Identity, Places]), Lane::stack(x + left + 16.0, middle, [Metrics, Chart, Best]), Lane::stack(x + left + middle + 32.0, right, [Grades, Titles, Activity])]
     } else {
         let middle = room - left - 16.0;
-        vec![Lane::stack(x, left, [Identity, Places, Grades]), Lane::stack(x + left + 16.0, middle, [Metrics, Chart, Best, Titles, Activity])]
+        vec![Lane::stack(x, left, [Identity, Places, Grades, Activity]), Lane::stack(x + left + 16.0, middle, [Metrics, Chart, Best, Titles])]
     }
 }
 
@@ -1421,15 +1398,17 @@ mod chart_tests {
     }
 
     #[test]
-    fn activity_cells_fill_the_width_and_hover_only_real_squares() {
+    fn activity_cells_stay_small_and_hover_only_real_squares() {
         let heat = Heat { days: vec![(String::new(), 0); 91], none: String::new(), plays: vec![], less: String::new(), more: String::new(), alpha: 1.0 };
         for width in [232.0, 296.0, 500.0, 900.0] {
             let cell = heat_cell(width);
+            let left = heat_left(width);
             let bounds = Rectangle::with_size(iced::Size::new(width, heat_height(width)));
-            assert!((2.0 * HEAT_PAD + 13.0 * cell + 12.0 * CELL_GAP - width).abs() < 0.001);
-            assert_eq!(heat.cell_at(bounds, Point::new(HEAT_PAD + cell / 2.0, HEAT_PAD + cell / 2.0)), Some(0));
-            assert_eq!(heat.cell_at(bounds, Point::new(width - HEAT_PAD - cell / 2.0, HEAT_PAD + 6.0 * (cell + CELL_GAP) + cell / 2.0)), Some(90));
-            for point in [Point::ORIGIN, Point::new(HEAT_PAD + cell + 1.0, HEAT_PAD + 1.0), Point::new(HEAT_PAD + 1.0, bounds.height - 5.0)] {
+            assert!(cell <= CELL_MOST);
+            assert!((2.0 * left + 13.0 * cell + 12.0 * CELL_GAP - width).abs() < 0.001);
+            assert_eq!(heat.cell_at(bounds, Point::new(left + cell / 2.0, HEAT_PAD + cell / 2.0)), Some(0));
+            assert_eq!(heat.cell_at(bounds, Point::new(width - left - cell / 2.0, HEAT_PAD + 6.0 * (cell + CELL_GAP) + cell / 2.0)), Some(90));
+            for point in [Point::ORIGIN, Point::new(left + cell + 1.0, HEAT_PAD + 1.0), Point::new(left + 1.0, bounds.height - 5.0)] {
                 assert_eq!(heat.cell_at(bounds, point), None, "padding, gaps and legend must not show a day's tooltip");
             }
         }

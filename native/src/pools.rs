@@ -788,7 +788,7 @@ mod tests {
     fn suggestion_scan_measures_local_maps_and_honours_exclusion_and_cancellation() {
         let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/dossier-assay/corpus/maps/5114204.osu");
         let hash = library::md5_hex(&std::fs::read(&file).unwrap());
-        let songs = HashMap::from([(hash.clone(), Map { file, artist: "A".into(), title: "B".into(), version: "C".into(), background: None })]);
+        let songs = HashMap::from([(hash.clone(), Map { set_id: None, file, artist: "A".into(), title: "B".into(), version: "C".into(), background: None })]);
         let stop = AtomicBool::new(false);
         let found = suggest(&songs, Mod::Nm, 5.0, &HashSet::new(), &stop);
         assert_eq!(found.len(), 1);

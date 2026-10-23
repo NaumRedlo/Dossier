@@ -297,7 +297,7 @@ pub fn fetch_posts_through(server: &str, token: &str, device: &str, channel: &st
         return direct;
     }
     let name = channel_name(channel).ok_or_else(|| format!("{channel} is not a channel name"))?;
-    let reply = client()?.get(format!("{server}/render/news/channel/{name}")).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| e.to_string());
+    let reply = client()?.get(format!("{server}/render/news/channel/{name}")).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token).send().map_err(|e| e.to_string());
     match reply {
         Ok(reply) if reply.status().is_success() => match reply.text() {
             Ok(page) => Ok(posts_from(&name, &page)),

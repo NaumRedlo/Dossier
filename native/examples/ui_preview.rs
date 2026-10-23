@@ -43,10 +43,16 @@ fn main() -> Result<(), String> {
             let position = Point::new(coords[2], coords[3]);
             screen.point_at(position);
             screen.simulate([Event::Mouse(mouse::Event::CursorMoved { position })]);
+        } else if action == "hover" && coords.len() == 2 {
+            let position = Point::new(coords[0], coords[1]);
+            screen.point_at(position);
+            screen.simulate([Event::Mouse(mouse::Event::CursorMoved { position })]);
+            screen.simulate([Event::Window(window::Event::RedrawRequested(std::time::Instant::now()))]);
+            std::thread::sleep(std::time::Duration::from_millis(700));
         } else if action == "scroll" {
-            screen.point_at(Point::new(450.0, 400.0));
+            screen.point_at(Point::new(coords.get(1).copied().unwrap_or(450.0), coords.get(2).copied().unwrap_or(400.0)));
             screen.simulate([Event::Mouse(mouse::Event::WheelScrolled { delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -coords.first().copied().unwrap_or(350.0) } })]);
-        } else { return Err("Use drag x y to-x to-y, scroll pixels, or scroll-drag pixels x y to-x to-y".into()); }
+        } else { return Err("Use drag x y to-x to-y, hover x y, scroll pixels [x y], or scroll-drag pixels x y to-x to-y".into()); }
         let start = std::time::Instant::now();
         for n in 0..60 {
             screen.simulate([Event::Window(window::Event::RedrawRequested(start + std::time::Duration::from_millis(n * 16)))]);

@@ -16,8 +16,10 @@ const SIDE: f32 = 34.0;
 const RULE: f32 = 40.0;
 const ROW_MOD: f32 = 16.0;
 const TURNING: f32 = 16.0;
-const SOFT_WIDE: u32 = 36;
-const SOFT_KEPT: usize = 24;
+const MAPPER_FACE: f32 = 20.0;
+const SOFT_WIDE: u32 = 480;
+const SOFT_KEPT: usize = 8;
+const HOVERED: Color = Color::from_rgb(0.102, 0.071, 0.078);
 const PICKED: Color = Color::from_rgb(0.137, 0.106, 0.075);
 const OWN: Color = Color::from_rgb(0.702, 0.227, 0.227);
 const SOFT_INK: Color = Color::from_rgb(0.886, 0.804, 0.792);
@@ -175,8 +177,8 @@ fn soft(handle: &image::Handle) -> Option<image::Handle> {
     if wide == 0 || high == 0 || pixels.len() < wide * high * 4 {
         return None;
     }
-    let small_wide = SOFT_WIDE as usize;
-    let small_high = ((SOFT_WIDE as f32 * high as f32 / wide as f32).round() as usize).max(1);
+    let small_wide = (SOFT_WIDE as usize).min(wide);
+    let small_high = ((small_wide as f32 * high as f32 / wide as f32).round() as usize).max(1);
     let mut out = vec![0u8; small_wide * small_high * 4];
     for y in 0..small_high {
         let (top, bottom) = (y * high / small_high, ((y + 1) * high / small_high).max(y * high / small_high + 1));
@@ -220,7 +222,7 @@ fn board_line<'a>(ground: &Ground<'a>, said: &'a wire::BoardRow, by_score: bool,
     }
     name = name.push(mods);
     let when = said.play.at.map_or(String::new(), |at| w.day(at, ground.now_unix));
-    let combo = said.play.combo.map_or(String::new(), |combo| format!("{}x", w.lang().group(u64::from(combo))));
+    let combo = said.play.combo.map_or(String::new(), |combo| format!("{combo}x"));
     let line = row![
         container(place).width(30.0),
         row_face(ground, said, 24.0),
@@ -238,7 +240,7 @@ fn board_line<'a>(ground: &Ground<'a>, said: &'a wire::BoardRow, by_score: bool,
         .width(Length::Fill)
         .style(move |_, status| {
             let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            let fill = if chosen { Some(Color { a: k, ..PICKED }) } else { lit.then_some(Color::from_rgba(1.0, 1.0, 1.0, 0.035 * k)) };
+            let fill = if chosen { Some(Color { a: k, ..PICKED }) } else { lit.then_some(Color { a: k, ..HOVERED }) };
             button::Style {
                 background: fill.map(Background::Color),
                 text_color: INK,
@@ -269,9 +271,9 @@ fn cover_back<'a>(ground: &Ground<'a>, scored: &Scored) -> Element<'a, Message> 
     });
     let into_body = COVER_FADE.iter().fold(iced::gradient::Linear::new(Radians(std::f32::consts::PI)), |shade, (at, a)| shade.add_stop(*at, Color { a: a * k, ..theme::SLAB_SOLID }));
     let fade = container(Space::new().width(Length::Fill).height(HEAD)).style(move |_| container::Style { background: Some(Background::Gradient(into_body.into())), border: Border { radius: top, ..Border::default() }, ..container::Style::default() });
-    match scored.map.cover().and_then(|url| ground.pictures.get(&screen::wide(&url))) {
+    match scored.map.sharp_cover().and_then(|url| ground.pictures.get(&screen::wide(&url))) {
         Some(handle) => {
-            let shown = scored.map.cover().map_or(1.0, |url| ground.picture_shown(&screen::wide(&url)));
+            let shown = scored.map.sharp_cover().map_or(1.0, |url| ground.picture_shown(&screen::wide(&url)));
             let picture = soft(handle).unwrap_or_else(|| handle.clone());
             stack![under, image(picture).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(HEAD).border_radius(15.0).opacity(COVER_SEEN * k * shown), fade].into()
         }
@@ -289,7 +291,29 @@ struct Shown {
     counts: [Option<u32>; 4],
 }
 
+fn same_play(mine: &crate::community::Play, row: &wire::Play) -> bool {
+    match (mine.id, row.id) {
+        (Some(a), Some(b)) => a == b,
+        _ => row.at == Some(mine.at) || ((mine.accuracy - row.accuracy).abs() < 0.01 && mine.combo == row.combo && mine.combo.is_some()),
+    }
+}
+
 impl Shown {
+    fn filled(mut self, other: &Shown) -> Shown {
+        if self.pp <= 0.0 {
+            self.pp = other.pp;
+            self.pp_if = self.pp_if.or(other.pp_if);
+        }
+        if self.score == 0 {
+            self.score = other.score;
+        }
+        self.combo = self.combo.or(other.combo);
+        if self.counts.iter().all(Option::is_none) {
+            self.counts = other.counts;
+        }
+        self
+    }
+
     fn of_row(play: &wire::Play) -> Shown {
         let count = |at: usize| play.counts.get(at).copied().flatten();
         Shown { grade: play.grade.clone(), pp: play.pp, pp_if: play.pp_if, score: play.score, accuracy: play.accuracy, combo: play.combo, counts: [count(0), count(1), count(2), count(3)] }
@@ -308,7 +332,13 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
     let board = scored.map.beatmap.and_then(|beatmap| ground.boards.get(&beatmap).map(|board| (beatmap, board)));
     let picked = ground.score_pick.and_then(|who| board.and_then(|(_, board)| board.rows.iter().find(|row| row.who == who)));
     let chosen = picked.map_or(scored.who, |row| row.who);
-    let shown = picked.map_or_else(|| Shown::of_scored(scored), |row| Shown::of_row(&row.play));
+    let own = board.and_then(|(_, board)| board.rows.iter().find(|row| row.who == scored.who && same_play(&scored.play, &row.play)));
+    let shown = match (picked, own) {
+        (Some(row), Some(mine)) if row.who == mine.who => Shown::of_row(&row.play).filled(&Shown::of_scored(scored)),
+        (Some(row), _) => Shown::of_row(&row.play),
+        (None, Some(mine)) => Shown::of_scored(scored).filled(&Shown::of_row(&mine.play)),
+        (None, None) => Shown::of_scored(scored),
+    };
     let shade = screen::grade_colour(&shown.grade);
     let (artist, title, version) = named(&scored.map.line);
     let about = board.and_then(|(_, board)| board.map.as_ref());
@@ -326,7 +356,11 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
         facts = facts.push(crate::dossier::star_pill(screen::decimal(w, stars, 2), stars, 12.0));
     }
     if let Some(creator) = about.map(|about| about.map.creator.clone()).filter(|creator| !creator.is_empty()) {
-        facts = facts.push(row![glyph(Icon::Mapper, 15.0, SOFT_INK), text(creator).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(6).align_y(iced::Center));
+        let face: Element<'a, Message> = match board.and_then(|(_, board)| board.mapper_face()) {
+            Some(url) => screen::round(ground.pictures.get(&url), &initial(&creator), MAPPER_FACE, ground.picture_shown(&url)),
+            None => glyph(Icon::Mapper, 15.0, SOFT_INK),
+        };
+        facts = facts.push(row![face, text(creator).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(7).align_y(iced::Center));
     }
     if scored.play.witnessed && picked.is_none() {
         facts = facts.push(mono(w.t("score-witnessed"), 11.0, FAINT, false));
@@ -344,17 +378,18 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
         column![text(label).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(colour)), value].spacing(3).into()
     };
     let pp = match (shown.pp > 0.0, shown.pp_if) {
-        (true, _) => screen::decimal(w, shown.pp, 0),
-        (false, Some(guess)) => format!("≈{}", screen::decimal(w, guess, 0)),
-        (false, None) => "—".to_owned(),
+        (true, _) => Some(screen::decimal(w, shown.pp, 0)),
+        (false, Some(guess)) => Some(format!("≈{}", screen::decimal(w, guess, 0))),
+        (false, None) => (shown.grade == "F").then(|| "0".to_owned()),
     };
     let most = scored.play.max_combo.or(about.and_then(|about| about.max_combo)).filter(|most| *most > 0);
     let combo: Element<'a, Message> = match (shown.combo, most) {
-        (Some(combo), Some(most)) => row![mono(format!("{}x", w.lang().group(u64::from(combo))), 18.0, INK, true), mono(format!("/ {}x", w.lang().group(u64::from(most))), 13.0, FAINT, false)].spacing(6).align_y(iced::Bottom).into(),
-        (Some(combo), None) => mono(format!("{}x", w.lang().group(u64::from(combo))), 18.0, INK, true),
+        (Some(combo), Some(most)) => row![mono(format!("{combo}x"), 18.0, INK, true), text(w.t("combo-of")).font(theme::SANS).size(13.0).color(ui::faded(FAINT)), mono(format!("{most}x"), 13.0, FAINT, false)].spacing(5).align_y(iced::Bottom).into(),
+        (Some(combo), None) => mono(format!("{combo}x"), 18.0, INK, true),
         _ => mono("—".to_owned(), 18.0, FAINT, true),
     };
-    let count = |at: usize| mono(shown.counts[at].map_or("—".to_owned(), |n| w.lang().group(u64::from(n))), 18.0, INK, true);
+    let counted = shown.counts.iter().any(Option::is_some);
+    let count = |at: usize| mono(shown.counts[at].or(counted.then_some(0)).map_or("—".to_owned(), |n| n.to_string()), 18.0, INK, true);
     let hits = row![
         stat("300".to_owned(), BLUE, count(0)),
         stat("100".to_owned(), GREEN, count(1)),
@@ -364,16 +399,17 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
     .spacing(16)
     .align_y(iced::Bottom);
     let rule = container(Space::new().width(1.0).height(RULE)).style(move |_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.08 * k))), ..container::Style::default() });
-    let numbers = row![
-        stat("PP".to_owned(), FAINT, mono(pp, 28.0, INK, true)),
+    let mut numbers = row![].spacing(30).align_y(iced::Bottom);
+    if let Some(pp) = pp {
+        numbers = numbers.push(stat("PP".to_owned(), FAINT, mono(pp, 28.0, INK, true)));
+    }
+    let numbers = numbers.extend([
         stat(w.t("score-points"), FAINT, mono(if shown.score > 0 { w.lang().group(shown.score) } else { "—".to_owned() }, 18.0, INK, true)),
         stat(w.t("score-accuracy"), FAINT, mono(w.percent(f64::from(shown.accuracy)), 18.0, INK, true)),
         stat(w.t("score-combo"), FAINT, combo),
-        rule,
-        hits,
-    ]
-    .spacing(30)
-    .align_y(iced::Bottom);
+        rule.into(),
+        hits.into(),
+    ]);
     let panel = container(numbers).padding([16, 24]).style(move |_| container::Style {
         background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.3 * k))),
         border: Border { radius: 14.0.into(), ..Border::default() },

@@ -29,7 +29,7 @@ pub struct Publication {
 
 pub fn publications(server: &str, token: &str, device: &str, kind: &str, offset: usize) -> Result<Vec<Publication>, Refused> {
     let reply = client()?.get(format!("{server}/render/catalog/{kind}"))
-        .query(&[("offset", offset)]).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+        .query(&[("offset", offset)]).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
     status(reply)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
@@ -50,7 +50,7 @@ pub struct Offered {
 
 pub fn suggested(server: &str, token: &str, device: &str, low: f64, high: f64, mods: &str) -> Result<Vec<Offered>, Refused> {
     let reply = client()?.get(format!("{server}/render/pools/suggest"))
-        .query(&[("low", format!("{low:.2}")), ("high", format!("{high:.2}")), ("mod", mods.to_owned())]).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+        .query(&[("low", format!("{low:.2}")), ("high", format!("{high:.2}")), ("mod", mods.to_owned())]).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
     status(reply)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
@@ -68,14 +68,14 @@ pub fn published_content(pool: &crate::pools::Pool, backdrop: Option<&[u8]>) -> 
 pub fn publish(server: &str, token: &str, device: &str, pool: &crate::pools::Pool, backdrop: Option<&[u8]>) -> Result<Publication, Refused> {
     let content = published_content(pool, backdrop).map_err(Refused::Said)?;
     let kind = if pool.collection { "collection" } else { "pool" };
-    let reply = client()?.put(format!("{server}/render/catalog/{kind}/{}", pool.id)).header("X-Render-Worker", device).bearer_auth(token)
+    let reply = client()?.put(format!("{server}/render/catalog/{kind}/{}", pool.id)).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token)
         .json(&serde_json::json!({"content": content, "revision": pool.published_revision})).send().map_err(|e| Refused::Network(e.to_string()))?;
     status(reply)?.json().map_err(|e| Refused::Network(e.to_string()))
 }
 
 pub fn withdraw(server: &str, token: &str, device: &str, pool: &crate::pools::Pool) -> Result<(), Refused> {
     let kind = if pool.collection { "collection" } else { "pool" };
-    let reply = client()?.delete(format!("{server}/render/catalog/{kind}/{}", pool.id)).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    let reply = client()?.delete(format!("{server}/render/catalog/{kind}/{}", pool.id)).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
     status(reply).map(|_| ())
 }
 
@@ -175,12 +175,12 @@ struct Failure {
 }
 
 pub fn plans(server: &str, token: &str, device: &str) -> Result<Vec<Plan>, Refused> {
-    let reply = client()?.get(format!("{server}/render/billing/plans")).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    let reply = client()?.get(format!("{server}/render/billing/plans")).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
     Ok(status(reply)?.json::<Plans>().map_err(|e| Refused::Network(e.to_string()))?.plans)
 }
 
 pub fn subscription(server: &str, token: &str, device: &str) -> Result<Option<Subscription>, Refused> {
-    let reply = client()?.get(format!("{server}/render/billing/status")).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    let reply = client()?.get(format!("{server}/render/billing/status")).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
     let held = status(reply)?.json::<Held>().map_err(|e| Refused::Network(e.to_string()))?;
     Ok(held.subscription.map(|subscription| Subscription { badge: held.badge, ..subscription }))
 }
@@ -210,13 +210,13 @@ pub fn badges(server: &str, token: &str, device: &str, players: &[i64]) -> Resul
         return Ok(std::collections::HashMap::new());
     }
     let wanted = players.iter().take(200).map(i64::to_string).collect::<Vec<_>>().join(",");
-    let reply = client()?.get(format!("{server}/render/billing/badges")).query(&[("players", wanted)]).header("X-Render-Worker", device).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    let reply = client()?.get(format!("{server}/render/billing/badges")).query(&[("players", wanted)]).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
     let text = status(reply)?.text().map_err(|e| Refused::Network(e.to_string()))?;
     Ok(worn_of(&text))
 }
 
 pub fn wear(server: &str, token: &str, device: &str, show_badge: Option<bool>, show_title: Option<bool>, title: Option<String>) -> Result<Badge, Refused> {
-    let reply = client()?.post(format!("{server}/render/billing/badge")).header("X-Render-Worker", device).bearer_auth(token)
+    let reply = client()?.post(format!("{server}/render/billing/badge")).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token)
         .json(&serde_json::json!({"show_badge": show_badge, "show_title": show_title, "title": title})).send().map_err(|e| Refused::Network(e.to_string()))?;
     status(reply)?.json::<Held>().map_err(|e| Refused::Network(e.to_string()))?.badge.ok_or_else(|| Refused::Said("no badge".into()))
 }
@@ -235,14 +235,14 @@ fn held(reply: reqwest::blocking::Response) -> Result<Subscription, Trouble> {
 
 pub fn checkout(server: &str, token: &str, device: &str, plan: &str, email: &str, change: bool) -> Result<Subscription, Trouble> {
     let network = |e: Refused| Trouble { status: 0, reason: e.to_string(), subscription: None };
-    let reply = client().map_err(network)?.post(format!("{server}/render/billing/checkout")).header("X-Render-Worker", device).bearer_auth(token)
+    let reply = client().map_err(network)?.post(format!("{server}/render/billing/checkout")).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token)
         .json(&serde_json::json!({"plan": plan, "email": email, "change": change})).send().map_err(|e| network(Refused::Network(e.to_string())))?;
     held(reply)
 }
 
 pub fn cancel(server: &str, token: &str, device: &str) -> Result<Subscription, Trouble> {
     let network = |e: Refused| Trouble { status: 0, reason: e.to_string(), subscription: None };
-    let reply = client().map_err(network)?.post(format!("{server}/render/billing/cancel")).header("X-Render-Worker", device).bearer_auth(token)
+    let reply = client().map_err(network)?.post(format!("{server}/render/billing/cancel")).header("X-Render-Worker", crate::bot::worker(device)).bearer_auth(token)
         .send().map_err(|e| network(Refused::Network(e.to_string())))?;
     held(reply)
 }
@@ -304,7 +304,7 @@ pub struct Chat {
 pub fn chat_avatar(server: &str, token: &str, name: &str, chat: i64) -> Result<Vec<u8>, Refused> {
     let response = client()?
         .get(format!("{server}/render/chat/{chat}/avatar"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -315,7 +315,7 @@ pub fn chats(server: &str, token: &str, name: &str) -> Result<Vec<Chat>, Refused
     twice(|| {
         let response = client()?
             .get(format!("{server}/render/me/chats"))
-            .header("X-Render-Worker", name)
+            .header("X-Render-Worker", crate::bot::worker(name))
             .bearer_auth(token)
             .send()
             .map_err(|e| Refused::Network(e.to_string()))?;
@@ -334,6 +334,10 @@ pub enum Paired {
     },
     Gone,
     Throttled,
+}
+
+pub fn worker(name: &str) -> String {
+    name.bytes().map(|byte| if byte.is_ascii_graphic() && byte != b'%' || byte == b' ' { char::from(byte).to_string() } else { format!("%{byte:02X}") }).collect()
 }
 
 fn client() -> Result<reqwest::blocking::Client, Refused> {
@@ -418,7 +422,7 @@ fn status(response: reqwest::blocking::Response) -> Result<reqwest::blocking::Re
 pub fn hello(server: &str, token: &str, name: &str) -> Result<Hello, Refused> {
     let mut request = client()?
         .get(format!("{server}/render/hello"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .query(&[("engine", ENGINE)]);
     if !token.is_empty() {
         request = request.bearer_auth(token);
@@ -483,7 +487,7 @@ fn yes() -> bool {
 pub fn link_telegram(server: &str, token: &str, name: &str) -> Result<Pairing, Refused> {
     let response = client()?
         .post(format!("{server}/render/me/telegram"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -493,7 +497,7 @@ pub fn link_telegram(server: &str, token: &str, name: &str) -> Result<Pairing, R
 pub fn me(server: &str, token: &str, name: &str) -> Result<Me, Refused> {
     let response = client()?
         .get(format!("{server}/render/me"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -509,7 +513,7 @@ struct Present {
 pub fn presence(server: &str, token: &str, name: &str) -> Result<Option<u32>, Refused> {
     let response = client()?
         .post(format!("{server}/render/me/presence"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .timeout(Duration::from_secs(4))
         .send()
@@ -521,7 +525,7 @@ pub fn presence(server: &str, token: &str, name: &str) -> Result<Option<u32>, Re
 pub fn avatar(server: &str, token: &str, name: &str) -> Result<Vec<u8>, Refused> {
     let response = client()?
         .get(format!("{server}/render/me/avatar"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -536,7 +540,7 @@ fn kept_community() -> &'static std::sync::Mutex<HashMap<String, (String, crate:
 pub fn community(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<crate::community::wire::Community, Refused> {
     let whose = format!("{server}\n{token}\n{chat:?}");
     twice(|| {
-        let mut request = client()?.get(format!("{server}/render/community")).header("X-Render-Worker", name).bearer_auth(token);
+        let mut request = client()?.get(format!("{server}/render/community")).header("X-Render-Worker", crate::bot::worker(name)).bearer_auth(token);
         if let Some(chat) = chat {
             request = request.query(&[("chat", chat)]);
         }
@@ -561,7 +565,7 @@ pub fn community(server: &str, token: &str, name: &str, chat: Option<i64>) -> Re
 
 pub fn map_board(server: &str, token: &str, name: &str, chat: Option<i64>, beatmap: u64, fresh: bool) -> Result<crate::community::wire::MapBoard, Refused> {
     let asking = if fresh { long(BOARD_PATIENCE)? } else { client()? };
-    let mut request = asking.get(format!("{server}/render/maps/{beatmap}/board")).header("X-Render-Worker", name).bearer_auth(token).query(&[("sync", if fresh { "1" } else { "0" })]);
+    let mut request = asking.get(format!("{server}/render/maps/{beatmap}/board")).header("X-Render-Worker", crate::bot::worker(name)).bearer_auth(token).query(&[("sync", if fresh { "1" } else { "0" })]);
     if let Some(chat) = chat {
         request = request.query(&[("chat", chat)]);
     }
@@ -572,7 +576,7 @@ pub fn map_board(server: &str, token: &str, name: &str, chat: Option<i64>, beatm
 pub fn donate(server: &str, token: &str, name: &str, replay: Vec<u8>) -> Result<bool, Refused> {
     let response = long(DONATE_PATIENCE)?
         .post(format!("{server}/render/me/replay"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .header("Content-Type", "application/octet-stream")
         .bearer_auth(token)
         .body(replay)
@@ -585,7 +589,7 @@ pub fn donate(server: &str, token: &str, name: &str, replay: Vec<u8>) -> Result<
 pub fn played(server: &str, token: &str, name: &str) -> Result<(), Refused> {
     let response = client()?
         .post(format!("{server}/render/me/played"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -595,7 +599,7 @@ pub fn played(server: &str, token: &str, name: &str) -> Result<(), Refused> {
 pub fn witnessed(server: &str, token: &str, name: &str, play: &crate::witness::Told) -> Result<(), Refused> {
     let response = client()?
         .post(format!("{server}/render/me/play"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(play)
         .send()
@@ -610,7 +614,7 @@ pub fn local_scores(server: &str, token: &str, name: &str, scores: &[crate::hist
     }
     let response = client()?
         .post(format!("{server}/render/me/history"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(&serde_json::json!({ "scores": scores }))
         .send()
@@ -622,7 +626,7 @@ pub fn local_scores(server: &str, token: &str, name: &str, scores: &[crate::hist
 pub fn witness_session(server: &str, token: &str, name: &str, sitting: &crate::witness::Sitting) -> Result<(), Refused> {
     let response = client()?
         .post(format!("{server}/render/me/session"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(sitting)
         .send()
@@ -633,7 +637,7 @@ pub fn witness_session(server: &str, token: &str, name: &str, sitting: &crate::w
 pub fn wear_title(server: &str, token: &str, name: &str, chat: Option<i64>, code: Option<&str>) -> Result<(), Refused> {
     let response = client()?
         .post(format!("{server}/render/me/title"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(&serde_json::json!({ "chat": chat, "code": code }))
         .send()
@@ -643,7 +647,7 @@ pub fn wear_title(server: &str, token: &str, name: &str, chat: Option<i64>, code
 
 pub fn card(server: &str, token: &str, name: &str, chat: Option<i64>) -> Result<crate::community::wire::Card, Refused> {
     twice(|| {
-        let mut request = client()?.get(format!("{server}/render/me/card")).header("X-Render-Worker", name).bearer_auth(token);
+        let mut request = client()?.get(format!("{server}/render/me/card")).header("X-Render-Worker", crate::bot::worker(name)).bearer_auth(token);
         if let Some(chat) = chat {
             request = request.query(&[("chat", chat)]);
         }
@@ -660,7 +664,7 @@ pub fn share_card(server: &str, token: &str, name: &str, card: &crate::community
     }
     let response = client()?
         .post(format!("{server}/render/me/profile"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(&payload)
         .send()
@@ -672,7 +676,7 @@ pub fn person(server: &str, token: &str, name: &str, chat: i64, id: i64) -> Resu
     twice(|| {
         let response = client()?
             .get(format!("{server}/render/community/person"))
-            .header("X-Render-Worker", name)
+            .header("X-Render-Worker", crate::bot::worker(name))
             .bearer_auth(token)
             .query(&[("chat", chat), ("id", id)])
             .send()
@@ -685,7 +689,7 @@ pub fn players(server: &str, token: &str, name: &str) -> Result<crate::community
     twice(|| {
         let response = client()?
             .get(format!("{server}/render/players"))
-            .header("X-Render-Worker", name)
+            .header("X-Render-Worker", crate::bot::worker(name))
             .bearer_auth(token)
             .send()
             .map_err(|e| Refused::Network(e.to_string()))?;
@@ -697,7 +701,7 @@ pub fn player(server: &str, token: &str, name: &str, id: i64) -> Result<crate::c
     twice(|| {
         let response = client()?
             .get(format!("{server}/render/players/{id}"))
-            .header("X-Render-Worker", name)
+            .header("X-Render-Worker", crate::bot::worker(name))
             .bearer_auth(token)
             .send()
             .map_err(|e| Refused::Network(e.to_string()))?;
@@ -709,7 +713,7 @@ pub fn pinned(server: &str, token: &str, name: &str) -> Result<crate::community:
     twice(|| {
         let response = client()?
             .get(format!("{server}/render/me/pin"))
-            .header("X-Render-Worker", name)
+            .header("X-Render-Worker", crate::bot::worker(name))
             .bearer_auth(token)
             .send()
             .map_err(|e| Refused::Network(e.to_string()))?;
@@ -720,7 +724,7 @@ pub fn pinned(server: &str, token: &str, name: &str) -> Result<crate::community:
 pub fn pin(server: &str, token: &str, name: &str, chat: i64) -> Result<crate::community::wire::Pin, Refused> {
     let response = client()?
         .post(format!("{server}/render/me/pin"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(&serde_json::json!({"chat": chat}))
         .send()
@@ -741,7 +745,7 @@ pub fn friends(server: &str, token: &str, name: &str) -> Result<Friends, Refused
     twice(|| {
         let response = client()?
             .get(format!("{server}/render/me/friends"))
-            .header("X-Render-Worker", name)
+            .header("X-Render-Worker", crate::bot::worker(name))
             .bearer_auth(token)
             .send()
             .map_err(|e| Refused::Network(e.to_string()))?;
@@ -795,7 +799,7 @@ fn upload(
             .build()
             .map_err(|e| Refused::Network(e.to_string()))?
             .post(format!("{server}/render/{route}"))
-            .header("X-Render-Worker", name)
+            .header("X-Render-Worker", crate::bot::worker(name))
             .header("X-Render-Meta", meta.to_string())
             .header("Content-Type", "video/mp4")
             .bearer_auth(token)
@@ -838,7 +842,7 @@ pub struct Sent {
 pub fn video_ready(server: &str, token: &str, name: &str, video: u64) -> Result<bool, Refused> {
     let response = long(INBOX_PATIENCE)?
         .get(format!("{server}/render/videos/{video}"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -855,7 +859,7 @@ const VIDEO_PATIENCE: Duration = Duration::from_secs(3600);
 pub fn receivers(server: &str, token: &str, name: &str) -> Result<Vec<crate::inbox::Face>, Refused> {
     let response = long(INBOX_PATIENCE)?
         .get(format!("{server}/render/videos/receivers"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -865,7 +869,7 @@ pub fn receivers(server: &str, token: &str, name: &str) -> Result<Vec<crate::inb
 pub fn video_replay(server: &str, token: &str, name: &str, video: u64, replay: Vec<u8>) -> Result<(), Refused> {
     let response = long(DONATE_PATIENCE)?
         .put(format!("{server}/render/videos/{video}/replay"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .header("Content-Type", "application/octet-stream")
         .bearer_auth(token)
         .body(replay)
@@ -877,7 +881,7 @@ pub fn video_replay(server: &str, token: &str, name: &str, video: u64, replay: V
 pub fn share(server: &str, token: &str, name: &str, video: u64, to: &[i64]) -> Result<crate::inbox::Shared, Refused> {
     let response = long(INBOX_PATIENCE)?
         .post(format!("{server}/render/videos/{video}/share"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(&serde_json::json!({ "to": to }))
         .send()
@@ -888,7 +892,7 @@ pub fn share(server: &str, token: &str, name: &str, video: u64, to: &[i64]) -> R
 pub fn inbox(server: &str, token: &str, name: &str) -> Result<crate::inbox::Inbox, Refused> {
     let response = long(INBOX_PATIENCE)?
         .get(format!("{server}/render/me/inbox"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -898,7 +902,7 @@ pub fn inbox(server: &str, token: &str, name: &str) -> Result<crate::inbox::Inbo
 pub fn accept(server: &str, token: &str, name: &str, from: &str) -> Result<String, Refused> {
     let response = long(INBOX_PATIENCE)?
         .post(format!("{server}/render/me/accept"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(&serde_json::json!({ "from": from }))
         .send()
@@ -910,7 +914,7 @@ pub fn accept(server: &str, token: &str, name: &str, from: &str) -> Result<Strin
 fn inbox_bytes(server: &str, token: &str, name: &str, id: u64, what: &str) -> Result<Vec<u8>, Refused> {
     let response = long(DONATE_PATIENCE)?
         .get(format!("{server}/render/inbox/{id}/{what}"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -931,7 +935,7 @@ pub fn inbox_video(server: &str, token: &str, name: &str, id: u64, into: &std::p
     let mut response = status(
         long(VIDEO_PATIENCE)?
             .get(format!("{server}/render/inbox/{id}/video"))
-            .header("X-Render-Worker", name)
+            .header("X-Render-Worker", crate::bot::worker(name))
             .bearer_auth(token)
             .send()
             .map_err(|e| Refused::Network(e.to_string()))?,
@@ -988,7 +992,7 @@ pub fn inbox_restore(server: &str, token: &str, name: &str, id: u64, start: bool
     } else {
         long(INBOX_PATIENCE)?.get(format!("{server}/render/inbox/{id}/restore"))
     };
-    let response = request.header("X-Render-Worker", name)
+    let response = request.header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -998,7 +1002,7 @@ pub fn inbox_restore(server: &str, token: &str, name: &str, id: u64, start: bool
 pub fn replays_state(server: &str, token: &str, name: &str) -> Result<crate::mixed::State, Refused> {
     let response = long(INBOX_PATIENCE)?
         .get(format!("{server}/render/me/replays"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -1008,7 +1012,7 @@ pub fn replays_state(server: &str, token: &str, name: &str) -> Result<crate::mix
 pub fn replays_switch(server: &str, token: &str, name: &str, on: bool) -> Result<crate::mixed::State, Refused> {
     let response = long(INBOX_PATIENCE)?
         .post(format!("{server}/render/me/replays"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(&serde_json::json!({ "on": on }))
         .send()
@@ -1019,7 +1023,7 @@ pub fn replays_switch(server: &str, token: &str, name: &str, on: bool) -> Result
 pub fn replay_share(server: &str, token: &str, name: &str, replay: Vec<u8>, meta: &serde_json::Value) -> Result<bool, Refused> {
     let response = long(DONATE_PATIENCE)?
         .post(format!("{server}/render/replays"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .header("X-Render-Meta", meta.to_string())
         .header("Content-Type", "application/octet-stream")
         .bearer_auth(token)
@@ -1033,7 +1037,7 @@ pub fn replay_share(server: &str, token: &str, name: &str, replay: Vec<u8>, meta
 pub fn replays_listed(server: &str, token: &str, name: &str, everyone: bool) -> Result<Vec<crate::mixed::Listed>, Refused> {
     let response = long(INBOX_PATIENCE)?
         .get(format!("{server}/render/replays"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .query(&[("scope", if everyone { "all" } else { "chat" })])
         .send()
@@ -1044,7 +1048,7 @@ pub fn replays_listed(server: &str, token: &str, name: &str, everyone: bool) -> 
 pub fn replay_file(server: &str, token: &str, name: &str, hash: &str) -> Result<Vec<u8>, Refused> {
     let response = long(DONATE_PATIENCE)?
         .get(format!("{server}/render/replays/{hash}"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -1054,7 +1058,7 @@ pub fn replay_file(server: &str, token: &str, name: &str, hash: &str) -> Result<
 fn inbox_deed(server: &str, token: &str, name: &str, id: u64, what: &str, patience: Duration) -> Result<(), Refused> {
     let response = long(patience)?
         .post(format!("{server}/render/inbox/{id}/{what}"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -1072,7 +1076,7 @@ pub fn inbox_seen(server: &str, token: &str, name: &str, id: u64) -> Result<(), 
 pub fn inbox_drop(server: &str, token: &str, name: &str, id: u64) -> Result<(), Refused> {
     let response = long(INBOX_PATIENCE)?
         .delete(format!("{server}/render/inbox/{id}"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -1148,7 +1152,7 @@ fn long(timeout: Duration) -> Result<reqwest::blocking::Client, Refused> {
 pub fn claim(server: &str, token: &str, name: &str, take: bool) -> Result<Option<Job>, Refused> {
     let response = client()?
         .post(format!("{server}/render/claim"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(&serde_json::json!({"build": BUILD, "take": take, "rulesets": DRAWN_RULESETS}))
         .send()
@@ -1166,7 +1170,7 @@ pub fn job_file(server: &str, token: &str, name: &str, job: &str, what: &str, in
 pub fn job_file_limited(server: &str, token: &str, name: &str, job: &str, what: &str, into: &std::path::Path, most: u64) -> Result<u64, Refused> {
     let mut response = long(Duration::from_secs(600))?
         .get(format!("{server}/render/job/{job}/{what}"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -1208,7 +1212,7 @@ fn copy_job_file(from: &mut impl std::io::Read, into: &mut impl std::io::Write, 
 pub fn heartbeat(server: &str, token: &str, name: &str, job: &str, progress: &serde_json::Value) -> Result<bool, Refused> {
     let response = client()?
         .post(format!("{server}/render/job/{job}/heartbeat"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(&serde_json::json!({"progress": progress}))
         .send()
@@ -1234,7 +1238,7 @@ pub fn deliver(
     let body = reqwest::blocking::Body::sized(Counted { inner: opened, done: 0, tell: Box::new(tell) }, size);
     let response = long(Duration::from_secs(1800))?
         .post(format!("{server}/render/job/{job}/result"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .header("X-Render-Meta", meta.to_string())
         .header("Content-Type", "video/mp4")
         .bearer_auth(token)
@@ -1252,7 +1256,7 @@ pub fn deliver(
 pub fn give_back(server: &str, token: &str, name: &str, job: &str, reason: &str) -> Result<(), Refused> {
     let response = client()?
         .post(format!("{server}/render/job/{job}/give-back"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .json(&serde_json::json!({"reason": reason}))
         .send()
@@ -1263,7 +1267,7 @@ pub fn give_back(server: &str, token: &str, name: &str, job: &str, reason: &str)
 pub fn farm(server: &str, token: &str, name: &str) -> Result<Farm, Refused> {
     let response = client()?
         .get(format!("{server}/render/farm"))
-        .header("X-Render-Worker", name)
+        .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
@@ -1288,6 +1292,13 @@ pub fn tidy(code: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_device_name_in_any_language_fits_in_the_worker_header() {
+        assert_eq!(super::worker("MacBook Pro"), "MacBook Pro");
+        assert_eq!(super::worker("дрейк 100%"), "%D0%B4%D1%80%D0%B5%D0%B9%D0%BA 100%25");
+        assert!(reqwest::header::HeaderValue::from_str(&super::worker("дрейк старший")).is_ok());
+    }
+
     use super::*;
 
     #[test]

@@ -1848,6 +1848,9 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Springy<'_, M
             self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
         });
     }
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
+    }
 }
 
 impl<'a, Message: 'a> From<Springy<'a, Message>> for Element<'a, Message> {
@@ -3248,6 +3251,10 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Drifting<'_, 
             });
         });
     }
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let inner = layout.children().next()?;
+        self.content.as_widget_mut().overlay(tree, inner, renderer, viewport, translation)
+    }
 }
 
 impl<'a, Message: 'a> From<Drifting<'a, Message>> for Element<'a, Message> {
@@ -3880,6 +3887,10 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Band<'_, Mess
         let cursor = Self::inside(layout, cursor);
         renderer.with_layer(bounds, |renderer| self.content.as_widget().draw(tree, renderer, theme, style, inner, cursor, &bounds));
     }
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let inner = layout.children().next()?;
+        self.content.as_widget_mut().overlay(tree, inner, renderer, viewport, translation)
+    }
 }
 
 pub struct Glass<'a, Message> {
@@ -4303,6 +4314,10 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Collapsing<'_
         if let (Some(bounds), Some(inner)) = (layout.bounds().intersection(viewport), layout.children().next()) {
             renderer.with_layer(bounds, |renderer| self.content.as_widget().draw(tree, renderer, theme, style, inner, cursor, &bounds));
         }
+    }
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let inner = layout.children().next()?;
+        self.content.as_widget_mut().overlay(tree, inner, renderer, viewport, translation)
     }
 }
 
@@ -5115,6 +5130,17 @@ pub struct Hover<'a, Message> {
     glow: Glow,
 }
 
+pub const TIP_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
+pub fn tip<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, words: String) -> Element<'a, Message> {
+    let told = container(text(words).font(theme::SANS_SEMI).size(12.0).wrapping(text::Wrapping::None).color(INK)).padding([6, 10]).style(|_| container::Style {
+        background: Some(iced::Background::Color(Color::from_rgb8(0x1d, 0x12, 0x16))),
+        border: iced::Border { color: theme::outline(Color::from_rgb8(0x36, 0x27, 0x2b)), width: 1.0, radius: 8.0.into() },
+        ..container::Style::default()
+    });
+    iced::widget::tooltip(content, told, iced::widget::tooltip::Position::Top).gap(6).delay(TIP_DELAY).into()
+}
+
 pub fn hover<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, glow: Glow) -> Element<'a, Message> {
     let k = fade();
     let dim = |colour: Color| Color { a: colour.a * k, ..colour };
@@ -5597,6 +5623,10 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Reveal<'_, Me
             });
         }
     }
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let inner = layout.children().next()?;
+        self.content.as_widget_mut().overlay(&mut tree.children[0], inner, renderer, viewport, translation)
+    }
 }
 
 #[cfg(test)]
@@ -5832,6 +5862,9 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Flip<'_, Mess
             }
             None => self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport),
         }
+    }
+    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
     }
 }
 

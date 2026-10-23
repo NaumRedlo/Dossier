@@ -50,6 +50,7 @@ const PANEL_SHOW: Duration = Duration::from_millis(420);
 const FOLD: Duration = Duration::from_millis(280);
 const NOTICE_FADE: Duration = Duration::from_millis(200);
 const COMMUNITY_EVERY: Duration = Duration::from_secs(30);
+const BOARD_FRESH: Duration = Duration::from_secs(60);
 const HISTORY_EVERY: Duration = Duration::from_secs(600);
 const NEWS_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
@@ -671,7 +672,7 @@ pub struct Main {
     pub map_boards: HashMap<u64, crate::community::wire::MapBoard>,
     pub map_boards_waiting: std::collections::HashSet<u64>,
     pub map_boards_failed: std::collections::HashSet<u64>,
-    map_boards_fresh: std::collections::HashSet<u64>,
+    map_boards_fresh: HashMap<u64, Instant>,
     pub score_pick: Option<i64>,
     pub read_fade: Animation<bool>,
     pub read_over_person: bool,
@@ -707,7 +708,6 @@ pub struct Main {
     pub dossier_metric: crate::dossier::Metric,
     pub dossier_span: u32,
     pub grade_hover: Option<usize>,
-    pub title_pick: Option<String>,
     clips_loading: std::collections::HashSet<String>,
     pub clip: Option<Clip>,
     pub osu_card: Option<crate::community::wire::Card>,
@@ -955,7 +955,7 @@ impl Main {
             map_boards: HashMap::new(),
             map_boards_waiting: std::collections::HashSet::new(),
             map_boards_failed: std::collections::HashSet::new(),
-            map_boards_fresh: std::collections::HashSet::new(),
+            map_boards_fresh: HashMap::new(),
             score_pick: None,
             read_fade: Animation::new(false),
             read_over_person: false,
@@ -991,7 +991,6 @@ impl Main {
             dossier_metric: crate::dossier::Metric::Rank,
             dossier_span: 90,
             grade_hover: None,
-            title_pick: None,
             clips_loading: std::collections::HashSet::new(),
             clip: None,
             osu_card: None,
@@ -3276,7 +3275,6 @@ impl Main {
                     C::Metric(metric) => self.dossier_metric = metric,
                     C::Span(span) => self.dossier_span = span,
                     C::GradeHover(hover) => self.grade_hover = hover,
-                    C::TitlePick(code) => self.title_pick = Some(code),
                     C::Wear(code) => {
                         let chat = self.community.as_ref().and_then(|catalog| catalog.chat);
                         if let Some(me) = self.community.as_mut().and_then(|catalog| catalog.people.iter_mut().find(|p| p.you)) {
@@ -3542,12 +3540,13 @@ impl Main {
                 match said {
                     Ok(board) => {
                         self.map_boards_failed.remove(&beatmap);
+                        let faces = self.pictures_task(board.faces().into_iter().map(|face| (face, 128)).collect());
                         self.map_boards.insert(beatmap, board);
                         if fresh {
-                            self.map_boards_fresh.insert(beatmap);
-                            Task::none()
+                            self.map_boards_fresh.insert(beatmap, Instant::now());
+                            faces
                         } else {
-                            self.map_board_task(beatmap, true)
+                            Task::batch([faces, self.map_board_task(beatmap, true)])
                         }
                     }
                     Err(_) => {
@@ -5378,7 +5377,7 @@ impl Main {
 
     fn map_board_task(&mut self, beatmap: u64, fresh: bool) -> Task<Message> {
         let staged = self.community.as_ref().is_none_or(|catalog| catalog.staged);
-        if staged || self.settings.token.is_empty() || self.map_boards_waiting.contains(&beatmap) || (fresh && self.map_boards_fresh.contains(&beatmap)) {
+        if staged || self.settings.token.is_empty() || self.map_boards_waiting.contains(&beatmap) || (fresh && self.map_boards_fresh.get(&beatmap).is_some_and(|at| at.elapsed() < BOARD_FRESH)) {
             return Task::none();
         }
         self.map_boards_waiting.insert(beatmap);
@@ -5793,7 +5792,6 @@ impl Main {
             metric: self.dossier_metric,
             span: self.dossier_span,
             grade_hover: self.grade_hover,
-            title_pick: self.title_pick.as_deref(),
             boards: &self.map_boards,
             boards_waiting: &self.map_boards_waiting,
             boards_failed: &self.map_boards_failed,

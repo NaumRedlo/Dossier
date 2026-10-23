@@ -326,6 +326,7 @@ pub fn shot_folder(root: &Path, lang: Lang, out: &Path) -> Result<(), String> {
 fn mock_map(key: &str, artist: &str, title: &str, version: &str) -> crate::library::Map {
     let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main");
     crate::library::Map {
+        set_id: None,
         file: docs.join(format!("{key}.osu")),
         artist: artist.to_owned(),
         title: title.to_owned(),
@@ -435,7 +436,7 @@ pub fn pool_sample() -> (Vec<crate::pools::Pool>, std::collections::HashMap<Stri
     let mut hashes = Vec::new();
     for (at, (title, artist, version, ..)) in titles.iter().enumerate() {
         let hash = format!("{at:032x}");
-        maps.insert(hash.clone(), crate::library::Map { file: PathBuf::from(format!("/songs/{at}/{version}.osu")), artist: (*artist).to_owned(), title: (*title).to_owned(), version: (*version).to_owned(), background: None });
+        maps.insert(hash.clone(), crate::library::Map { set_id: None, file: PathBuf::from(format!("/songs/{at}/{version}.osu")), artist: (*artist).to_owned(), title: (*title).to_owned(), version: (*version).to_owned(), background: None });
         covers.push((hash.clone(), pool_tint(at)));
         hashes.push(hash);
     }
@@ -983,13 +984,16 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             for (at, row) in rows.iter_mut().enumerate() {
                 row.place = at as u32 + 1;
             }
-            let about = wire::MapAbout { map: wire::Map { creator: "Mapper".into(), ..wire::Map::default() }, bpm: Some(172.0), length: Some(192), max_combo: Some(1_480), status: "ranked".into() };
+            let about = wire::MapAbout { map: wire::Map { creator: "Mapper".into(), ..wire::Map::default() }, creator_id: Some(2), bpm: Some(172.0), length: Some(192), max_combo: Some(1_480), status: "ranked".into() };
             Some((scored, wire::MapBoard { beatmap: 1, metric: "pp".into(), map: Some(about), plays: 23, players: 5, rows, ..wire::MapBoard::default() }))
         });
         if let Some((scored, board)) = staged {
             let scored_who = scored.who;
-            if let Some((cover, picture)) = scored.map.cover().zip(crate::main_screen::decoded(&Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main").join("bg-nevermind.jpg"), 1280, None)) {
+            if let Some((cover, picture)) = scored.map.sharp_cover().zip(crate::main_screen::decoded(&Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main").join("bg-nevermind.jpg"), 1280, None)) {
                 main.news_pictures.insert(crate::community_screen::wide(&cover), picture);
+            }
+            if let Some(face) = board.mapper_face().zip(std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main").join("bg-nevermind.jpg")).ok().and_then(|bytes| crate::main_screen::covered_bytes(&bytes, 128, 128))) {
+                main.news_pictures.insert(face.0, face.1);
             }
             main.map_boards.insert(1, board);
             main.community_reading = Some(crate::community_screen::Reading::Score(scored));

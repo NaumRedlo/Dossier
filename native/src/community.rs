@@ -273,6 +273,10 @@ impl MapRef {
         self.set.map(|set| format!("https://assets.ppy.sh/beatmaps/{set}/covers/cover.jpg"))
     }
 
+    pub fn sharp_cover(&self) -> Option<String> {
+        self.set.map(|set| format!("https://assets.ppy.sh/beatmaps/{set}/covers/cover@2x.jpg"))
+    }
+
     pub fn poster(&self) -> Option<String> {
         self.set.map(|set| poster_key(&format!("https://assets.ppy.sh/beatmaps/{set}/covers/cover.jpg")))
     }
@@ -1227,6 +1231,8 @@ pub mod wire {
         #[serde(flatten)]
         pub map: Map,
         #[serde(default)]
+        pub creator_id: Option<u64>,
+        #[serde(default)]
         pub bpm: Option<f32>,
         #[serde(default)]
         pub length: Option<u32>,
@@ -1289,6 +1295,14 @@ pub mod wire {
     impl MapBoard {
         pub fn by_score(&self) -> bool {
             self.metric == "score"
+        }
+
+        pub fn mapper_face(&self) -> Option<String> {
+            self.map.as_ref().and_then(|about| about.creator_id).map(|id| format!("https://a.ppy.sh/{id}"))
+        }
+
+        pub fn faces(&self) -> Vec<String> {
+            self.rows.iter().map(|row| row.avatar.clone()).filter(|avatar| !avatar.is_empty()).chain(self.mapper_face()).collect()
         }
     }
 

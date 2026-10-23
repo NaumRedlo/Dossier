@@ -88,6 +88,66 @@ pub fn colour_of(acronym: &str) -> [u8; 3] {
     }
 }
 
+const NAMES: &[(&str, &str)] = &[
+    ("AC", "Accuracy Challenge"),
+    ("AD", "Approach Different"),
+    ("AL", "Alternate"),
+    ("AP", "Autopilot"),
+    ("AS", "Adaptive Speed"),
+    ("AT", "Autoplay"),
+    ("BL", "Blinds"),
+    ("BM", "Bubbles"),
+    ("BR", "Barrel Roll"),
+    ("BU", "Bloom"),
+    ("CL", "Classic"),
+    ("CN", "Cinema"),
+    ("CO", "Cover"),
+    ("DA", "Difficulty Adjust"),
+    ("DC", "Daycore"),
+    ("DF", "Deflate"),
+    ("DP", "Depth"),
+    ("DT", "Double Time"),
+    ("EZ", "Easy"),
+    ("FI", "Fade In"),
+    ("FL", "Flashlight"),
+    ("FR", "Freeze Frame"),
+    ("GR", "Grow"),
+    ("HD", "Hidden"),
+    ("HR", "Hard Rock"),
+    ("HT", "Half Time"),
+    ("MG", "Magnetised"),
+    ("MR", "Mirror"),
+    ("MU", "Muted"),
+    ("NC", "Nightcore"),
+    ("NF", "No Fail"),
+    ("NM", "No Mod"),
+    ("NS", "No Scope"),
+    ("PF", "Perfect"),
+    ("RD", "Random"),
+    ("RP", "Repel"),
+    ("RX", "Relax"),
+    ("SD", "Sudden Death"),
+    ("SG", "Single Tap"),
+    ("SI", "Spin In"),
+    ("SO", "Spun Out"),
+    ("ST", "Strict Tracking"),
+    ("SV2", "Score V2"),
+    ("SY", "Synesthesia"),
+    ("TC", "Traceable"),
+    ("TD", "Touch Device"),
+    ("TP", "Target Practice"),
+    ("TR", "Transform"),
+    ("V2", "Score V2"),
+    ("WD", "Wind Down"),
+    ("WG", "Wiggle"),
+    ("WU", "Wind Up"),
+];
+
+pub fn name_of(acronym: &str) -> Option<&'static str> {
+    let upper = acronym.to_ascii_uppercase();
+    NAMES.iter().find(|(short, _)| *short == upper).map(|(_, name)| *name)
+}
+
 pub fn ink_of(colour: [u8; 3]) -> [u8; 3] {
     let light = 0.299 * f32::from(colour[0]) + 0.587 * f32::from(colour[1]) + 0.114 * f32::from(colour[2]);
     if light > 120.0 { DARK } else { [255, 255, 255] }
@@ -130,7 +190,7 @@ pub fn badge<'a, Message: 'a>(acronym: &str, size: f32, strength: f32) -> Elemen
         Some(handle) => image(handle).width(size * GLYPH_SHARE).height(size * GLYPH_SHARE).opacity(k).into(),
         None => text(acronym.to_ascii_uppercase()).font(theme::MONO_BOLD).size(size * 0.4).wrapping(text::Wrapping::None).color(Color { a: k, ..ink_colour }).into(),
     };
-    container(inside)
+    let made = container(inside)
         .width(size)
         .height(size)
         .center_x(size)
@@ -139,8 +199,11 @@ pub fn badge<'a, Message: 'a>(acronym: &str, size: f32, strength: f32) -> Elemen
             background: Some(Background::Color(Color { a: k, ..Color::from_rgb8(fill[0], fill[1], fill[2]) })),
             border: Border { color: crate::theme::outline(Color::from_rgba(0.0, 0.0, 0.0, 80.0 / 255.0 * k)), width: 1.0, radius: (size / 2.0).into() },
             ..container::Style::default()
-        })
-        .into()
+        });
+    match name_of(acronym) {
+        Some(name) => ui::tip(made, name.to_owned()),
+        None => made.into(),
+    }
 }
 
 pub fn chip<'a, Message: 'a>(acronym: &str) -> Element<'a, Message> {

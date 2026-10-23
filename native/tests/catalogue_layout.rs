@@ -451,9 +451,7 @@ fn profile_and_own_dossier_leave_title_actions_to_the_titles_tab_and_show_only_t
         let person = &mut catalog.people[own];
         person.streak = 7;
         person.streak_best = 27;
-        let title = person.title.clone().unwrap();
         let own_handle = catalog.card_of().unwrap().handle;
-        main.title_pick = Some(title);
         {
             let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
             assert!(ui.find(main.words.t("take-off-title")).is_err(), "main profile leaves title management to the titles tab");

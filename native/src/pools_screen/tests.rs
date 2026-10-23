@@ -7,7 +7,7 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 fn map(title: &str, artist: &str, version: &str) -> Map {
-    Map { file: PathBuf::from(format!("/songs/{title}.osu")), artist: artist.to_owned(), title: title.to_owned(), version: version.to_owned(), background: Some(PathBuf::from(format!("/songs/{title}.jpg"))) }
+    Map { set_id: None, file: PathBuf::from(format!("/songs/{title}.osu")), artist: artist.to_owned(), title: title.to_owned(), version: version.to_owned(), background: Some(PathBuf::from(format!("/songs/{title}.jpg"))) }
 }
 
 fn state_with_songs(name: &str) -> State {

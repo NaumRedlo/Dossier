@@ -183,7 +183,13 @@ fn group_key(entry: &Entry, group: Group, context: &Context<'_>) -> String {
     match group {
         Group::Maps => {
             let (artist, title, _) = song(entry);
-            if artist.is_empty() && title.is_empty() { format!("?{}", entry.map_hash) } else { format!("{}\u{1f}{}", artist.to_lowercase(), title.to_lowercase()) }
+            if let Some(set) = entry.map.as_ref().and_then(|map| map.set_id).filter(|id| *id > 0) {
+                format!("set:{set}")
+            } else if let Some(folder) = entry.map.as_ref().and_then(|map| map.file.parent()).filter(|folder| !folder.as_os_str().is_empty()) {
+                format!("local:{}\u{1f}{}\u{1f}{}", folder.to_string_lossy(), artist.to_lowercase(), title.to_lowercase())
+            } else {
+                format!("hash:{}", entry.map_hash)
+            }
         }
         Group::Players => entry.player.to_lowercase(),
         Group::Days => (context.day)(entry.played_at),
@@ -334,7 +340,7 @@ mod tests {
             outcome: if miss > 0 { Outcome::Misses(miss) } else { Outcome::FullCombo },
             played_at,
             named: None,
-            map: Some(Map { file: PathBuf::from(format!("/m/{title}.osu")), artist: "xi".to_owned(), title: title.to_owned(), version: version.to_owned(), background: None }),
+            map: Some(Map { set_id: None, file: PathBuf::from(format!("/m/{title}.osu")), artist: "xi".to_owned(), title: title.to_owned(), version: version.to_owned(), background: None }),
         }
     }
 
@@ -366,6 +372,44 @@ mod tests {
             "head FREEDOM DiVE 1 false 1",
         ]);
         assert_eq!(laid.order, vec![0, 3, 2, 1]);
+    }
+
+    #[test]
+    fn identical_song_names_keep_different_sets_apart_and_jump_between_them() {
+        let mut entries = vec![
+            entry("Lopuhh", "Replica (Live Ver.)", "miss you, replica", 50, 95.0, 1),
+            entry("Lopuhh", "Replica (Live Ver.)", "YaMaDarkness' Extra", 40, 95.0, 1),
+            entry("Guest", "Replica (Live Ver.)", "Another", 30, 98.0, 0),
+        ];
+        for (entry, id) in entries.iter_mut().zip([101, 202, 101]) {
+            entry.map.as_mut().unwrap().set_id = Some(id);
+        }
+        entries[2].map.as_mut().unwrap().file = PathBuf::from("/another-client/songs/copy.osu");
+        entries[2].map.as_mut().unwrap().title = "Replica alternate spelling".into();
+        with(&HashMap::new(), |c| {
+            let laid = lay(&entries, &Filter::default(), Sort::Date, Group::Maps, Some(0), c);
+            let counts: Vec<_> = laid.rows.iter().filter_map(|row| match row { Row::Head { count, .. } => Some(*count), _ => None }).collect();
+            assert_eq!(counts, vec![2, 1]);
+            assert_eq!(laid.order, vec![0, 2, 1]);
+            assert_eq!(jump(&laid, &entries, Group::Maps, c, 1), Some(1));
+        });
+    }
+
+    #[test]
+    fn unknown_sets_use_local_folders_or_map_hashes_instead_of_song_names() {
+        let mut a = entry("A", "Replica", "Extra", 20, 98.0, 0);
+        let mut b = a.clone();
+        a.map.as_mut().unwrap().file = PathBuf::from("/songs/first/a.osu");
+        b.map.as_mut().unwrap().file = PathBuf::from("/songs/second/b.osu");
+        with(&HashMap::new(), |c| {
+            assert_ne!(group_key(&a, Group::Maps, c), group_key(&b, Group::Maps, c));
+            a.map = None;
+            b.map = None;
+            b.map_hash = "different-map".into();
+            assert_ne!(group_key(&a, Group::Maps, c), group_key(&b, Group::Maps, c));
+            b.map_hash = a.map_hash.clone();
+            assert_eq!(group_key(&a, Group::Maps, c), group_key(&b, Group::Maps, c));
+        });
     }
 
     #[test]

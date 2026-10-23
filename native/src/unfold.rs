@@ -244,6 +244,13 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for Unfold<'_, Message> {
             }
         });
     }
+
+    fn overlay<'b>(&'b mut self, tree: &'b mut Tree, layout: Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        if !self.settled() {
+            return None;
+        }
+        iced::advanced::overlay::from_children(&mut self.children, tree, layout, renderer, viewport, translation)
+    }
 }
 
 impl<'a, Message: Clone + 'a> From<Unfold<'a, Message>> for Element<'a, Message> {

@@ -94,6 +94,8 @@ impl Outcome {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Map {
+    #[serde(default)]
+    pub set_id: Option<u64>,
     pub file: PathBuf,
     pub artist: String,
     pub title: String,
@@ -412,7 +414,7 @@ struct Remembered {
     sought: u32,
 }
 
-const SOUGHT: u32 = 2;
+const SOUGHT: u32 = 3;
 
 #[derive(Debug, Default)]
 pub struct Index {
@@ -443,7 +445,7 @@ impl Index {
         {
             for (file, modified) in found {
                 match remembered.remove(&file) {
-                    Some(seen) if seen.modified == modified && (seen.map.background.is_some() || seen.sought >= SOUGHT) => {
+                    Some(seen) if seen.modified == modified && seen.sought >= SOUGHT => {
                         by_hash.insert(seen.hash.clone(), seen.map.clone());
                         fresh.insert(file, seen);
                         known += 1;
@@ -535,6 +537,7 @@ pub fn describe(file: &Path) -> Option<(String, Map)> {
     let hash = md5_hex(&bytes);
     let text = String::from_utf8_lossy(bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes));
     let (mut artist, mut title, mut version, mut background) = (String::new(), String::new(), String::new(), None);
+    let mut set_id = None;
     let mut section = "";
     for line in text.lines() {
         let line = line.trim();
@@ -552,6 +555,7 @@ pub fn describe(file: &Path) -> Option<(String, Map)> {
                         "Artist" if artist.is_empty() => artist = value.trim().to_owned(),
                         "Title" if title.is_empty() => title = value.trim().to_owned(),
                         "Version" => version = value.trim().to_owned(),
+                        "BeatmapSetID" => set_id = value.trim().parse::<u64>().ok().filter(|id| *id > 0),
                         _ => {}
                     }
                 }
@@ -572,7 +576,7 @@ pub fn describe(file: &Path) -> Option<(String, Map)> {
         return None;
     }
     let background = background.or_else(|| file.parent().and_then(largest_picture));
-    Some((hash, Map { file: file.to_path_buf(), artist, title, version, background }))
+    Some((hash, Map { set_id, file: file.to_path_buf(), artist, title, version, background }))
 }
 
 fn found_in(dir: &Path, name: &str) -> Option<PathBuf> {
@@ -652,11 +656,15 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("a folder");
         std::fs::write(dir.join("bg.jpg"), b"jpg").expect("written");
         let file = dir.join("x.osu");
-        std::fs::write(&file, "osu file format v14\n\n[Metadata]\nTitle:Blue Zenith\nArtist:xi\nVersion:FOUR DIMENSIONS\n\n[Events]\n//Background and Video events\n0,0,\"bg.jpg\",0,0\n\n[HitObjects]\n1,2,3\n").expect("written");
+        std::fs::write(&file, "osu file format v14\n\n[Metadata]\nTitle:Blue Zenith\nArtist:xi\nVersion:FOUR DIMENSIONS\nBeatmapSetID:123456\n\n[Events]\n//Background and Video events\n0,0,\"bg.jpg\",0,0\n\n[HitObjects]\n1,2,3\n").expect("written");
         let (hash, map) = describe(&file).expect("described");
         assert_eq!(hash.len(), 32);
         assert_eq!(map.line(), "xi — Blue Zenith [FOUR DIMENSIONS]");
         assert_eq!(map.background, Some(dir.join("bg.jpg")));
+        assert_eq!(map.set_id, Some(123456));
+        let mut old = serde_json::to_value(&map).unwrap();
+        old.as_object_mut().unwrap().remove("set_id");
+        assert_eq!(serde_json::from_value::<Map>(old).unwrap().set_id, None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

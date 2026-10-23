@@ -9,7 +9,8 @@ fn main() {
         let leash = args.iter().any(|arg| arg == "--leash").then(|| std::env::current_exe().ok().and_then(|program| dossier_witness::leash::beside(&program))).flatten();
         let overlay_mode = args.iter().any(|arg| arg == "--overlay");
         let frames = overlay_mode || args.iter().any(|arg| arg == "--frames");
-        serve(&player, leash.as_deref(), overlay_mode, frames);
+        let live = args.iter().any(|arg| arg == "--live");
+        serve(&player, leash.as_deref(), overlay_mode, frames, live);
         return;
     }
     if let Some(at) = args.iter().position(|arg| arg == "--library") {
@@ -167,7 +168,7 @@ fn let_go(leash: Option<&std::path::Path>) {
 }
 
 #[cfg(windows)]
-fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, frames: bool) {
+fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, frames: bool, live: bool) {
     use dossier_witness::memory::Reads;
     use dossier_witness::{osr, stable, windows, wire};
     use std::time::{Duration, Instant};
@@ -215,6 +216,8 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, fram
         let mut recorder = stable::Recorder::default();
         let mut last_state = String::new();
         let mut told_at = Instant::now();
+        let mut cursor_at = Instant::now();
+        let mut cursor_sent = (0u64, 0usize);
         let mut alive_at = Instant::now();
         let mut checked_at = Instant::now();
         loop {
@@ -254,6 +257,16 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, fram
                     }
                 }
             }
+            if let Some(take) = recorder.recording().filter(|_| live && cursor_at.elapsed() >= Duration::from_millis(CURSOR_EVERY_MS)) {
+                if cursor_sent.0 != take.score || take.frames.len() < cursor_sent.1 {
+                    cursor_sent = (take.score, 0);
+                }
+                for chunk in take.frames[cursor_sent.1..].chunks(CURSOR_CHUNK) {
+                    legacy(wire::cursor(cursor_sent.1, chunk));
+                    cursor_sent.1 += chunk.len();
+                }
+                cursor_at = Instant::now();
+            }
             if let (Some(take), Some(seen)) = (recorder.recording(), &seen) {
                 if told_at.elapsed() >= Duration::from_secs(1) {
                     legacy(wire::playing(take, seen.time_ms));
@@ -278,6 +291,12 @@ fn client_of(process: &dossier_witness::windows::Process) -> dossier_witness::cl
 
 #[cfg(windows)]
 const FRAMES_LEAST: usize = 120;
+
+#[cfg(windows)]
+const CURSOR_EVERY_MS: u64 = 250;
+
+#[cfg(windows)]
+const CURSOR_CHUNK: usize = 400;
 
 #[cfg(windows)]
 fn record(process: &dossier_witness::windows::Process, anchors: &dossier_witness::stable::Anchors, out: &std::path::Path, player: &str) {

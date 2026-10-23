@@ -340,7 +340,7 @@ pub fn worker(name: &str) -> String {
     name.bytes().map(|byte| if byte.is_ascii_graphic() && byte != b'%' || byte == b' ' { char::from(byte).to_string() } else { format!("%{byte:02X}") }).collect()
 }
 
-fn client() -> Result<reqwest::blocking::Client, Refused> {
+pub(crate) fn client() -> Result<reqwest::blocking::Client, Refused> {
     static SHARED: std::sync::OnceLock<Result<reqwest::blocking::Client, String>> = std::sync::OnceLock::new();
     SHARED
         .get_or_init(|| {

@@ -103,6 +103,11 @@ pub fn playing(take: &Take, time_ms: i32) -> String {
     )
 }
 
+pub fn cursor(from: usize, frames: &[crate::stable::Frame]) -> String {
+    let body: Vec<String> = frames.iter().map(|frame| format!("[{},{},{},{}]", frame.time, number(frame.x), number(frame.y), frame.keys)).collect();
+    format!("{{\"event\":\"cursor\",\"from\":{from},\"frames\":[{}]}}", body.join(","))
+}
+
 pub fn kept(take: &Take, name: &str, osr: &[u8], facts: Option<&Facts>) -> String {
     format!(
         "{{\"event\":\"kept\",\"name\":{},\"passed\":{},\"failed\":{},\"md5\":{},\"id\":{},\"set\":{},\"artist\":{},\"title\":{},\"version\":{},\"creator\":{},\"score\":{},\"frames\":{},\"watched\":{}{},\"osr\":\"{}\"}}",
@@ -128,6 +133,14 @@ pub fn kept(take: &Take, name: &str, osr: &[u8], facts: Option<&Facts>) -> Strin
 mod tests {
     use super::*;
     use crate::stable::{Map, Mode, Play};
+
+    #[test]
+    fn cursor_frames_go_out_with_where_they_start() {
+        use crate::stable::Frame;
+        let line = cursor(120, &[Frame { time: 1632, x: 245.5, y: 218.25, keys: 5 }, Frame { time: 1648, x: 240.0, y: 220.0, keys: 0 }]);
+        assert_eq!(line, r#"{"event":"cursor","from":120,"frames":[[1632,245.5,218.25,5],[1648,240,220,0]]}"#);
+        assert_eq!(cursor(0, &[]), r#"{"event":"cursor","from":0,"frames":[]}"#);
+    }
 
     #[test]
     fn words_are_quoted_the_way_json_wants_them() {

@@ -159,7 +159,7 @@ impl Sittings {
                 self.begin_if_none(now, zone);
                 self.moved(now)
             }
-            Event::Loading | Event::Alive | Event::Overlay(_) | Event::Screen(_) => None,
+            Event::Loading | Event::Alive | Event::Overlay(_) | Event::Screen(_) | Event::Cursor(_) => None,
         }
     }
 
@@ -287,6 +287,7 @@ pub enum Event {
     State(State),
     Playing(Progress),
     Kept(Kept),
+    Cursor(Cursor),
     #[serde(skip)]
     Absent,
     #[serde(skip)]
@@ -295,6 +296,12 @@ pub enum Event {
     Overlay(bool),
     #[serde(skip)]
     Screen(Option<String>),
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Cursor {
+    pub from: usize,
+    pub frames: Vec<(i32, f32, f32, u32)>,
 }
 
 pub fn read(line: &str) -> Option<Event> {
@@ -367,7 +374,7 @@ impl Seen {
             }
             Event::Overlay(on) => self.overlay = *on,
             Event::Screen(screen) => self.screen = screen.clone(),
-            Event::Alive => {}
+            Event::Alive | Event::Cursor(_) => {}
         }
     }
 }
@@ -571,7 +578,7 @@ fn quiet(command: Command) -> Command {
 
 pub fn command(launch: &Launch, program: &Path, player: &str) -> Command {
     let mut command = launched(launch, program);
-    command.arg("--serve").arg("--leash").arg("--frames");
+    command.arg("--serve").arg("--leash").arg("--frames").arg("--live");
     if !player.is_empty() {
         command.arg("--player").arg(player);
     }
@@ -647,11 +654,23 @@ pub struct Control {
     screen: Mutex<Option<String>>,
     context: Mutex<Option<dossier_hud::context::Packet>>,
     pid: std::sync::atomic::AtomicU32,
+    cursor: Mutex<Option<std::sync::mpsc::Sender<Cursor>>>,
 }
 
 pub fn context_path() -> PathBuf { crate::sources::own_root().join("witness-context.json") }
 
 impl Control {
+    pub fn stream_cursor(&self, sink: Option<std::sync::mpsc::Sender<Cursor>>) {
+        *self.cursor.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = sink;
+    }
+
+    fn pass_cursor(&self, cursor: Cursor) {
+        let mut held = self.cursor.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if held.as_ref().is_some_and(|sink| sink.send(cursor).is_err()) {
+            *held = None;
+        }
+    }
+
     pub fn context(&self, event: &Event, state: Option<&State>, pools: &[crate::pools::Pool], english: bool) {
         if let Event::Attached { pid, .. } = event { self.pid.store(*pid, Ordering::SeqCst); }
         let absent = matches!(event, Event::Gone | Event::Waiting | Event::Absent | Event::Unavailable);
@@ -784,6 +803,10 @@ pub fn follow(lines: impl BufRead, control: &Control, push: &mut dyn FnMut(Event
             continue;
         }
         if let Some(event) = read(&line) {
+            if let Event::Cursor(cursor) = event {
+                control.pass_cursor(cursor);
+                continue;
+            }
             if !matches!(event, Event::Alive) && !push(event) {
                 return false;
             }
@@ -1111,6 +1134,24 @@ mod tests {
     }
 
     #[test]
+    fn cursor_lines_go_to_their_sink_and_never_to_the_screen() {
+        let control = Control::default();
+        let (sink, heard) = std::sync::mpsc::channel();
+        control.stream_cursor(Some(sink));
+        let said = "{\"event\":\"cursor\",\"from\":3,\"frames\":[[1632,245.5,218.25,5]]}\n{\"event\":\"state\",\"mode\":\"Menu\"}\n";
+        let mut pushed = Vec::new();
+        assert!(follow(std::io::Cursor::new(said), &control, &mut |event| {
+            pushed.push(event);
+            true
+        }));
+        assert_eq!(heard.try_recv().unwrap(), Cursor { from: 3, frames: vec![(1632, 245.5, 218.25, 5)] });
+        assert_eq!(pushed, [Event::State(State { mode: "Menu".into(), ..State::default() })]);
+        drop(heard);
+        assert!(follow(std::io::Cursor::new(said), &control, &mut |_| true));
+        assert!(control.cursor.lock().unwrap().is_none(), "a closed sink is let go");
+    }
+
+    #[test]
     fn frames_go_past_the_events_and_the_session_s_greeting_is_remembered() {
         let hello = r#"{"event":"overlay","version":1,"session":1,"sequence":1,"kind":"hello","client":"stable","pid":7,"build":"b1"}"#;
         let snapshot = r#"{"event":"overlay","version":1,"session":1,"sequence":2,"kind":"snapshot","snapshot":{"screen":"menu","beatmap":null,"gameplay":null,"watching_replay":null}}"#;
@@ -1131,9 +1172,9 @@ mod tests {
         let program = Path::new("/home/none/.dossier/bin/witness.exe");
         let args = |command: &Command| command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
         let direct = command(&Launch::Direct, program, "NaumRedlo");
-        assert_eq!((direct.get_program(), args(&direct)), (program.as_os_str(), vec!["--serve".to_owned(), "--leash".to_owned(), "--frames".to_owned(), "--player".to_owned(), "NaumRedlo".to_owned()]));
+        assert_eq!((direct.get_program(), args(&direct)), (program.as_os_str(), vec!["--serve".to_owned(), "--leash".to_owned(), "--frames".to_owned(), "--live".to_owned(), "--player".to_owned(), "NaumRedlo".to_owned()]));
         let bottle = command(&Launch::CrossOver { wine: PathBuf::from("/cx/bin/wine"), bottle: "osu-stable".into() }, program, "");
-        assert_eq!(args(&bottle), vec!["--bottle", "osu-stable", "/home/none/.dossier/bin/witness.exe", "--serve", "--leash", "--frames"]);
+        assert_eq!(args(&bottle), vec!["--bottle", "osu-stable", "/home/none/.dossier/bin/witness.exe", "--serve", "--leash", "--frames", "--live"]);
         let wine = command(&Launch::Wine { loader: PathBuf::from("/opt/wine/bin/wine"), prefix: PathBuf::from("/home/none/prefix") }, program, "");
         assert_eq!(wine.get_program(), "/opt/wine/bin/wine");
         assert!(wine.get_envs().any(|(key, value)| key == "WINEPREFIX" && value == Some(std::ffi::OsStr::new("/home/none/prefix"))));

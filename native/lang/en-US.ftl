@@ -1351,3 +1351,37 @@ people-online = online
 video-open-failed = Could not open the video. Check that the file is available.
 
 pool-delete-failed = Could not delete. Check folder access and try again.
+
+witness-launch-failed = Could not start Witness: { $reason }
+
+community-duels = Duels
+duels-rating = Rating
+duels-rating-hidden = Rating opens after calibration
+duels-calibration = Calibration
+duels-calibration-of = { $played } of { $needed }
+duels-find = Find an opponent
+duels-searching = Looking for an opponent
+duels-searching-range = Opponent rated close to you
+duels-cancel = Cancel
+duels-offer = Opponent found
+duels-waiting-for = Waiting for { $name }
+duels-waiting-note = You accepted
+duels-challenged-by = { $name } challenges you
+duels-challenge-sent = Challenge sent to { $name }
+duels-friendly = Friendly duel
+duels-busy = Duel with { $name }
+duels-accept = Accept
+duels-decline = Decline
+duels-return = Return
+duels-running = Playing now
+duels-running-none = Nobody is playing now
+duels-finished = Just finished
+duels-finished-none = None yet
+duels-drafting = Bans and picks
+duels-and = and
+duels-failed = Could not reach the server: { $reason }
+duels-won = Wins
+duels-lost = Losses
+duels-just-now = Now
+duels-minutes-ago = { $count } min
+duels-hours-ago = { $count } h

@@ -934,7 +934,7 @@ fn pool_best_plays_follow_the_own_profile_and_clear_when_it_is_removed() {
 }
 
 #[test]
-fn the_sidebar_keeps_pools_in_a_group_of_their_own_and_opening_them_loads_the_shelf() {
+fn the_sidebar_keeps_pools_and_duels_in_the_play_group_and_opening_pools_loads_the_shelf() {
     use crate::community_screen::{Message as C, Section};
     use crate::sidebar::Entry;
     let mut main = feed_at_rest();
@@ -942,7 +942,8 @@ fn the_sidebar_keeps_pools_in_a_group_of_their_own_and_opening_them_loads_the_sh
     let entries = main.community_entries();
     let at = entries.iter().position(|entry| matches!(entry, Entry::Item { key: "pools", .. })).expect("a pools entry");
     assert!(matches!(&entries[at - 1], Entry::Caption(words) if *words == main.words.t("community-play")));
-    assert!(matches!(&entries[at + 1], Entry::Caption(words) if *words == main.words.t("community-standing")));
+    assert!(matches!(&entries[at + 1], Entry::Item { key: "duels", .. }));
+    assert!(matches!(&entries[at + 2], Entry::Caption(words) if *words == main.words.t("community-standing")));
     assert!(!main.pools.loaded);
     let _ = main.update(super::Message::Community(C::Go(Section::Pools, None)));
     assert_eq!(main.community_section, Section::Pools);

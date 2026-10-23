@@ -50,6 +50,7 @@ pub enum Icon {
     People,
     Globe,
     Ban,
+    Eye,
 }
 
 fn drawn(icon: Icon) -> &'static [u8] {
@@ -101,6 +102,7 @@ fn drawn(icon: Icon) -> &'static [u8] {
         Icon::People => include_bytes!("../assets/icons/users.svg"),
         Icon::Globe => include_bytes!("../assets/icons/globe.svg"),
         Icon::Ban => include_bytes!("../assets/icons/ban.svg"),
+        Icon::Eye => include_bytes!("../assets/icons/eye.svg"),
     }
 }
 

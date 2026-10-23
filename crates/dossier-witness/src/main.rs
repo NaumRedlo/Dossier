@@ -10,7 +10,7 @@ fn main() {
         let overlay_mode = args.iter().any(|arg| arg == "--overlay");
         let frames = overlay_mode || args.iter().any(|arg| arg == "--frames");
         let live = args.iter().any(|arg| arg == "--live");
-        serve(&player, leash.as_deref(), overlay_mode, frames, live);
+        serve(&player, leash.as_deref(), overlay_mode, frames, live, args.iter().any(|arg| arg == "--one-session"));
         return;
     }
     if let Some(at) = args.iter().position(|arg| arg == "--library") {
@@ -168,7 +168,7 @@ fn let_go(leash: Option<&std::path::Path>) {
 }
 
 #[cfg(windows)]
-fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, frames: bool, live: bool) {
+fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, frames: bool, live: bool, one_session: bool) {
     use dossier_witness::memory::Reads;
     use dossier_witness::{osr, stable, windows, wire};
     use std::time::{Duration, Instant};
@@ -210,6 +210,7 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, fram
         let Some(anchors) = anchors else {
             if frames { emit(overlay.disconnected()); }
             legacy(wire::plain("gone"));
+            if one_session { return; }
             continue;
         };
         let mut shelf = process.folder().map(|folder| dossier_witness::beatmaps::Shelf::beside(&folder));
@@ -228,6 +229,7 @@ fn serve(player: &str, leash: Option<&std::path::Path>, overlay_mode: bool, fram
             if process.u32(anchors.status).is_none() {
                 if frames { emit(overlay.disconnected()); }
                 legacy(wire::plain("gone"));
+                if one_session { return; }
                 break;
             }
             let seen = stable::glance(&process, &anchors);

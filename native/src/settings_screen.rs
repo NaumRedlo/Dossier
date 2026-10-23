@@ -615,6 +615,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             let said = match &seen.status {
                 Status::Off => String::new(),
                 Status::Unavailable => w.t("witness-missing"),
+                Status::LaunchFailed(why) => w.with("witness-launch-failed", &[("reason", why.clone())]),
                 Status::Absent => w.t("witness-idle"),
                 Status::Loading => w.t("witness-loading"),
                 Status::Watching => w.t("witness-watching"),
@@ -626,7 +627,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 panel = panel.push(line(w.t("witness-off-note"), FAINT, 0.0));
             }
             if running && !said.is_empty() {
-                panel = panel.push(line(said, if matches!(seen.status, Status::Unavailable) { theme::ACCENT } else { FAINT }, 0.0));
+                panel = panel.push(line(said, if matches!(seen.status, Status::Unavailable | Status::LaunchFailed(_)) { theme::ACCENT } else { FAINT }, 0.0));
             }
             if running && !seen.build.is_empty() && matches!(seen.status, Status::Loading | Status::Watching | Status::Playing) {
                 panel = panel.push(line(w.with("witness-client", &[("build", seen.build.clone())]), FAINT, 2.0));

@@ -29,6 +29,8 @@ pub struct Participant {
     #[serde(default)]
     pub player: i64,
     #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
     pub osu_user_id: i64,
     #[serde(default)]
     pub side: Option<String>,
@@ -274,6 +276,95 @@ pub fn notices(account: &Account) -> Result<Vec<Notice>, Failure> {
         notifications: Vec<Notice>,
     }
     call::<Listed>(account, reqwest::Method::GET, "/render/duels/notifications", None, None).map(|listed| listed.notifications)
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Standing {
+    #[serde(default)]
+    pub calibrating: bool,
+    #[serde(default)]
+    pub played: u32,
+    #[serde(default)]
+    pub needed: u32,
+    #[serde(default)]
+    pub rating: Option<i64>,
+    #[serde(default)]
+    pub rd: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Me {
+    #[serde(default)]
+    pub rating: Standing,
+    #[serde(default)]
+    pub observations: u32,
+    #[serde(default)]
+    pub won: u32,
+    #[serde(default)]
+    pub lost: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Seat {
+    #[serde(default)]
+    pub player: i64,
+    #[serde(default)]
+    pub side: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Running {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub wins: Wins,
+    #[serde(default)]
+    pub players: Vec<Seat>,
+    #[serde(default)]
+    pub watching: u32,
+    #[serde(default)]
+    pub slot: Option<String>,
+    #[serde(default)]
+    pub beatmap_id: Option<i64>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub seconds_ago: Option<i64>,
+    #[serde(default)]
+    pub finished_at: Option<String>,
+    #[serde(default)]
+    pub winner: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Live {
+    #[serde(default)]
+    pub running: Vec<Running>,
+    #[serde(default)]
+    pub finished: Vec<Running>,
+}
+
+pub fn me(account: &Account) -> Result<Me, Failure> {
+    call(account, reqwest::Method::GET, "/render/duels/profile/me", None, None)
+}
+
+pub fn live(account: &Account) -> Result<Live, Failure> {
+    call(account, reqwest::Method::GET, "/render/duels/running", None, None)
+}
+
+pub fn roles(account: &Account) -> Result<Vec<String>, Failure> {
+    #[derive(Deserialize)]
+    struct Held {
+        #[serde(default)]
+        roles: Vec<String>,
+    }
+    call::<Held>(account, reqwest::Method::GET, "/render/duels/roles/me", None, None).map(|held| held.roles)
 }
 
 pub fn seen(account: &Account, ids: &[i64]) -> Result<Value, Failure> {

@@ -19,7 +19,6 @@ const LEASH: &str = "witness.alive";
 const LEASH_EVERY: Duration = Duration::from_secs(5);
 const TOLD_LEAST: u32 = 30;
 const NOT_PLAYED: u32 = 2048 | 4_194_304;
-const OVERLAY_AGAIN: Duration = Duration::from_secs(5);
 const OVERLAY_QUEUE: usize = 32;
 const OVERLAY_GRACE: Duration = Duration::from_secs(2);
 const FRAME_LINE: &str = "{\"event\":\"overlay\"";
@@ -135,7 +134,7 @@ impl Sittings {
                 self.begin(now, zone);
                 closed.or_else(|| self.tell(now))
             }
-            Event::Waiting | Event::Gone | Event::Absent | Event::Unavailable => self.close(now),
+            Event::Waiting | Event::Gone | Event::Absent | Event::Unavailable | Event::LaunchFailed(_) => self.close(now),
             Event::Playing(_) => {
                 self.begin_if_none(now, zone);
                 if let (Some(sitting), Some(before)) = (self.open.as_mut(), self.ticked_at) {
@@ -293,6 +292,8 @@ pub enum Event {
     #[serde(skip)]
     Unavailable,
     #[serde(skip)]
+    LaunchFailed(String),
+    #[serde(skip)]
     Overlay(bool),
     #[serde(skip)]
     Screen(Option<String>),
@@ -313,6 +314,7 @@ pub enum Status {
     #[default]
     Off,
     Unavailable,
+    LaunchFailed(String),
     Absent,
     Loading,
     Watching,
@@ -340,6 +342,7 @@ pub struct Seen {
 impl Seen {
     pub fn take(&mut self, event: &Event) {
         match event {
+            Event::LaunchFailed(why) => *self = Seen { status: Status::LaunchFailed(why.clone()), state: None, playing: None, build: String::new(), player: String::new(), ..self.clone() },
             Event::Unavailable => *self = Seen { status: Status::Unavailable, state: None, playing: None, build: String::new(), player: String::new(), ..self.clone() },
             Event::Waiting | Event::Gone | Event::Absent => *self = Seen { status: Status::Absent, state: None, playing: None, build: String::new(), player: String::new(), ..self.clone() },
             Event::Attached { build, player, .. } => {
@@ -514,6 +517,18 @@ pub fn launch() -> Option<Launch> {
     launch_of(Path::new(&cwd), &mapped, None)
 }
 
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn wine_loader(environ: &[u8]) -> Option<PathBuf> {
+    ["WINELOADER=", "WINE="].into_iter().find_map(|key| {
+        environ.split(|byte| *byte == 0)
+            .filter_map(|pair| std::str::from_utf8(pair).ok())
+            .find_map(|pair| pair.strip_prefix(key))
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .filter(|path| path.is_file())
+    })
+}
+
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn launch() -> Option<Launch> {
     for entry in std::fs::read_dir("/proc").ok()?.flatten() {
@@ -530,7 +545,7 @@ pub fn launch() -> Option<Launch> {
         }
         let environ = std::fs::read(dir.join("environ")).unwrap_or_default();
         let named = |key: &str| environ.split(|byte| *byte == 0).filter_map(|pair| std::str::from_utf8(pair).ok()).find_map(|pair| pair.strip_prefix(key).map(PathBuf::from));
-        let loader = named("WINELOADER=");
+        let loader = wine_loader(&environ);
         if let Some(prefix) = named("WINEPREFIX=").filter(|prefix| prefix.join("drive_c").is_dir()) {
             return Some(Launch::Wine { loader: loader.filter(|loader| loader.is_file()).unwrap_or_else(|| PathBuf::from("wine")), prefix });
         }
@@ -578,7 +593,7 @@ fn quiet(command: Command) -> Command {
 
 pub fn command(launch: &Launch, program: &Path, player: &str) -> Command {
     let mut command = launched(launch, program);
-    command.arg("--serve").arg("--leash").arg("--frames").arg("--live");
+    command.arg("--serve").arg("--one-session").arg("--leash").arg("--frames").arg("--live");
     if !player.is_empty() {
         command.arg("--player").arg(player);
     }
@@ -673,7 +688,7 @@ impl Control {
 
     pub fn context(&self, event: &Event, state: Option<&State>, pools: &[crate::pools::Pool], english: bool) {
         if let Event::Attached { pid, .. } = event { self.pid.store(*pid, Ordering::SeqCst); }
-        let absent = matches!(event, Event::Gone | Event::Waiting | Event::Absent | Event::Unavailable);
+        let absent = matches!(event, Event::Gone | Event::Waiting | Event::Absent | Event::Unavailable | Event::LaunchFailed(_));
         if absent { self.pid.store(0, Ordering::SeqCst); }
         let pid = self.pid.load(Ordering::SeqCst);
         let mut held = self.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -727,7 +742,7 @@ impl Control {
             if shown.is_none() {
                 let mut tried = self.overlay_tried.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 let launch = self.launch.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-                if tried.is_none_or(|at| at.elapsed() >= OVERLAY_AGAIN) {
+                if tried.is_none() {
                     *tried = Some(Instant::now());
                     *shown = overlay_program().zip(launch).and_then(|(program, launch)| overlay_command(&launch, &program, overlay).spawn().ok()).and_then(|mut child| {
                         let Some(input) = child.stdin.take() else {
@@ -807,9 +822,11 @@ pub fn follow(lines: impl BufRead, control: &Control, push: &mut dyn FnMut(Event
                 control.pass_cursor(cursor);
                 continue;
             }
+            let gone = matches!(event, Event::Gone);
             if !matches!(event, Event::Alive) && !push(event) {
                 return false;
             }
+            if gone { return true; }
         }
     }
     true
@@ -861,12 +878,15 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
         };
         absent_told = false;
         *control.launch.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(launch.clone());
-        let Ok(mut child) = command(&launch, &program, &player).spawn() else {
-            if !push(Event::Unavailable) {
-                return;
+        let mut start = command(&launch, &program, &player);
+        let mut child = match start.spawn() {
+            Ok(child) => child,
+            Err(why) => {
+                let detail = format!("{}: {why}", start.get_program().to_string_lossy());
+                if !push(Event::LaunchFailed(detail)) { return; }
+                control.rest(LOOK_EVERY * 4);
+                continue;
             }
-            control.rest(LOOK_EVERY * 4);
-            continue;
         };
         let out = child.stdout.take();
         *control.child.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(child);
@@ -892,6 +912,57 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wine_loader_accepts_winello_and_prefers_an_existing_wineloader() {
+        let dir = std::env::temp_dir().join(format!("dossier-wine-env-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wine = dir.join("yawl winello");
+        let loader = dir.join("wine64");
+        std::fs::write(&wine, b"test").unwrap();
+        std::fs::write(&loader, b"test").unwrap();
+        let env = |first: &Path| format!("WINELOADER={}\0WINE={}\0", first.display(), wine.display()).into_bytes();
+        assert_eq!(wine_loader(&env(&loader)), Some(loader));
+        assert_eq!(wine_loader(&env(&dir.join("missing"))), Some(wine.clone()));
+        assert_eq!(wine_loader(format!("WINE={}\0", wine.display()).as_bytes()), Some(wine));
+        assert_eq!(wine_loader(b"WINE=\0WINELOADER=\0"), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_launch_error_is_distinct_from_a_missing_binary_and_clears_client_state() {
+        let mut seen = Seen::default();
+        seen.take(&Event::Attached { pid: 7, build: "b1".into(), player: "Player".into() });
+        seen.take(&Event::LaunchFailed("wine: not found".into()));
+        assert_eq!(seen.status, Status::LaunchFailed("wine: not found".into()));
+        assert!(seen.build.is_empty() && seen.state.is_none());
+        seen.take(&Event::Unavailable);
+        assert_eq!(seen.status, Status::Unavailable);
+    }
+
+    #[test]
+    fn gone_ends_the_stream_before_a_second_client_can_attach() {
+        let lines = b"{\"event\":\"attached\",\"pid\":7}\n{\"event\":\"gone\"}\n{\"event\":\"attached\",\"pid\":8}\n";
+        let control = Control::default();
+        let mut events = Vec::new();
+        assert!(follow(std::io::Cursor::new(lines), &control, &mut |event| { events.push(event); true }));
+        assert_eq!(events.len(), 2);
+        assert_eq!(events.last(), Some(&Event::Gone));
+    }
+
+    #[test]
+    fn a_failed_overlay_is_not_relaunched_by_frames_until_explicitly_reset() {
+        let control = Control::default();
+        control.show(Some(Overlay::default()));
+        let first = Instant::now() - Duration::from_secs(60);
+        *control.overlay_tried.lock().unwrap() = Some(first);
+        let frame = r#"{"event":"overlay","kind":"snapshot","snapshot":{}}"#;
+        assert!(control.forward(frame, &mut |_| true));
+        assert_eq!(*control.overlay_tried.lock().unwrap(), Some(first));
+        control.show(None);
+        control.show(Some(Overlay::default()));
+        assert!(control.overlay_tried.lock().unwrap().is_none());
+    }
 
     #[test]
     fn overlay_context_tracks_attachment_loading_and_disconnect() {
@@ -1172,9 +1243,9 @@ mod tests {
         let program = Path::new("/home/none/.dossier/bin/witness.exe");
         let args = |command: &Command| command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
         let direct = command(&Launch::Direct, program, "NaumRedlo");
-        assert_eq!((direct.get_program(), args(&direct)), (program.as_os_str(), vec!["--serve".to_owned(), "--leash".to_owned(), "--frames".to_owned(), "--live".to_owned(), "--player".to_owned(), "NaumRedlo".to_owned()]));
+        assert_eq!((direct.get_program(), args(&direct)), (program.as_os_str(), vec!["--serve".to_owned(), "--one-session".to_owned(), "--leash".to_owned(), "--frames".to_owned(), "--live".to_owned(), "--player".to_owned(), "NaumRedlo".to_owned()]));
         let bottle = command(&Launch::CrossOver { wine: PathBuf::from("/cx/bin/wine"), bottle: "osu-stable".into() }, program, "");
-        assert_eq!(args(&bottle), vec!["--bottle", "osu-stable", "/home/none/.dossier/bin/witness.exe", "--serve", "--leash", "--frames", "--live"]);
+        assert_eq!(args(&bottle), vec!["--bottle", "osu-stable", "/home/none/.dossier/bin/witness.exe", "--serve", "--one-session", "--leash", "--frames", "--live"]);
         let wine = command(&Launch::Wine { loader: PathBuf::from("/opt/wine/bin/wine"), prefix: PathBuf::from("/home/none/prefix") }, program, "");
         assert_eq!(wine.get_program(), "/opt/wine/bin/wine");
         assert!(wine.get_envs().any(|(key, value)| key == "WINEPREFIX" && value == Some(std::ffi::OsStr::new("/home/none/prefix"))));

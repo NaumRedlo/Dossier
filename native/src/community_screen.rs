@@ -19,6 +19,7 @@ pub enum Section {
     Titles,
     Compare,
     Pools,
+    Duels,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -236,6 +237,7 @@ pub enum Message {
     Again,
     Reconnect,
     Pools(crate::pools_screen::Message),
+    Duels(crate::duels_screen::Message),
     ChannelDraft(String),
     ChannelAdd,
     ChannelRemove(String),
@@ -309,6 +311,7 @@ pub struct Ground<'a> {
     pub chat: String,
     pub fetch: Fetch,
     pub pools: &'a crate::pools_screen::State,
+    pub duels: &'a crate::duels_screen::State,
     pub pools_clocks: crate::pools_screen::Clocks,
     pub asked: bool,
     pub answered_t: f32,
@@ -372,6 +375,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         Section::Titles => titles(ground),
         Section::Compare => comparing(ground),
         Section::Pools => crate::pools_screen::view(ground.pools, ground.words, ground.thumbs, ground.width - 80.0, ground.section_t, &ground.pools_clocks).map(Message::Pools),
+        Section::Duels => crate::duels_screen::view(ground.duels, ground.words, ground.now_unix).map(Message::Duels),
     };
     let mut page = column![].width(Length::Fill).height(Length::Fill);
     if let Some(banner) = notice_banner(ground) {

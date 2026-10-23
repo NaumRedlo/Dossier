@@ -1393,3 +1393,37 @@ people-online = в сети
 video-open-failed = Не удалось открыть видео. Проверьте, доступен ли файл.
 
 pool-delete-failed = Не удалось удалить. Проверьте доступ к папке и повторите попытку.
+
+witness-launch-failed = Не удалось запустить Witness: { $reason }
+
+community-duels = Дуэли
+duels-rating = Рейтинг
+duels-rating-hidden = Рейтинг откроется после калибровки
+duels-calibration = Калибровка
+duels-calibration-of = { $played } из { $needed }
+duels-find = Найти соперника
+duels-searching = Ищем соперника
+duels-searching-range = Рейтинг соперника рядом с вашим
+duels-cancel = Отменить
+duels-offer = Соперник найден
+duels-waiting-for = Ждём { $name }
+duels-waiting-note = Вы приняли
+duels-challenged-by = { $name } вызывает вас
+duels-challenge-sent = Вызов отправлен { $name }
+duels-friendly = Товарищеская дуэль
+duels-busy = Дуэль с { $name }
+duels-accept = Принять
+duels-decline = Отказаться
+duels-return = Вернуться
+duels-running = Идут сейчас
+duels-running-none = Сейчас никто не играет
+duels-finished = Только что закончились
+duels-finished-none = Пока ни одной
+duels-drafting = Баны и выборы
+duels-and = и
+duels-failed = Не удалось связаться с сервером: { $reason }
+duels-won = Победы
+duels-lost = Поражения
+duels-just-now = Сейчас
+duels-minutes-ago = { $count } мин
+duels-hours-ago = { $count } ч

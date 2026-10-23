@@ -167,8 +167,11 @@ setting saved then is read as the new one.)
   the application looks for a running `osu!.exe` every four seconds and learns
   the prefix from the folder the client works in — a CrossOver bottle is entered
   through CrossOver's own `wine --bottle`, any other prefix with its loader and
-  `WINEPREFIX` — so no Wine is started for a client that is not there. Linux is
-  written the same way and has not been tried yet.
+  `WINEPREFIX` — so no Wine is started for a client that is not there. On Linux,
+  Dossier uses an existing `WINELOADER` from the game process environment, then
+  an existing `WINE` (including osu-winello/yawl wrappers), before falling back
+  to `wine` on PATH. A spawn failure shows the loader and OS error in settings;
+  it is distinct from a build that lacks the Witness binary.
 - Witness speaks on its standard output, one JSON object a line: `waiting`,
   `attached`, `loading`, `state` (the screen and the map under the cursor),
   `playing` once a second, `kept` with the replay itself as hex, `gone`, and
@@ -185,6 +188,32 @@ setting saved then is read as the new one.)
   whose application had gone stayed for good. The application now touches
   `witness.alive` beside the program every five seconds, and a Witness started
   with `--leash` leaves when that file is twenty seconds old or gone.
+
+### Linux session and overlay checks
+
+Dossier starts Witness with `--one-session`: after the first client disconnects,
+Witness emits `gone` and exits. Dossier also stops reading that stream at `gone`
+and cleans up the child before looking for another client. Manual `--serve`
+without this flag retains its reconnecting behavior. Release packages must carry
+both the updated application and the updated `witness.exe`.
+
+An overlay gets one launch attempt per Witness session or explicit enable action.
+If it exits or its input pipe breaks, subsequent frames do not restart it every
+five seconds. Toggle the overlay off and on to retry; inspect
+`~/.dossier/witness-overlay.log` for its output. This limits retries; it does not
+repair stdin forwarding by a Wine wrapper or container.
+
+Verify on the tester's Linux installation:
+
+1. Start osu-winello without a system Wine installation and check that Witness
+   attaches using the game's loader and prefix.
+2. Close and reopen the game three times. Check that the old Witness exits and
+   that each new client gets a fresh instance.
+3. Enable the overlay once. If it exits, verify that it stays stopped until an
+   explicit retry or a new session; retain the overlay log.
+4. Check the reported game crash and Bancho rejection separately, recording
+   whether Witness and the overlay were enabled. Neither cause is established
+   by the launcher fixes or the automated tests.
 
 ### The device's time zone and the game sessions
 

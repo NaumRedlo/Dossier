@@ -15,6 +15,7 @@ pub mod frames;
 pub mod dossier;
 pub mod dossier_cache;
 pub mod duels;
+pub mod duels_screen;
 pub mod desktop;
 pub mod ffmpeg;
 pub mod film;

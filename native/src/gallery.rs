@@ -1166,6 +1166,16 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         }),
         ("main-community-person".to_owned(), community(crate::community_screen::Section::People, Some(1))),
         ("main-community-boards".to_owned(), community(crate::community_screen::Section::Boards, None)),
+        ("main-community-duels".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = staged_duels(false);
+            main
+        }),
+        ("main-community-duels-offer".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = staged_duels(true);
+            main
+        }),
         ("main-community-adaptive".to_owned(), {
             let mut main = community(crate::community_screen::Section::Boards, None);
             main.community_standing = crate::community_screen::Standing::Adaptive;
@@ -1987,5 +1997,49 @@ mod tests {
             .into_messages()
             .any(|message| matches!(message, Message::Main(crate::main_screen::Message::Prefs(crate::settings_screen::Message::Moved(..)))));
         assert!(moved, "dropping a tile elsewhere did not move it");
+    }
+}
+
+fn staged_duels(offer: bool) -> crate::duels_screen::State {
+    use crate::duels::{Deadline, Duel, Live, Me, Participant, Running, Seat, Standing, Wins};
+    let seat = |player: i64, side: &str, name: &str| Seat { player, side: Some(side.into()), name: Some(name.into()) };
+    let running = |id: &str, a: Seat, b: Seat, wins: (u32, u32), title: Option<&str>, watching: u32| Running {
+        id: id.into(), mode: "rated".into(), state: "PLAYING".into(), wins: Wins { a: wins.0, b: wins.1 }, players: vec![a, b], watching, title: title.map(Into::into), slot: title.map(|_| "DT1".into()), ..Running::default()
+    };
+    let finished = |id: &str, a: Seat, b: Seat, wins: (u32, u32), ago: i64| Running { id: id.into(), state: "COMPLETED".into(), wins: Wins { a: wins.0, b: wins.1 }, players: vec![a, b], seconds_ago: Some(ago), ..Running::default() };
+    let live = Live {
+        running: vec![
+            running("r1", seat(4, "A", "d1ce"), seat(5, "B", "aeris"), (2, 1), Some("Nihon-shiki Koukaku -OukaRanman-"), 23),
+            running("r2", seat(2, "A", "kotofey"), seat(6, "B", "Mirrorwave"), (1, 1), Some("Harumodoki"), 9),
+            running("r3", seat(7, "A", "mrekk"), seat(8, "B", "hmosha"), (0, 0), None, 4),
+        ],
+        finished: vec![
+            finished("f1", seat(3, "A", "ssnowy"), seat(1, "B", "NaumRedlo"), (1, 3), 30),
+            finished("f2", seat(5, "A", "aeris"), seat(2, "B", "kotofey"), (3, 2), 720),
+            finished("f3", seat(6, "A", "Mirrorwave"), seat(4, "B", "d1ce"), (0, 3), 2400),
+            finished("f4", seat(8, "A", "hmosha"), seat(7, "B", "mrekk"), (3, 1), 3700),
+        ],
+    };
+    let mine = if offer {
+        let at = chrono::DateTime::from_timestamp(NOON + 12, 0).map(|at| at.to_rfc3339()).unwrap_or_default();
+        vec![Duel {
+            id: "offer".into(),
+            mode: "rated".into(),
+            state: "MATCH_OFFERED".into(),
+            version: 2,
+            participants: vec![Participant { player: 1, name: Some("NaumRedlo".into()), ..Participant::default() }, Participant { player: 3, name: Some("ssnowy".into()), ..Participant::default() }],
+            actions: vec!["accept".into(), "decline".into()],
+            deadlines: vec![Deadline { kind: "pair_confirm".into(), at: Some(at) }],
+            ..Duel::default()
+        }]
+    } else {
+        Vec::new()
+    };
+    crate::duels_screen::State {
+        me: Some(Me { rating: Standing { calibrating: false, played: 5, needed: 5, rating: Some(1612), rd: Some(168) }, observations: 40, won: 14, lost: 9 }),
+        live,
+        mine,
+        player: Some(1),
+        ..crate::duels_screen::State::default()
     }
 }

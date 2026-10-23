@@ -715,6 +715,7 @@ pub struct Main {
     pub community_fetch: crate::community_screen::Fetch,
     community_asked: Option<Instant>,
     pub pools: crate::pools_screen::State,
+    pub duels: crate::duels_screen::State,
     pool_covers_asked: std::collections::HashSet<String>,
     refresh_asked: bool,
     refresh_answered: Option<Instant>,
@@ -998,6 +999,7 @@ impl Main {
             community_fetch: crate::community_screen::Fetch::Staged,
             community_asked: None,
             pools: crate::pools_screen::State::new(crate::pools::pools_dir()).guided(pool_guide),
+            duels: crate::duels_screen::State::default(),
             pool_covers_asked: std::collections::HashSet::new(),
             refresh_asked: false,
             refresh_answered: None,
@@ -1411,6 +1413,10 @@ impl Main {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
             }
         }
+        if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels && !self.settings.token.is_empty() && !self.gallery {
+            let every = if self.duels.polling() { Duration::from_secs(2) } else { Duration::from_secs(10) };
+            parts.push(iced::time::every(every).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Again))));
+        }
         if self.pools.has_unsaved() {
             parts.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::FlushSaves))));
         }
@@ -1750,6 +1756,35 @@ impl Main {
                 }
             }
         })
+    }
+
+    fn duels_work(&mut self, effects: Vec<crate::duels_screen::Effect>) -> Task<Message> {
+        use crate::duels_screen::{Effect, Message as D, Snapshot};
+        let account = crate::duels::Account { server: self.settings.server.clone(), token: self.settings.token.clone(), device: self.settings.device.clone() };
+        let offline = account.token.is_empty() || self.gallery;
+        let wrap = |message: D| Message::Community(crate::community_screen::Message::Duels(message));
+        let mut tasks: Vec<Task<Message>> = Vec::new();
+        for effect in effects {
+            let account = account.clone();
+            tasks.push(match effect {
+                Effect::Load if offline => Task::none(),
+                Effect::Load => ui::in_thread(move || {
+                    let found = (|| Ok::<Snapshot, crate::duels::Failure>(Snapshot { me: crate::duels::me(&account)?, live: crate::duels::live(&account)?, mine: crate::duels::mine(&account)? }))();
+                    D::Loaded(found.map_err(|why| why.to_string()))
+                }).map(wrap),
+                Effect::Queue(enter) => ui::in_thread(move || {
+                    let said = if offline { Err("offline".to_owned()) } else { crate::duels::queue(&account, enter, &crate::duels::key()).map(|_| ()).map_err(|why| why.to_string()) };
+                    D::Queued(enter, said)
+                }).map(wrap),
+                Effect::Answer(duel, version, accept) => ui::in_thread(move || {
+                    let said = if offline { Err("offline".to_owned()) } else {
+                        crate::duels::act(&account, &duel, if accept { "accept" } else { "decline" }, serde_json::json!({}), Some(version), &crate::duels::key()).map_err(|why| why.to_string())
+                    };
+                    D::Answered(said)
+                }).map(wrap),
+            });
+        }
+        Task::batch(tasks)
     }
 
     fn pools_work(&mut self, effects: Vec<crate::pools_screen::Effect>) -> Task<Message> {
@@ -3084,6 +3119,10 @@ impl Main {
                         self.people_orders_open = false;
                     }
                     C::PeopleOrders(open) => self.people_orders_open = open,
+                    C::Duels(inner) => {
+                        let effects = self.duels.update(inner, unix_now());
+                        return self.duels_work(effects);
+                    }
                     C::Pools(inner) => {
                         if let crate::pools_screen::Message::Saved(said) = &inner {
                             match said {
@@ -3140,6 +3179,11 @@ impl Main {
                         if section == crate::community_screen::Section::Pools {
                             let effects = self.pools.open();
                             return self.pools_work(effects);
+                        }
+                        if section == crate::community_screen::Section::Duels {
+                            let player = self.account.as_ref().and_then(|me| me.player);
+                            let effects = self.duels.open(player);
+                            return self.duels_work(effects);
                         }
                         if section == crate::community_screen::Section::Compare {
                             self.pool_players();
@@ -5694,6 +5738,7 @@ impl Main {
             item("compare", Icon::Compare, w.t("community-compare"), section == Section::Compare, Section::Compare, None),
             Entry::Caption(w.t("community-play")),
             item("pools", Icon::Pool, w.t("community-pools"), section == Section::Pools, Section::Pools, None),
+            item("duels", Icon::Swords, w.t("community-duels"), section == Section::Duels, Section::Duels, None),
             Entry::Caption(w.t("community-standing")),
             item("boards", Icon::Chart, w.t("community-boards"), section == Section::Boards, Section::Boards, None),
             item("titles", Icon::Trophy, w.t("community-titles"), section == Section::Titles, Section::Titles, None),
@@ -5774,6 +5819,7 @@ impl Main {
             channel_draft: &self.channel_draft,
             fetch: self.community_fetch,
             pools: &self.pools,
+            duels: &self.duels,
             pools_clocks: crate::pools_screen::Clocks::settled(),
             asked: self.refresh_asked,
             answered_t: self.refresh_answered.map_or(f32::MAX, |at| self.now.saturating_duration_since(at).as_secs_f32()),

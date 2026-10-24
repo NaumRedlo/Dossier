@@ -43,6 +43,26 @@ pub struct Participant {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Record {
+    #[serde(default)]
+    pub rating: Option<i64>,
+    #[serde(default)]
+    pub rd: Option<i64>,
+    #[serde(default)]
+    pub won: u32,
+    #[serde(default)]
+    pub lost: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Meeting {
+    #[serde(default)]
+    pub players: std::collections::BTreeMap<String, Record>,
+    #[serde(default)]
+    pub between: std::collections::BTreeMap<String, u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct Projection {
     #[serde(default)]
     pub before: i64,
@@ -200,6 +220,8 @@ pub struct Duel {
     pub bonus: Option<Bonus>,
     #[serde(default)]
     pub rating: Option<Projection>,
+    #[serde(default)]
+    pub meeting: Option<Meeting>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

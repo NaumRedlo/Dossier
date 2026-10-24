@@ -1423,8 +1423,9 @@ impl Main {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
             }
         }
-        if (self.duels.watching.is_some() || self.duels.lively()) && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels {
-            let every = if self.duels.lively() { Duration::from_millis(16) } else { Duration::from_millis(33) };
+        let moving = self.duels.lively() || self.duels.animating();
+        if (self.duels.watching.is_some() || moving) && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels {
+            let every = if moving { Duration::from_millis(16) } else { Duration::from_millis(33) };
             parts.push(iced::time::every(every).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Frame))));
         }
         if !self.settings.token.is_empty() && !self.gallery {

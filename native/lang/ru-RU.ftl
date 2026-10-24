@@ -1724,3 +1724,8 @@ duels-room-open = Комната открыта ещё { $left }
 duels-rematch = Реванш
 duels-profile = Профиль
 duels-open = Открыть
+duels-met = { $n ->
+    [one] Встречались { $n } раз
+    [few] Встречались { $n } раза
+   *[many] Встречались { $n } раз
+}

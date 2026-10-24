@@ -1681,3 +1681,7 @@ duels-room-open = The room stays open for { $left }
 duels-rematch = Rematch
 duels-profile = Profile
 duels-open = Open
+duels-met = { $n ->
+    [one] Met once before
+   *[other] Met { $n } times before
+}

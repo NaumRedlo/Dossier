@@ -1160,6 +1160,9 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     states.extend(feed_states(&community));
     states.extend(duel_states(&community, &staged));
     states.extend(desk_states(&community));
+    if std::env::var_os("DOSSIER_MOTION_FRAMES").is_some() {
+        states.extend(motion_states(&community));
+    }
     states
 }
 
@@ -1296,6 +1299,36 @@ fn community_states(
             main.mini_player = true;
             main
         }),
+    ];
+    states
+}
+
+fn motion_states(community: &dyn Fn(crate::community_screen::Section, Option<usize>) -> crate::main_screen::Main) -> Vec<(String, crate::main_screen::Main)> {
+    use crate::duels_screen::{Moments, Phase};
+    let ago = |seconds: f32| Some(std::time::Instant::now() - std::time::Duration::from_secs_f32(seconds));
+    let seconds: f32 = std::env::var("DOSSIER_MOTION_AT").ok().and_then(|said| said.parse().ok()).unwrap_or(1.2);
+    let staged = |state: &str, moments: Moments| {
+        let mut main = community(crate::community_screen::Section::Duels, None);
+        main.duels = Box::new(staged_duels(false));
+        let mut duel = staged_duel(state);
+        let mut players = std::collections::BTreeMap::new();
+        players.insert("1".to_owned(), crate::duels::Record { rating: Some(1612), rd: Some(168), won: 14, lost: 9 });
+        players.insert("3".to_owned(), crate::duels::Record { rating: Some(1598), rd: Some(141), won: 22, lost: 17 });
+        let between = [("1".to_owned(), 2), ("3".to_owned(), 1)].into_iter().collect();
+        duel.meeting = Some(crate::duels::Meeting { players, between });
+        let id = duel.id.clone();
+        main.duels.duel = Some(duel);
+        main.duels.moments = Moments { duel: Some(id), ..moments };
+        main
+    };
+    let mut states: Vec<(String, crate::main_screen::Main)> = Vec::new();
+    frames![states;
+        ("motion-meet".to_owned(), staged("WAITING_PLAYERS", Moments { phase: Some(Phase::Room), phase_at: ago(seconds), met_at: ago(seconds), ..Moments::default() })),
+        ("motion-reveal".to_owned(), staged("PREPARING", Moments { phase: Some(Phase::Reveal), from: Some(Phase::Room), phase_at: ago(seconds), ..Moments::default() })),
+        ("motion-hold".to_owned(), staged("DRAFTING", Moments { phase: Some(Phase::Draft), turns: 3, hold: Some(("NM1".to_owned(), ago(seconds).unwrap_or_else(std::time::Instant::now))), ..Moments::default() })),
+        ("motion-turn".to_owned(), staged("DRAFTING", Moments { phase: Some(Phase::Draft), turns: 3, turn_at: ago(seconds), ..Moments::default() })),
+        ("motion-round".to_owned(), staged("WAITING_READY", Moments { phase: Some(Phase::Ready), from: Some(Phase::Draft), phase_at: ago(seconds), ..Moments::default() })),
+        ("motion-result".to_owned(), staged("COMPLETED", Moments { phase: Some(Phase::Result), from: Some(Phase::Playing), phase_at: ago(seconds), ..Moments::default() })),
     ];
     states
 }

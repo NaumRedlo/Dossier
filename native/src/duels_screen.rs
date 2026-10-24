@@ -46,9 +46,35 @@ pub struct State {
     pub rested_at: Option<std::time::Instant>,
     pub tempos: std::collections::HashMap<i64, f32>,
     pub timed: std::collections::HashSet<i64>,
+    pub moments: Moments,
 }
 
 pub const DWELL: std::time::Duration = std::time::Duration::from_millis(500);
+pub const MEET: f32 = 4.7;
+pub const REVEAL: f32 = 1.9;
+pub const TURN: f32 = 1.0;
+pub const ROUND: f32 = 2.4;
+pub const RESULT: f32 = 3.3;
+pub const HOLD: f32 = 2.5;
+pub const LET_GO: f32 = 0.55;
+
+#[derive(Debug, Clone, Default)]
+pub struct Moments {
+    pub duel: Option<String>,
+    pub phase: Option<Phase>,
+    pub from: Option<Phase>,
+    pub phase_at: Option<std::time::Instant>,
+    pub met_at: Option<std::time::Instant>,
+    pub turns: usize,
+    pub turn_at: Option<std::time::Instant>,
+    pub hold: Option<(String, std::time::Instant)>,
+    pub let_go: Option<(String, f32, std::time::Instant)>,
+    pub sent: Option<String>,
+}
+
+pub fn since(at: Option<std::time::Instant>) -> f32 {
+    at.map_or(f32::MAX, |at| at.elapsed().as_secs_f32())
+}
 
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -89,6 +115,8 @@ pub enum Message {
     Profile(i64),
     Tempo(i64, Option<f32>),
     PreviewEnded,
+    Grip(String),
+    Release,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -159,6 +187,62 @@ impl State {
     }
 
     pub fn update(&mut self, message: Message, now: i64) -> Vec<Effect> {
+        let effects = self.step(message, now);
+        self.observe();
+        effects
+    }
+
+    fn observe(&mut self) {
+        let instant = std::time::Instant::now();
+        let Some(duel) = self.shown() else {
+            self.moments = Moments::default();
+            return;
+        };
+        let phase = phase_of(&duel.state);
+        let turns = duel.draft.len();
+        if self.moments.duel.as_deref() != Some(duel.id.as_str()) {
+            self.moments = Moments {
+                duel: Some(duel.id.clone()),
+                phase: Some(phase),
+                phase_at: Some(instant),
+                met_at: (phase == Phase::Room).then_some(instant),
+                turns,
+                ..Moments::default()
+            };
+            return;
+        }
+        if self.moments.phase != Some(phase) {
+            self.moments.from = self.moments.phase;
+            self.moments.phase = Some(phase);
+            self.moments.phase_at = Some(instant);
+        }
+        if turns > self.moments.turns {
+            self.moments.turns = turns;
+            self.moments.turn_at = Some(instant);
+            self.moments.sent = None;
+        }
+    }
+
+    pub fn animating(&self) -> bool {
+        let moments = &self.moments;
+        let phase_time = since(moments.phase_at);
+        since(moments.met_at) < MEET
+            || (moments.phase == Some(Phase::Reveal) && phase_time < REVEAL)
+            || (moments.phase == Some(Phase::Ready) && moments.from == Some(Phase::Draft) && phase_time < ROUND)
+            || (moments.phase == Some(Phase::Result) && moments.from.is_some_and(|from| from != Phase::Result) && phase_time < RESULT)
+            || since(moments.turn_at) < TURN
+            || moments.hold.is_some()
+            || moments.let_go.as_ref().is_some_and(|(_, _, at)| at.elapsed().as_secs_f32() < LET_GO)
+    }
+
+    fn let_go(&mut self) {
+        if let Some((slot, at)) = self.moments.hold.take() {
+            let share = (at.elapsed().as_secs_f32() / HOLD).min(1.0);
+            self.moments.let_go = Some((slot, share, std::time::Instant::now()));
+        }
+    }
+
+    fn step(&mut self, message: Message, now: i64) -> Vec<Effect> {
         match message {
             Message::Loaded(Ok(snapshot)) => {
                 self.loading = false;
@@ -313,6 +397,11 @@ impl State {
                 }
                 effects
             }
+            Message::Frame if self.moments.hold.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs_f32() >= HOLD) => {
+                let Some((slot, _)) = self.moments.hold.take() else { return Vec::new() };
+                self.moments.sent = Some(slot.clone());
+                self.step(Message::Act("draft-actions", serde_json::json!({ "slot": slot })), now)
+            }
             Message::Frame => {
                 if let Some((beatmap, since)) = self.hovered {
                     if self.hearing != Some(beatmap) && self.rested != Some(beatmap) && since.elapsed() >= DWELL {
@@ -335,6 +424,9 @@ impl State {
             }
             Message::Acted(said) => {
                 self.acting = false;
+                if said.is_err() {
+                    self.moments.sent = None;
+                }
                 match said {
                     Ok(duel) => {
                         let id = duel.id.clone();
@@ -369,7 +461,19 @@ impl State {
                 }
                 effects
             }
+            Message::Grip(slot) => {
+                if self.moments.hold.is_none() && self.moments.sent.is_none() && !self.acting {
+                    self.moments.hold = Some((slot, std::time::Instant::now()));
+                    self.moments.let_go = None;
+                }
+                Vec::new()
+            }
+            Message::Release => {
+                self.let_go();
+                Vec::new()
+            }
             Message::Hover(None) => {
+                self.let_go();
                 self.hovered = None;
                 self.rested = None;
                 if self.hearing.take().is_some() {
@@ -551,16 +655,20 @@ pub(crate) fn initial(name: &str) -> String {
     name.chars().find(|letter| letter.is_alphanumeric()).map(|first| first.to_uppercase().to_string()).unwrap_or_default()
 }
 
+pub(crate) fn fa(colour: Color) -> Color {
+    Color { a: colour.a * ui::fade(), ..colour }
+}
+
 pub(crate) fn words<'a, M: 'a>(said: String, size: f32, colour: Color) -> Element<'a, M> {
-    text(said).size(size).font(theme::SANS).color(colour).into()
+    text(said).size(size).font(theme::SANS).color(fa(colour)).into()
 }
 
 pub(crate) fn strong<'a, M: 'a>(said: String, size: f32, colour: Color) -> Element<'a, M> {
-    text(said).size(size).font(theme::SANS_SEMI).color(colour).into()
+    text(said).size(size).font(theme::SANS_SEMI).color(fa(colour)).into()
 }
 
 pub(crate) fn bold<'a, M: 'a>(said: String, size: f32, colour: Color) -> Element<'a, M> {
-    text(said).size(size).font(theme::SANS_SEMI).color(colour).into()
+    text(said).size(size).font(theme::SANS_SEMI).color(fa(colour)).into()
 }
 
 const FACES: [Color; 8] = [color!(0x4f72c4), color!(0x2f8a8a), color!(0xa04878), color!(0xb0682c), color!(0x7a5ac8), color!(0x4a8a3a), color!(0x8a6a2a), color!(0xc0504a)];
@@ -583,13 +691,14 @@ pub(crate) fn mapper_face<'a, M: 'a>(name: &str, side: f32) -> Element<'a, M> {
 }
 
 fn face<'a, M: 'a>(name: &str, side: f32, ring: f32) -> Element<'a, M> {
-    let colour = face_colour(name);
-    container(text(initial(name)).size(side * 0.42).font(theme::SANS_SEMI).color(Color::WHITE))
+    let colour = fa(face_colour(name));
+    let edge = fa(theme::GROUND);
+    container(text(initial(name)).size(side * 0.42).font(theme::SANS_SEMI).color(fa(Color::WHITE)))
         .center_x(side)
         .center_y(side)
         .style(move |_| container::Style {
             background: Some(iced::Background::Color(colour)),
-            border: iced::Border { radius: (side / 2.0).into(), width: ring, color: theme::GROUND },
+            border: iced::Border { radius: (side / 2.0).into(), width: ring, color: edge },
             ..container::Style::default()
         })
         .into()
@@ -619,12 +728,13 @@ pub(crate) fn outlined<'a, M: Clone + 'a>(inside: Element<'a, M>, on: Option<M>)
 }
 
 pub(crate) fn outlined_wide<'a, M: Clone + 'a>(inside: Element<'a, M>, on: Option<M>) -> Element<'a, M> {
-    let made = iced::widget::button(inside).padding([0, 12]).style(|_, status| {
+    let (row_fill, edge) = (fa(ROW), fa(OUTLINE));
+    let made = iced::widget::button(inside).padding([0, 12]).style(move |_, status| {
         let lit = matches!(status, iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed);
         iced::widget::button::Style {
-            background: Some(iced::Background::Color(if lit { ROW } else { Color::TRANSPARENT })),
+            background: Some(iced::Background::Color(if lit { row_fill } else { Color::TRANSPARENT })),
             text_color: INK,
-            border: iced::Border { color: OUTLINE, width: 1.0, radius: theme::CONTROL_RADIUS.into() },
+            border: iced::Border { color: edge, width: 1.0, radius: theme::CONTROL_RADIUS.into() },
             ..iced::widget::button::Style::default()
         }
     });
@@ -802,7 +912,7 @@ fn live_panel<'a>(w: &Words, live: &Live) -> Element<'a, Message> {
 
 pub fn view<'a>(state: &State, w: &Words, now: i64, wide: f32) -> Element<'a, Message> {
     if let Some(duel) = state.shown() {
-        return crate::duel_view::view(state, duel, w, now);
+        return crate::duel_view::view(state, duel, w, now, wide);
     }
     if let Some(running) = &state.watching {
         return crate::duel_watch::view(state, running, w, wide);

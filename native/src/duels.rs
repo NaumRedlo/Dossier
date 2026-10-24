@@ -245,7 +245,7 @@ impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Failure::Network(said) => write!(f, "{said}"),
-            Failure::Refused { message, .. } => write!(f, "{message}"),
+            Failure::Refused { code, message, .. } => write!(f, "{}", if message.is_empty() { code } else { message }),
             Failure::Status(code) => write!(f, "{code}"),
         }
     }
@@ -255,6 +255,11 @@ pub fn key() -> String {
     static COUNT: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
     format!("dossier-{:x}-{:x}-{:x}", nanos, std::process::id(), COUNT.fetch_add(1, Ordering::Relaxed))
+}
+
+#[test]
+fn a_refusal_without_a_message_still_explains_the_error() {
+    assert_eq!(refused(403, r#"{"error":"NOT_LINKED"}"#).to_string(), "NOT_LINKED");
 }
 
 fn refused(code: u16, body: &str) -> Failure {

@@ -24,6 +24,7 @@ pub struct State {
     pub loading: bool,
     pub acting: bool,
     pub failed: Option<String>,
+    pub roles_failed: Option<String>,
     pub duel: Option<Duel>,
     pub reading: bool,
     pub covers: std::collections::HashMap<i64, iced::widget::image::Handle>,
@@ -82,12 +83,12 @@ pub struct Snapshot {
     pub live: Live,
     pub mine: Vec<Duel>,
     pub notices: Vec<crate::duels::Notice>,
-    pub roles: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Loaded(Result<Snapshot, String>),
+    Roles(Result<Vec<String>, String>),
     Search,
     Cancel,
     Queued(bool, Result<(), String>),
@@ -244,13 +245,21 @@ impl State {
 
     fn step(&mut self, message: Message, now: i64) -> Vec<Effect> {
         match message {
+            Message::Roles(Ok(roles)) => {
+                self.roles = roles;
+                self.roles_failed = None;
+                Vec::new()
+            }
+            Message::Roles(Err(why)) => {
+                self.roles_failed = Some(why);
+                Vec::new()
+            }
             Message::Loaded(Ok(snapshot)) => {
                 self.loading = false;
                 self.failed = None;
                 self.me = Some(snapshot.me);
                 self.live = snapshot.live;
                 self.mine = snapshot.mine;
-                self.roles = snapshot.roles;
                 if self.current().is_some() {
                     self.searching = None;
                 }
@@ -918,7 +927,7 @@ pub fn view<'a>(state: &State, w: &Words, now: i64, wide: f32) -> Element<'a, Me
         return crate::duel_watch::view(state, running, w, wide);
     }
     let mut left = column![standing(w, state.me.as_ref()), action(w, state, now)].spacing(26).width(Length::Fill).padding(Padding { top: 24.0, ..Padding::ZERO });
-    if let Some(why) = &state.failed {
+    if let Some(why) = state.failed.as_ref().or(state.roles_failed.as_ref()) {
         left = left.push(row![glyph(Icon::Warn, 16.0, LOST), words(w.with("duels-failed", &[("reason", why.clone())]), 14.0, MUTED)].spacing(8).align_y(Alignment::Center));
     }
     let page = row![left, live_panel(w, &state.live)].spacing(28).height(Length::Fill);
@@ -966,6 +975,19 @@ mod tests {
     }
 
     #[test]
+    fn permissions_load_even_when_duel_data_fails() {
+        let mut state = State::default();
+        state.update(Message::Loaded(Err("profile failed".into())), 0);
+        state.update(Message::Roles(Ok(vec!["OWNER".into()])), 0);
+        assert_eq!(state.roles, vec!["OWNER"]);
+        assert_eq!(state.failed.as_deref(), Some("profile failed"));
+        state.update(Message::Roles(Err("roles failed".into())), 0);
+        assert_eq!(state.roles_failed.as_deref(), Some("roles failed"));
+        state.update(Message::Roles(Ok(Vec::new())), 0);
+        assert!(state.roles.is_empty() && state.roles_failed.is_none());
+    }
+
+    #[test]
     fn answering_reloads_and_failures_are_kept() {
         let mut state = State { player: Some(1), ..State::default() };
         assert_eq!(state.update(Message::Answer("d".into(), 3, true), 0), vec![Effect::Answer("d".into(), 3, true)]);
@@ -979,7 +1001,7 @@ mod tests {
     fn a_running_duel_is_followed_linked_read_acknowledged_and_closed() {
         use crate::duels::{Entry, PoolView};
         let mut state = State { player: Some(1), ..State::default() };
-        let snapshot = |mine: Vec<Duel>, notices: Vec<crate::duels::Notice>| Snapshot { me: Me::default(), live: Live::default(), mine, notices, roles: Vec::new() };
+        let snapshot = |mine: Vec<Duel>, notices: Vec<crate::duels::Notice>| Snapshot { me: Me::default(), live: Live::default(), mine, notices };
         let effects = state.update(Message::Loaded(Ok(snapshot(vec![duel("PREPARING", &[])], Vec::new()))), 0);
         assert_eq!(effects, vec![Effect::Link(true), Effect::Read("d".into())]);
         let mut full = duel("PREPARING", &["pool_ack"]);
@@ -1004,7 +1026,7 @@ mod tests {
         assert_eq!(state.update(Message::Challenge(3), 0), vec![Effect::Invite(3)]);
         state.acting = false;
         let notice = crate::duels::Notice { id: 9, duel: "d".into(), sequence: 1, payload: serde_json::json!({ "kind": "invitation", "by": 2 }) };
-        let effects = state.update(Message::Loaded(Ok(Snapshot { me: Me::default(), live: Live::default(), mine: vec![duel("INVITED", &["accept"])], notices: vec![notice], roles: Vec::new() })), 0);
+        let effects = state.update(Message::Loaded(Ok(Snapshot { me: Me::default(), live: Live::default(), mine: vec![duel("INVITED", &["accept"])], notices: vec![notice] })), 0);
         assert_eq!(effects.last(), Some(&Effect::Tell(vec![("duels-told-invitation", "ssnowy".into())], vec![9])));
     }
 

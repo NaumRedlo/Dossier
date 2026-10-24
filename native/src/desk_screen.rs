@@ -123,7 +123,8 @@ pub enum Post {
     Rollback { reason: String },
     Finalize { duel: String, match_id: i64, game_id: i64, reason: String },
     Cancel { duel: String, reason: String },
-    Grant { player: i64, role: String, reason: String },
+    Grant { who: String, role: String, reason: String },
+    Revoke { player: i64, role: String, reason: String },
     Discover { band: usize, reason: String },
     Train { reason: String },
     Delete { version: String, reason: String },
@@ -150,6 +151,7 @@ pub enum Message {
     Reason(String),
     Decide(&'static str, Option<String>),
     NotThis(bool),
+    Revoke(i64, String),
     Posted(Result<(), String>),
     Cover(i64, Option<image::Handle>),
     Hear(i64),
@@ -228,6 +230,7 @@ pub struct State {
     pub training_lost: bool,
     pub moving: bool,
     pub confirming: bool,
+    pub revoking: Option<(i64, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -623,7 +626,7 @@ impl State {
                 self.post(post)
             }
             Message::Player(said) => {
-                self.player = said.chars().filter(char::is_ascii_digit).collect();
+                self.player = said;
                 Vec::new()
             }
             Message::Role(role) => {
@@ -631,9 +634,21 @@ impl State {
                 Vec::new()
             }
             Message::Grant => {
-                let (Ok(player), Some(role)) = (self.player.parse::<i64>(), self.role) else { return Vec::new() };
+                let (who, Some(role)) = (self.player.trim().to_owned(), self.role) else { return Vec::new() };
+                if who.is_empty() {
+                    return Vec::new();
+                }
                 let reason = self.reason.trim().to_owned();
-                self.post(Post::Grant { player, role: role.to_owned(), reason })
+                self.post(Post::Grant { who, role: role.to_owned(), reason })
+            }
+            Message::Revoke(player, role) => {
+                if self.revoking.as_ref() != Some(&(player, role.clone())) {
+                    self.revoking = Some((player, role));
+                    return Vec::new();
+                }
+                self.revoking = None;
+                let reason = self.reason.trim().to_owned();
+                self.post(Post::Revoke { player, role, reason })
             }
         }
     }
@@ -837,24 +852,24 @@ fn stars_of<'a>(stars: Option<f32>, size: f32) -> Element<'a, Message> {
     }
 }
 
-fn tabs<'a>(w: &Words, state: &State, roles: &[String]) -> Element<'a, Message> {
+fn tabs<'a>(w: &Words, state: &State, roles: &[String], k: f32) -> Element<'a, Message> {
     let mut line = row![].spacing(4).align_y(Alignment::Center);
     for tab in Tab::ALL.into_iter().filter(|tab| tab.open(roles)) {
         let on = tab == state.tab;
-        let mut inside = row![strong(w.t(tab.key()), 15.0, if on { INK } else { MUTED })].spacing(8).align_y(Alignment::Center);
+        let mut inside = row![strong(w.t(tab.key()), 15.0 * k, if on { INK } else { MUTED })].spacing(8).align_y(Alignment::Center);
         let count = match tab {
             Tab::Queue => state.desk.tasks.len(),
             Tab::Duels => state.desk.stuck.len(),
             _ => 0,
         };
         if count > 0 {
-            inside = inside.push(container(strong(count.to_string(), 12.0, Color::WHITE)).padding([1, 7]).style(|_| container::Style {
+            inside = inside.push(container(strong(count.to_string(), 12.0 * k, Color::WHITE)).padding([1.0 * k, 7.0 * k]).style(|_| container::Style {
                 background: Some(Background::Color(ACCENT)),
                 border: Border { radius: 9.0.into(), ..Border::default() },
                 ..container::Style::default()
             }));
         }
-        let made = button(container(inside).center_y(40.0)).padding([0, 14]).on_press(Message::Tab(tab)).style(move |_, status| {
+        let made = button(container(inside).center_y(40.0 * k)).padding([0.0, 14.0 * k]).on_press(Message::Tab(tab)).style(move |_, status| {
             let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
             button::Style {
                 background: Some(Background::Color(if on { ui::mix(ACCENT, theme::GROUND, 0.78) } else if lit { ROW } else { Color::TRANSPARENT })),
@@ -1618,23 +1633,25 @@ fn role_name(w: &Words, role: &str) -> String {
     w.t(&format!("desk-role-{}", role.to_lowercase().replace('_', "-")))
 }
 
-fn people_list<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
-    let mut list = column![].spacing(2);
+fn people_list<'a>(w: &Words, state: &'a State, owner: bool, k: f32) -> Element<'a, Message> {
+    let mut list = column![].spacing(8.0 * k);
     for held in &state.desk.people {
         let name = held.name.clone().unwrap_or_else(|| held.player.to_string());
-        let mut line = row![person(&name, 32.0), container(strong(name.clone(), 15.0, INK)).width(Length::Fill)].spacing(10).height(48).align_y(Alignment::Center);
+        let mut line = row![person(&name, 38.0 * k), container(strong(name.clone(), 17.0 * k, INK)).width(Length::Fill)].spacing(12.0 * k).align_y(Alignment::Center);
         for role in &held.roles {
-            line = line.push(container(strong(role_name(w, role), 13.0, INK)).padding([4, 10]).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 8.0.into(), ..Border::default() }, ..container::Style::default() }));
+            if !owner || role == desk::OWNER {
+                line = line.push(container(strong(role_name(w, role), 14.0 * k, INK)).padding([6.0 * k, 12.0 * k]).style(|_| container::Style { background: Some(Background::Color(LIT)), border: Border { radius: 8.0.into(), ..Border::default() }, ..container::Style::default() }));
+                continue;
+            }
+            let asking = state.revoking.as_ref() == Some(&(held.player, role.clone()));
+            let said = if asking { w.t("desk-revoke-sure") } else { role_name(w, role) };
+            let inside = row![strong(said, 14.0 * k, if asking { BAD } else { INK }), glyph(Icon::Close, 13.0 * k, if asking { BAD } else { MUTED })].spacing(8).align_y(Alignment::Center);
+            line = line.push(button(inside).padding([6.0 * k, 12.0 * k]).style(move |_, status| {
+                let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                button::Style { background: Some(Background::Color(if asking || lit { ui::mix(ACCENT, theme::GROUND, 0.82) } else { LIT })), text_color: INK, border: Border { radius: 8.0.into(), ..Border::default() }, ..button::Style::default() }
+            }).on_press_maybe((!state.posting).then(|| Message::Revoke(held.player, role.clone()))));
         }
-        list = list.push(line);
-    }
-    list.into()
-}
-
-fn rights<'a>(w: &Words) -> Element<'a, Message> {
-    let mut list = column![words(w.t("desk-rights"), 13.0, FAINT)].spacing(8);
-    for role in desk::GRANTED {
-        list = list.push(row![container(words(role_name(w, role), 14.0, MUTED)).width(90), words(w.t(&format!("desk-role-{}-means", role.to_lowercase().replace('_', "-"))), 13.0, FAINT)].spacing(8));
+        list = list.push(container(line).padding([10.0 * k, 14.0 * k]).width(Length::Fill).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default() }));
     }
     list.into()
 }
@@ -1652,6 +1669,11 @@ fn did(w: &Words, state: &State, entry: &desk::Entry) -> String {
         let label = after("label");
         let label = if label == desk::EXCLUDED { w.t("desk-no-slot") } else { label };
         return w.with(&key, &[("year", year), ("stage", stage_name(w, stage).to_lowercase()), ("slot", slot), ("label", label)]);
+    }
+    if matches!(entry.action.as_str(), "grant" | "revoke") {
+        let (player, role) = entry.target.split_once(':').unwrap_or((entry.target.as_str(), ""));
+        let name = player.parse::<i64>().ok().and_then(|player| state.desk.people.iter().find(|held| held.player == player)).and_then(|held| held.name.clone()).unwrap_or_else(|| player.to_owned());
+        return w.with(&key, &[("target", format!("{name}, {}", role_name(w, role).to_lowercase()))]);
     }
     let target = if matches!(entry.action.as_str(), "publish_model" | "delete_model") { version_name(w, &entry.target) } else { entry.target.clone() };
     w.with(&key, &[("target", target)])
@@ -1676,35 +1698,40 @@ fn journal_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Messag
     if state.desk.journal.is_empty() {
         log = log.push(words(w.t("desk-journal-empty"), 14.0, FAINT));
     }
-    let aside = container(column![heading(w.t("desk-people")), people_list(w, state), Space::new().height(Length::Fill), rights(w), main_button(w.t("desk-grant"), Some(Message::Tab(Tab::People)))].spacing(8)).padding(18).width(360).height(Length::Fill).style(theme::slab);
+    let aside = container(column![heading(w.t("desk-people")), people_list(w, state, false, 1.0), Space::new().height(Length::Fill), main_button(w.t("desk-grant"), Some(Message::Tab(Tab::People)))].spacing(8)).padding(18).width(360).height(Length::Fill).style(theme::slab);
     row![panel(scrollable(log).direction(ui::hidden_bar()).into()), aside].spacing(14).height(Length::Fill).into()
 }
 
-fn people_view<'a>(w: &Words, state: &'a State, roles: &[String]) -> Element<'a, Message> {
+fn people_view<'a>(w: &Words, state: &'a State, roles: &[String], k: f32) -> Element<'a, Message> {
     let owner = roles.iter().any(|role| role == desk::OWNER);
-    let mut choices = row![].spacing(6);
+    let mut choices = column![].spacing(8.0 * k);
     for role in desk::GRANTED {
-        choices = choices.push(chip(role_name(w, role), state.role == Some(role), Message::Role(role)));
+        let on = state.role == Some(role);
+        let inside = column![
+            strong(role_name(w, role), 16.0 * k, INK),
+            words(w.t(&format!("desk-role-{}-means", role.to_lowercase().replace('_', "-"))), 13.0 * k, if on { MUTED } else { FAINT }),
+        ]
+        .spacing(3);
+        choices = choices.push(button(container(inside).padding([10.0 * k, 14.0 * k]).width(Length::Fill)).padding(0).width(Length::Fill).style(quiet(on, 12.0)).on_press(Message::Role(role)));
     }
-    let ready = owner && !state.player.is_empty() && state.role.is_some() && !state.posting;
+    let ready = owner && !state.player.trim().is_empty() && state.role.is_some() && !state.posting;
     let form = container(column![
-        heading(w.t("desk-grant")),
-        labelled(w.t("desk-player"), field(w.t("desk-player-hint"), &state.player, Message::Player)),
-        labelled(w.t("desk-role"), choices.into()),
-        labelled(w.t("desk-reason"), field(w.t("desk-reason-hint"), &state.reason, Message::Reason)),
-        main_button(w.t("desk-grant"), ready.then_some(Message::Grant)),
-        Space::new().height(Length::Fill),
-        rights(w),
-    ].spacing(14))
-    .padding(18)
-    .width(420)
+        strong(w.t("desk-grant"), 20.0 * k, INK),
+        column![words(w.t("desk-player"), 13.0 * k, FAINT), field_k(w.t("desk-player-hint"), &state.player, Message::Player, k)].spacing(6),
+        column![words(w.t("desk-role"), 13.0 * k, FAINT), choices].spacing(6),
+        column![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(6),
+        main_button_k(w.t("desk-grant"), ready.then_some(Message::Grant), k),
+    ].spacing(16.0 * k))
+    .padding(22.0 * k)
+    .width(440.0 * k)
     .height(Length::Fill)
     .style(theme::slab);
-    row![panel(column![heading(w.t("desk-people")), scrollable(people_list(w, state)).direction(ui::hidden_bar())].spacing(8).into()), form].spacing(14).height(Length::Fill).into()
+    let list: Element<'a, Message> = if state.desk.people.is_empty() { words(w.t("desk-people-none"), 15.0 * k, FAINT) } else { people_list(w, state, owner, k) };
+    row![panel(column![strong(w.t("desk-people"), 20.0 * k, INK), scrollable(list).direction(ui::hidden_bar())].spacing(14.0 * k).into()), form].spacing(14).height(Length::Fill).into()
 }
 
 pub fn view<'a>(state: &'a State, roles: &[String], w: &Words, now: i64, wide: f32) -> Element<'a, Message> {
-    let k = ((wide - 80.0) / 1200.0).clamp(1.0, 1.45);
+    let k = ((wide - 80.0) / 1050.0).clamp(1.0, 1.5);
     let body: Element<'a, Message> = match state.tab {
         Tab::Queue => queue_view(w, state, now, k),
         Tab::Label => label_view(w, state),
@@ -1713,9 +1740,9 @@ pub fn view<'a>(state: &'a State, roles: &[String], w: &Words, now: i64, wide: f
         Tab::Model => model_view(w, state, roles, now, k),
         Tab::Duels => duels_view(w, state, now),
         Tab::Journal => journal_view(w, state, now),
-        Tab::People => people_view(w, state, roles),
+        Tab::People => people_view(w, state, roles, k),
     };
-    let mut page = column![tabs(w, state, roles)].spacing(14).width(Length::Fill).height(Length::Fill);
+    let mut page = column![tabs(w, state, roles, k)].spacing(14).width(Length::Fill).height(Length::Fill);
     if let Some(why) = &state.failed {
         page = page.push(strong(w.with("desk-failed", &[("why", why.clone())]), 14.0, BAD));
     }
@@ -1753,6 +1780,18 @@ mod tests {
         let _ = state.update(Message::Reason("короткие группы".into()), &w);
         let effects = state.update(Message::Decide("APPROVE", None), &w);
         assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "APPROVE", slot: None, reason: "короткие группы".into() })]);
+    }
+
+    #[test]
+    fn a_role_is_given_by_osu_id_or_name_and_taken_back_with_a_second_press() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        let mut state = State::default();
+        let _ = state.update(Message::Player(" NaumRedlo ".into()), &w);
+        let _ = state.update(Message::Role(desk::REVIEWER), &w);
+        assert_eq!(state.update(Message::Grant, &w), [Effect::Post(Post::Grant { who: "NaumRedlo".into(), role: desk::REVIEWER.into(), reason: String::new() })]);
+        let _ = state.update(Message::Posted(Ok(())), &w);
+        assert!(state.update(Message::Revoke(2, desk::REVIEWER.into()), &w).is_empty());
+        assert_eq!(state.update(Message::Revoke(2, desk::REVIEWER.into()), &w), [Effect::Post(Post::Revoke { player: 2, role: desk::REVIEWER.into(), reason: String::new() })]);
     }
 
     #[test]

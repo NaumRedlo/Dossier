@@ -345,8 +345,12 @@ pub fn cancel(account: &Account, duel: &str, reason: &str) -> Result<Value, Fail
     call(account, reqwest::Method::POST, &format!("/render/admin/duels/{duel}/cancel"), Some(json!({ "reason": reason })), None)
 }
 
-pub fn grant(account: &Account, player: i64, role: &str, reason: &str) -> Result<Value, Failure> {
-    call(account, reqwest::Method::POST, "/render/admin/duels/roles", Some(json!({ "player_id": player, "role": role, "reason": reason })), None)
+pub fn grant(account: &Account, who: &str, role: &str, reason: &str) -> Result<Value, Failure> {
+    call(account, reqwest::Method::POST, "/render/admin/duels/roles", Some(json!({ "who": who, "role": role, "reason": reason })), None)
+}
+
+pub fn revoke(account: &Account, player: i64, role: &str, reason: &str) -> Result<Value, Failure> {
+    call(account, reqwest::Method::POST, "/render/admin/duels/roles/revoke", Some(json!({ "player_id": player, "role": role, "reason": reason })), None)
 }
 
 #[cfg(test)]

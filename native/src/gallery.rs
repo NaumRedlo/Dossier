@@ -1398,7 +1398,7 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
         ("main-community-balance-journal".to_owned(), tabbed(Tab::Journal)),
         ("main-community-balance-people".to_owned(), {
             let mut main = tabbed(Tab::People);
-            main.desk.player = "42".into();
+            main.desk.player = "aeris".into();
             main.desk.role = Some(crate::desk::REVIEWER);
             main
         }),

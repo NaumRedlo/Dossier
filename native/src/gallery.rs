@@ -1350,6 +1350,12 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.desk.reason = "Альтернейт есть, но стримов больше".into();
             main
         }),
+        ("main-community-balance-move".to_owned(), {
+            let mut main = tabbed(Tab::Queue);
+            main.desk.moving = true;
+            main.desk.reason = "Тут альтернейт, а не техникал".into();
+            main
+        }),
         ("main-community-balance-label".to_owned(), tabbed(Tab::Label)),
         ("main-community-balance-tournament".to_owned(), {
             let mut main = tabbed(Tab::Label);

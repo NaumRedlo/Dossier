@@ -149,6 +149,7 @@ pub enum Message {
     Pick(i64),
     Reason(String),
     Decide(&'static str, Option<String>),
+    NotThis(bool),
     Posted(Result<(), String>),
     Cover(i64, Option<image::Handle>),
     Hear(i64),
@@ -223,9 +224,10 @@ pub struct State {
     pub abouts: HashMap<i64, desk::About>,
     pub looked: HashSet<i64>,
     pub picking: bool,
-    pub asking: bool,
     pub training: Option<(usize, std::time::Instant)>,
     pub training_lost: bool,
+    pub moving: bool,
+    pub confirming: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -387,7 +389,6 @@ impl State {
                 }
             }
             Message::Tab(tab) => {
-                self.asking = false;
                 if tab == Tab::Label && self.tab == Tab::Label {
                     self.adding = false;
                 }
@@ -405,8 +406,13 @@ impl State {
                 self.picked = None;
                 Vec::new()
             }
+            Message::NotThis(moving) => {
+                self.moving = moving;
+                Vec::new()
+            }
             Message::Pick(beatmap) => {
                 self.picked = Some(beatmap);
+                self.moving = false;
                 self.reason.clear();
                 let set = self.task().and_then(|task| task.map.beatmapset_id);
                 self.covered([set])
@@ -417,9 +423,6 @@ impl State {
             }
             Message::Decide(decision, slot) => {
                 let Some(task) = self.task() else { return Vec::new() };
-                if self.reason.trim().is_empty() {
-                    return Vec::new();
-                }
                 let post = Post::Review { beatmap: task.map.beatmap_id, decision, slot, reason: self.reason.trim().to_owned() };
                 self.post(post)
             }
@@ -428,7 +431,8 @@ impl State {
                 match said {
                     Ok(()) => {
                         self.reason.clear();
-                        self.asking = false;
+                        self.moving = false;
+                        self.confirming = false;
                         self.picked = None;
                         self.label = None;
                         self.match_id.clear();
@@ -475,9 +479,6 @@ impl State {
             Message::SaveCell => {
                 let Some(cell) = self.cell.and_then(|at| self.desk.cells.get(at)).cloned() else { return Vec::new() };
                 let label = self.label.clone().unwrap_or_else(|| cell.shown());
-                if self.reason.trim().is_empty() {
-                    return Vec::new();
-                }
                 let reason = self.reason.trim().to_owned();
                 self.post(Post::Label { cell, beatmap: None, label, reason })
             }
@@ -498,23 +499,16 @@ impl State {
                 Vec::new()
             }
             Message::Version(version) => {
+                self.confirming = false;
                 self.version = Some(version);
                 Vec::new()
             }
             Message::Publish => {
                 let Some(version) = self.version.clone().or_else(|| self.desk.versions.first().map(|found| found.version.clone())) else { return Vec::new() };
-                if self.reason.trim().is_empty() {
-                    self.asking = true;
-                    return Vec::new();
-                }
                 let reason = self.reason.trim().to_owned();
                 self.post(Post::Publish { version, reason })
             }
             Message::Train => {
-                if self.reason.trim().is_empty() {
-                    self.asking = true;
-                    return Vec::new();
-                }
                 let reason = self.reason.trim().to_owned();
                 self.training = Some((self.desk.versions.len(), std::time::Instant::now()));
                 self.training_lost = false;
@@ -522,8 +516,8 @@ impl State {
             }
             Message::Delete => {
                 let Some(version) = self.version.clone().or_else(|| self.desk.versions.first().map(|found| found.version.clone())) else { return Vec::new() };
-                if self.reason.trim().is_empty() {
-                    self.asking = true;
+                if !self.confirming {
+                    self.confirming = true;
                     return Vec::new();
                 }
                 let reason = self.reason.trim().to_owned();
@@ -543,14 +537,11 @@ impl State {
                 vec![Effect::Load]
             }
             Message::Rollback => {
-                if self.reason.trim().is_empty() {
-                    self.asking = true;
-                    return Vec::new();
-                }
                 let reason = self.reason.trim().to_owned();
                 self.post(Post::Rollback { reason })
             }
             Message::Stuck(duel) => {
+                self.confirming = false;
                 self.stuck = Some(duel);
                 self.match_id.clear();
                 self.game_id.clear();
@@ -567,15 +558,13 @@ impl State {
             Message::Finalize => {
                 let Some(duel) = self.stuck_shown().map(|found| found.id.clone()) else { return Vec::new() };
                 let (Ok(match_id), Ok(game_id)) = (self.match_id.parse::<i64>(), self.game_id.parse::<i64>()) else { return Vec::new() };
-                if self.reason.trim().is_empty() {
-                    return Vec::new();
-                }
                 let reason = self.reason.trim().to_owned();
                 self.post(Post::Finalize { duel, match_id, game_id, reason })
             }
             Message::CancelDuel => {
                 let Some(duel) = self.stuck_shown().map(|found| found.id.clone()) else { return Vec::new() };
-                if self.reason.trim().is_empty() {
+                if !self.confirming {
+                    self.confirming = true;
                     return Vec::new();
                 }
                 let reason = self.reason.trim().to_owned();
@@ -643,9 +632,6 @@ impl State {
             }
             Message::Grant => {
                 let (Ok(player), Some(role)) = (self.player.parse::<i64>(), self.role) else { return Vec::new() };
-                if self.reason.trim().is_empty() {
-                    return Vec::new();
-                }
                 let reason = self.reason.trim().to_owned();
                 self.post(Post::Grant { player, role: role.to_owned(), reason })
             }
@@ -944,14 +930,27 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32) -> Element<
         .align_y(iced::alignment::Vertical::Bottom)
         .style(|_| container::Style { background: Some(crate::duel_view::veil_fill()), border: Border { radius: 14.0.into(), ..Border::default() }, ..container::Style::default() }),
     ];
-    let ready = !state.reason.trim().is_empty() && !state.posting;
+    let ready = !state.posting;
     let ask = |message: Message| ready.then_some(message);
     let (caption, question, answers): (String, String, Element<'a, Message>) = match (task.kind.as_str(), task.slot.clone()) {
+        ("review", Some(slot)) if state.moving => {
+            let mut buttons = row![].spacing(6).align_y(Alignment::Center);
+            for other in desk::SLOTS.into_iter().filter(|other| *other != slot) {
+                let made = button(container(tag(other, k)).center_y(36.0 * k)).padding([0.0, 6.0 * k]).style(quiet(false, 9.0));
+                buttons = buttons.push(match ask(Message::Decide("MOVE", Some(other.to_owned()))) {
+                    Some(message) => made.on_press(message),
+                    None => made,
+                });
+            }
+            buttons = buttons.push(container(line_button_k(w.t("desk-fits-none"), ask(Message::Decide("REJECT", None)), k)).width(Length::Shrink));
+            buttons = buttons.push(container(line_button_k(w.t("desk-back"), Some(Message::NotThis(false)), k)).width(Length::Shrink));
+            (w.with("desk-not-slot", &[("slot", slot.clone())]), w.t("desk-which-then"), buttons.wrap().vertical_spacing(6).into())
+        }
         ("review", Some(slot)) => {
             let caption = if task.reason == "uncertain_revealed" { w.with("desk-ask-uncertain", &[("slot", slot.clone())]) } else { w.with("desk-ask-feedback", &[("slot", slot.clone())]) };
             let buttons = row![
                 container(main_button_k(w.with("desk-yes", &[("slot", slot.clone())]), ask(Message::Decide("APPROVE", None)), k)).width(Length::Shrink),
-                container(line_button_k(w.with("desk-no", &[("slot", slot.clone())]), ask(Message::Decide("REJECT", None)), k)).width(Length::Shrink),
+                container(line_button_k(w.with("desk-no", &[("slot", slot.clone())]), (!state.posting).then_some(Message::NotThis(true)), k)).width(Length::Shrink),
                 container(line_button_k(w.t("desk-quarantine"), ask(Message::Decide("QUARANTINE", None)), k)).width(Length::Shrink),
             ]
             .spacing(8)
@@ -973,19 +972,19 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32) -> Element<
         }
     };
     let under = row![listen_button(w, map.beatmap_id, state.hearing == Some(map.beatmap_id), 38.0 * k), link_button(map.beatmap_id, 38.0 * k)].spacing(8).width(280.0 * k);
-    let top = row![
-        column![card, under].spacing(8),
-        column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(answers).padding(Padding { top: 6.0, ..Padding::ZERO })].spacing(8).width(Length::Fill),
-    ]
-    .spacing(18);
-    let mut why = column![].spacing(6);
+    let reason = column![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(6);
+    let decision = column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(answers).padding(Padding { top: 6.0 * k, bottom: 10.0 * k, ..Padding::ZERO }), reason]
+        .spacing(8)
+        .width(Length::Fill);
+    let top = row![column![card, under].spacing(8), decision].spacing(22.0 * k);
+    let mut why = column![].spacing(8);
     if let Some(guess) = &map.model {
         for odds in &guess.top {
             let chosen = Some(&odds.slot) == task.slot.as_ref() || (task.slot.is_none() && Some(&odds.slot) == guess.slot.as_ref());
             let name: Element<'a, Message> = if odds.slot == desk::OTHER { words(w.t("desk-other"), 13.0 * k, FAINT) } else { tag(&odds.slot, k) };
-            why = why.push(row![container(name).width(56.0 * k), bar(odds.probability, if chosen { ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.28) }), container(strong(format!("{:.0}%", odds.probability * 100.0), 14.0 * k, INK)).width(44.0 * k).align_x(iced::alignment::Horizontal::Right)].spacing(10).align_y(Alignment::Center));
+            why = why.push(row![container(name).width(56.0 * k), bar(odds.probability, if chosen { ACCENT } else { MUTED }), container(strong(format!("{:.0}%", odds.probability * 100.0), 14.0 * k, INK)).width(44.0 * k).align_x(iced::alignment::Horizontal::Right)].spacing(10).align_y(Alignment::Center));
         }
-        let mut reasons = column![].spacing(5).padding(Padding { top: 4.0, ..Padding::ZERO });
+        let mut reasons = column![].spacing(5).padding(Padding { top: 6.0 * k, ..Padding::ZERO });
         for reason in guess.reasons.iter().take(3) {
             let (sign, colour) = if reason.weight >= 0.0 { ("+", GOOD) } else { ("−", BAD) };
             reasons = reasons.push(row![container(strong(sign.to_owned(), 14.0 * k, colour)).width(14.0 * k), words(feature(w, &reason.feature), 14.0 * k, MUTED)].spacing(10));
@@ -995,27 +994,34 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32) -> Element<
         why = why.push(words(w.t("desk-no-model"), 14.0 * k, FAINT));
     }
     let version = map.model.as_ref().map(|guess| version_name(w, &guess.version)).unwrap_or_default();
-    let model_side = column![row![strong(w.t("desk-why"), 17.0 * k, INK), container(tight(version, 13.0, FAINT)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right).clip(true)].spacing(12).align_y(Alignment::Center), why].spacing(10).width(Length::Fill);
-    let mut said = column![strong(w.t("desk-players-say"), 17.0 * k, INK)].spacing(10).width(Length::Fill);
-    match &task.opinions {
+    let model_side = block(row![strong(w.t("desk-why"), 17.0 * k, INK), container(tight(version, 13.0 * k, FAINT)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right).clip(true)].spacing(12).align_y(Alignment::Center).into(), why.into(), k);
+    let said: Element<'a, Message> = match &task.opinions {
         Some(opinions) => {
             let voted = opinions.fits + opinions.off;
             let difficulty = opinions.difficulty.iter().max_by_key(|(_, count)| **count).map(|(label, _)| w.t(&format!("desk-difficulty-{label}"))).unwrap_or_else(|| "—".to_owned());
             let slot = task.slot.clone().unwrap_or_default();
-            let notes = column![
-                row![
-                    note(opinions.played.to_string(), w.t("desk-played"), INK, k),
-                    note(w.with("desk-of", &[("count", opinions.off.to_string()), ("total", voted.to_string())]), w.with("desk-off", &[("slot", slot)]), if opinions.off > 0 { BAD } else { INK }, k),
-                ].spacing(8),
-                row![note(difficulty, w.t("desk-difficulty"), INK, k), Space::new().width(Length::Fill)].spacing(8),
+            let stat = |value: String, label: String, colour: Color| -> Element<'a, Message> { column![bold(value, 22.0 * k, colour), words(label, 13.0 * k, FAINT)].spacing(2).width(Length::Fill).into() };
+            row![
+                stat(opinions.played.to_string(), w.t("desk-played"), INK),
+                stat(w.with("desk-of", &[("count", opinions.off.to_string()), ("total", voted.to_string())]), w.with("desk-off", &[("slot", slot)]), if opinions.off > 0 { BAD } else { INK }),
+                stat(difficulty, w.t("desk-difficulty"), INK),
             ]
-            .spacing(8);
-            said = said.push(notes);
+            .spacing(16)
+            .into()
         }
-        None => said = said.push(words(w.t("desk-no-opinions"), 14.0 * k, FAINT)),
-    }
-    let reason = row![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(12).align_y(Alignment::Center);
-    panel(column![top, row![model_side, said].spacing(18), Space::new().height(Length::Fill), reason].spacing(16).into())
+        None => words(w.t("desk-no-opinions"), 14.0 * k, FAINT),
+    };
+    let players = block(strong(w.t("desk-players-say"), 17.0 * k, INK), said, k);
+    let info: Element<'a, Message> = if k >= 1.2 { row![model_side, players].spacing(14).into() } else { column![model_side, players].spacing(14).into() };
+    panel(scrollable(column![top, info].spacing(18.0 * k)).direction(ui::hidden_bar()).into())
+}
+
+fn block<'a>(title: Element<'a, Message>, inside: Element<'a, Message>, k: f32) -> Element<'a, Message> {
+    container(column![title, inside].spacing(12.0 * k))
+        .padding(18.0 * k)
+        .width(Length::Fill)
+        .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 14.0.into(), ..Border::default() }, ..container::Style::default() })
+        .into()
 }
 
 fn tag<'a>(slot: &str, k: f32) -> Element<'a, Message> {
@@ -1329,7 +1335,7 @@ fn owc_aside<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
     for map in &cell.maps {
         maps = maps.push(row![cover(state, map.beatmapset_id, 66.0, 40.0, 7.0), container(titled_map(map.title.as_deref(), map.beatmap_id, 14.0)).width(Length::Fill), if map.label == desk::EXCLUDED || map.label == desk::OTHER { words("—".to_owned(), 13.0, FAINT) } else { slot_tag(&map.label) }].spacing(10).align_y(Alignment::Center));
     }
-    let ready = !state.reason.trim().is_empty() && !state.posting;
+    let ready = !state.posting;
     container(column![
         column![words(w.with("desk-owc-cell", &[("year", cell.year.to_string()), ("stage", stage_name(w, &cell.stage).to_lowercase())]), 14.0, FAINT), bold(w.with("desk-owc-question", &[("slot", cell.slot.clone())]), 22.0, INK)].spacing(4),
         choices.push(none).wrap().vertical_spacing(6),
@@ -1498,8 +1504,8 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
     let live = version.state == "published";
     let mut buttons = row![].spacing(8);
     if !live {
-        buttons = buttons.push(container(line_button_k(w.t("desk-delete"), may.then_some(Message::Delete), k)).width(150.0 * k));
-        buttons = buttons.push(container(main_button_k(w.t("desk-publish"), may.then_some(Message::Publish), k)).width(150.0 * k));
+        buttons = buttons.push(container(line_button_k(w.t(if state.confirming { "desk-delete-sure" } else { "desk-delete" }), may.then_some(Message::Delete), k)).width(170.0 * k));
+        buttons = buttons.push(container(main_button_k(w.t("desk-publish"), may.then_some(Message::Publish), k)).width(170.0 * k));
     }
     let header = row![
         column![
@@ -1553,10 +1559,7 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
     ]
     .spacing(36.0 * k);
     let mut page = column![header, figures, body].spacing(22.0 * k);
-    if state.asking {
-        page = page.push(Space::new().height(Length::Fill));
-        page = page.push(row![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(12).align_y(Alignment::Center));
-    }
+    page = page.push(row![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(12).align_y(Alignment::Center));
     row![aside, panel(scrollable(page).direction(ui::hidden_bar()).into())].spacing(14).height(Length::Fill).into()
 }
 
@@ -1598,7 +1601,7 @@ fn duels_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Message>
         .padding([12, 16])
         .width(Length::Fill)
         .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default() });
-    let ready = !state.reason.trim().is_empty() && !state.posting;
+    let ready = !state.posting;
     let numbers = !state.match_id.is_empty() && !state.game_id.is_empty();
     let detail = panel(column![
         head,
@@ -1606,7 +1609,7 @@ fn duels_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Message>
         row![labelled(w.t("desk-match"), field(String::new(), &state.match_id, Message::MatchId)), labelled(w.t("desk-game"), field(String::new(), &state.game_id, Message::GameId))].spacing(10),
         labelled(w.t("desk-reason"), field(w.t("desk-reason-hint"), &state.reason, Message::Reason)),
         Space::new().height(Length::Fill),
-        row![container(main_button(w.t("desk-finalize"), (ready && numbers).then_some(Message::Finalize))).width(Length::Shrink), container(line_button(w.t("desk-cancel-duel"), ready.then_some(Message::CancelDuel))).width(Length::Shrink)].spacing(10),
+        row![container(main_button(w.t("desk-finalize"), (ready && numbers).then_some(Message::Finalize))).width(Length::Shrink), container(line_button(w.t(if state.confirming { "desk-cancel-sure" } else { "desk-cancel-duel" }), ready.then_some(Message::CancelDuel))).width(Length::Shrink)].spacing(10),
     ].spacing(16).into());
     row![aside, detail].spacing(14).height(Length::Fill).into()
 }
@@ -1683,7 +1686,7 @@ fn people_view<'a>(w: &Words, state: &'a State, roles: &[String]) -> Element<'a,
     for role in desk::GRANTED {
         choices = choices.push(chip(role_name(w, role), state.role == Some(role), Message::Role(role)));
     }
-    let ready = owner && !state.player.is_empty() && state.role.is_some() && !state.reason.trim().is_empty() && !state.posting;
+    let ready = owner && !state.player.is_empty() && state.role.is_some() && !state.posting;
     let form = container(column![
         heading(w.t("desk-grant")),
         labelled(w.t("desk-player"), field(w.t("desk-player-hint"), &state.player, Message::Player)),
@@ -1737,18 +1740,30 @@ mod tests {
     }
 
     #[test]
-    fn a_decision_needs_a_reason_and_only_one_post_runs_at_a_time() {
+    fn a_decision_goes_without_a_reason_and_only_one_post_runs_at_a_time() {
         let w = Words::new(crate::lang::Lang::Ru);
         let mut state = State::default();
         state.desk.tasks = vec![Task { kind: "review".into(), reason: "uncertain_revealed".into(), slot: Some("NM3".into()), map: desk::Map { beatmap_id: 7, ..desk::Map::default() }, ..Task::default() }];
-        assert!(state.update(Message::Decide("APPROVE", None), &w).is_empty());
+        assert!(state.update(Message::NotThis(true), &w).is_empty() && state.moving);
+        let effects = state.update(Message::Decide("MOVE", Some("NM2".into())), &w);
+        assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "MOVE", slot: Some("NM2".into()), reason: String::new() })]);
+        assert!(state.update(Message::Decide("REJECT", None), &w).is_empty());
+        assert_eq!(state.update(Message::Posted(Ok(())), &w), [Effect::Load]);
+        assert!(!state.posting && !state.moving);
         let _ = state.update(Message::Reason("короткие группы".into()), &w);
         let effects = state.update(Message::Decide("APPROVE", None), &w);
         assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "APPROVE", slot: None, reason: "короткие группы".into() })]);
-        assert!(state.update(Message::Decide("REJECT", None), &w).is_empty());
-        assert_eq!(state.update(Message::Posted(Ok(())), &w), [Effect::Load]);
-        assert!(state.reason.is_empty() && !state.posting);
     }
+
+    #[test]
+    fn deleting_a_version_takes_a_second_press() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        let mut state = State::default();
+        state.version = Some("kamerton-2".into());
+        assert!(state.update(Message::Delete, &w).is_empty() && state.confirming);
+        assert_eq!(state.update(Message::Delete, &w), [Effect::Post(Post::Delete { version: "kamerton-2".into(), reason: String::new() })]);
+    }
+
 
     #[test]
     fn a_training_that_never_lands_stops_being_awaited() {

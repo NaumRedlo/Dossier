@@ -1865,6 +1865,7 @@ impl Main {
                         Post::Grant { player, role, reason } => crate::desk::grant(&account, player, &role, &reason),
                         Post::Discover { band, reason } => crate::desk::discover(&account, band, &reason),
                         Post::Train { reason } => crate::desk::train(&account, &reason),
+                        Post::Delete { version, reason } => crate::desk::delete_model(&account, &version, &reason),
                     };
                     K::Posted(said.map(|_| ()).map_err(|why| why.to_string()))
                 }).map(wrap),

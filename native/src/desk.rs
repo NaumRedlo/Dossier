@@ -329,6 +329,10 @@ pub fn finalize(account: &Account, duel: &str, match_id: i64, game_id: i64, reas
     call(account, reqwest::Method::POST, &format!("/render/admin/duels/{duel}/finalize"), Some(json!({ "match_id": match_id, "game_id": game_id, "reason": reason })), None)
 }
 
+pub fn delete_model(account: &Account, version: &str, reason: &str) -> Result<Value, Failure> {
+    call(account, reqwest::Method::POST, &format!("/render/admin/duels/models/{version}/delete"), Some(json!({ "reason": reason })), None)
+}
+
 pub fn train(account: &Account, reason: &str) -> Result<Value, Failure> {
     call(account, reqwest::Method::POST, "/render/admin/duels/models/train", Some(json!({ "reason": reason })), None)
 }

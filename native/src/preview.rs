@@ -22,23 +22,21 @@ fn cached(beatmap_id: i64) -> PathBuf {
     crate::sources::own_root().join("cache").join("previews").join(format!("{beatmap_id}.audio"))
 }
 
-fn fetched(beatmap_id: i64, set: Option<i64>) -> Option<PathBuf> {
+fn fetched(beatmap_id: i64) -> Option<PathBuf> {
     let path = cached(beatmap_id);
     if std::fs::metadata(&path).is_ok_and(|meta| meta.len() > 0) {
         return Some(path);
     }
     let client = crate::bot::client().ok()?;
-    let mut urls = vec![address(beatmap_id)];
-    if let Some(set) = set.filter(|set| *set > 0) {
-        urls.push(format!("https://b.ppy.sh/preview/{set}.mp3"));
+    let response = client.get(address(beatmap_id)).header("User-Agent", "Dossier").send().ok()?;
+    if !response.status().is_success() {
+        return None;
     }
-    let body = urls.into_iter().find_map(|url| {
-        let response = client.get(url).header("User-Agent", "Dossier").send().ok()?;
-        if !response.status().is_success() { return None; }
-        let mut body = Vec::new();
-        response.take(PREVIEW_MOST as u64 + 1).read_to_end(&mut body).ok()?;
-        (!body.is_empty() && body.len() <= PREVIEW_MOST).then_some(body)
-    })?;
+    let mut body = Vec::new();
+    response.take(PREVIEW_MOST as u64 + 1).read_to_end(&mut body).ok()?;
+    if body.is_empty() || body.len() > PREVIEW_MOST {
+        return None;
+    }
     std::fs::create_dir_all(path.parent()?).ok()?;
     let part = path.with_extension("part");
     std::fs::write(&part, &body).ok()?;
@@ -47,7 +45,7 @@ fn fetched(beatmap_id: i64, set: Option<i64>) -> Option<PathBuf> {
 }
 
 fn decoded(path: &PathBuf, channels: usize, rate: u32) -> Option<Vec<f32>> {
-    let ffmpeg = crate::ffmpeg::own();
+    let ffmpeg = crate::checks::ffmpeg_on_path()?;
     let mut child = crate::checks::quiet(&ffmpeg)
         .args(["-hide_banner", "-loglevel", "error", "-i"])
         .arg(path)
@@ -114,16 +112,12 @@ pub struct Preview {
 
 impl Preview {
     pub fn start(beatmap_id: i64) -> Preview {
-        Self::start_with_set(beatmap_id, None)
-    }
-
-    pub fn start_with_set(beatmap_id: i64, set: Option<i64>) -> Preview {
         let stop = Arc::new(AtomicBool::new(false));
         let ended = Arc::new(AtomicBool::new(false));
         let quit = stop.clone();
         let over = ended.clone();
         thread::spawn(move || {
-            let played = Self::play(beatmap_id, set, &quit);
+            let played = Self::play(beatmap_id, &quit);
             over.store(true, Ordering::Relaxed);
             played
         });
@@ -134,10 +128,9 @@ impl Preview {
         self.ended.load(Ordering::Relaxed)
     }
 
-    fn play(beatmap_id: i64, set: Option<i64>, quit: &Arc<AtomicBool>) -> Option<()> {
+    fn play(beatmap_id: i64, quit: &Arc<AtomicBool>) -> Option<()> {
         {
-            let set = set.or_else(|| crate::desk::about(beatmap_id).and_then(|map| map.set));
-            let path = fetched(beatmap_id, set)?;
+            let path = fetched(beatmap_id)?;
             if quit.load(Ordering::Relaxed) {
                 return None;
             }

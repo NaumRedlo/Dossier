@@ -1830,7 +1830,7 @@ impl Main {
                     K::Cover(set, handle)
                 }).map(wrap),
                 Effect::Hear(beatmap) => {
-                    self.duel_preview = beatmap.filter(|_| !self.gallery).map(|beatmap| std::sync::Arc::new(crate::preview::Preview::start_with_set(beatmap, self.desk.map_set(beatmap))));
+                    self.duel_preview = beatmap.filter(|_| !self.gallery).map(|beatmap| std::sync::Arc::new(crate::preview::Preview::start(beatmap)));
                     Task::none()
                 }
                 Effect::Cell(..) if offline => Task::none(),

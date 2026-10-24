@@ -327,13 +327,6 @@ impl State {
         ids.into_iter().filter(|beatmap| self.looked.insert(*beatmap)).map(Effect::About).collect()
     }
 
-    pub fn map_set(&self, beatmap: i64) -> Option<i64> {
-        self.about(beatmap).and_then(|map| map.set)
-            .or_else(|| self.desk.tasks.iter().find(|task| task.map.beatmap_id == beatmap).and_then(|task| task.map.beatmapset_id))
-            .or_else(|| self.held.iter().find(|map| map.beatmap_id == beatmap).and_then(|map| map.beatmapset_id))
-            .or_else(|| self.desk.cells.iter().flat_map(|cell| &cell.maps).find(|map| map.beatmap_id == beatmap).and_then(|map| map.beatmapset_id))
-    }
-
     pub fn about(&self, beatmap: i64) -> Option<&desk::About> {
         self.abouts.get(&beatmap)
     }

@@ -40,7 +40,15 @@ pub struct State {
     pub heard_states: std::collections::HashMap<i64, serde_json::Value>,
     pub roles: Vec<String>,
     pub played_ms: Option<i64>,
+    pub hovered: Option<(i64, std::time::Instant)>,
+    pub heard_at: Option<std::time::Instant>,
+    pub rested: Option<i64>,
+    pub rested_at: Option<std::time::Instant>,
+    pub tempos: std::collections::HashMap<i64, f32>,
+    pub timed: std::collections::HashSet<i64>,
 }
+
+pub const DWELL: std::time::Duration = std::time::Duration::from_millis(500);
 
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -79,6 +87,8 @@ pub enum Message {
     Unwatch,
     Frame,
     Profile(i64),
+    Tempo(i64, Option<f32>),
+    PreviewEnded,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +107,7 @@ pub enum Effect {
     Invite(i64),
     Tell(Vec<(&'static str, String)>, Vec<i64>),
     Order(crate::duels::Order),
+    Tempo(i64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -303,6 +314,13 @@ impl State {
                 effects
             }
             Message::Frame => {
+                if let Some((beatmap, since)) = self.hovered {
+                    if self.hearing != Some(beatmap) && self.rested != Some(beatmap) && since.elapsed() >= DWELL {
+                        self.hearing = Some(beatmap);
+                        self.heard_at = Some(std::time::Instant::now());
+                        return vec![Effect::Hear(Some(beatmap))];
+                    }
+                }
                 if let Some(watching) = &mut self.watching {
                     if let Some(fresh) = self.live.running.iter().find(|duel| duel.id == watching.id) {
                         *watching = fresh.clone();
@@ -335,12 +353,41 @@ impl State {
                 }
                 Vec::new()
             }
-            Message::Hover(beatmap) => {
-                if self.hearing == beatmap {
+            Message::Hover(Some(beatmap)) => {
+                if self.hovered.is_some_and(|(held, _)| held == beatmap) {
                     return Vec::new();
                 }
-                self.hearing = beatmap;
-                vec![Effect::Hear(beatmap)]
+                self.hovered = Some((beatmap, std::time::Instant::now()));
+                self.rested = None;
+                let mut effects = Vec::new();
+                if self.hearing.is_some_and(|heard| heard != beatmap) {
+                    self.hearing = None;
+                    effects.push(Effect::Hear(None));
+                }
+                if self.timed.insert(beatmap) {
+                    effects.push(Effect::Tempo(beatmap));
+                }
+                effects
+            }
+            Message::Hover(None) => {
+                self.hovered = None;
+                self.rested = None;
+                if self.hearing.take().is_some() {
+                    return vec![Effect::Hear(None)];
+                }
+                Vec::new()
+            }
+            Message::Tempo(beatmap, bpm) => {
+                if let Some(bpm) = bpm.filter(|bpm| *bpm > 20.0 && *bpm < 400.0) {
+                    self.tempos.insert(beatmap, bpm);
+                }
+                Vec::new()
+            }
+            Message::PreviewEnded => {
+                self.rested = self.hearing.take();
+                self.rested_at = Some(std::time::Instant::now());
+                self.heard_at = None;
+                Vec::new()
             }
             Message::Copy(text) => vec![Effect::Copy(text)],
             Message::Rate(slot, fit, difficulty) => {
@@ -469,6 +516,10 @@ impl State {
 
     pub fn opponent<'a>(&self, duel: &'a Duel) -> Option<&'a crate::duels::Participant> {
         duel.participants.iter().find(|person| Some(person.player) != self.player)
+    }
+
+    pub fn lively(&self) -> bool {
+        self.hovered.is_some() || self.hearing.is_some()
     }
 
     pub fn polling(&self) -> bool {

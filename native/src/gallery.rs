@@ -1502,6 +1502,18 @@ fn duel_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.duels.duel = Some(staged_duel("PREPARING"));
             main
         }),
+        ("main-community-duel-listen".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            main.duels.duel = Some(staged_duel("PREPARING"));
+            let beatmap = 1004;
+            let now = std::time::Instant::now();
+            main.duels.hovered = Some((beatmap, now - std::time::Duration::from_secs(2)));
+            main.duels.hearing = Some(beatmap);
+            main.duels.heard_at = Some(now - std::time::Duration::from_millis(1500));
+            main.duels.tempos.insert(beatmap, 120.0);
+            main
+        }),
         ("main-community-duel-draft".to_owned(), {
             let mut main = community(crate::community_screen::Section::Duels, None);
             main.duels = Box::new(staged_duels(false));

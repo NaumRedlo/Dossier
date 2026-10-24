@@ -108,13 +108,17 @@ pub(crate) fn veil_fill() -> Background {
 
 fn veil<'a>() -> Element<'a, Message> {
     container(Space::new().width(Length::Fill).height(Length::Fill))
-        .style(|_| container::Style { background: Some(veil_fill()), ..container::Style::default() })
+        .style(|_| container::Style { background: Some(veil_fill()), border: Border { radius: 14.0.into(), ..Border::default() }, ..container::Style::default() })
         .into()
 }
 
 fn picture<'a>(state: &State, entry: &Entry, high: f32, wide: f32) -> Element<'a, Message> {
+    faded_picture(state, entry, high, wide, 1.0)
+}
+
+fn faded_picture<'a>(state: &State, entry: &Entry, high: f32, wide: f32, opacity: f32) -> Element<'a, Message> {
     match entry.beatmapset_id.and_then(|set| state.covers.get(&set)) {
-        Some(handle) => ui::framed(handle, wide, high, 14.0).into(),
+        Some(handle) => ui::framed(handle, wide, high, 14.0).opacity(opacity).into(),
         None => container(Space::new().width(Length::Fill).height(high))
             .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 14.0.into(), ..Border::default() }, ..container::Style::default() })
             .into(),
@@ -123,11 +127,32 @@ fn picture<'a>(state: &State, entry: &Entry, high: f32, wide: f32) -> Element<'a
 
 fn shade<'a>() -> Element<'a, Message> {
     container(Space::new().width(Length::Fill).height(Length::Fill))
-        .style(|_| container::Style { background: Some(Background::Color(Color::from_rgba(0.03, 0.012, 0.018, 0.66))), ..container::Style::default() })
+        .style(|_| container::Style { background: Some(Background::Color(Color::from_rgba(0.03, 0.012, 0.018, 0.66))), border: Border { radius: 14.0.into(), ..Border::default() }, ..container::Style::default() })
         .into()
 }
 
-fn card<'a>(state: &State, entry: &Entry, frame: Option<(Color, bool)>, dim: bool, press: Option<Message>) -> Element<'a, Message> {
+fn ease(k: f32) -> f32 {
+    let k = k.clamp(0.0, 1.0);
+    1.0 - (1.0 - k).powi(3)
+}
+
+fn liveliness(state: &State, beatmap: i64) -> (f32, f32) {
+    let hovered = state.hovered.filter(|(held, _)| *held == beatmap);
+    let Some((_, since)) = hovered else { return (0.0, 0.0) };
+    let mut lift = ease(since.elapsed().as_secs_f32() / 0.18);
+    if state.rested == Some(beatmap) {
+        lift *= 1.0 - ease(state.rested_at.map_or(1.0, |at| at.elapsed().as_secs_f32() / 0.3));
+    }
+    let beat = match (state.hearing == Some(beatmap), state.heard_at, state.tempos.get(&beatmap)) {
+        (true, Some(at), Some(bpm)) => (-(at.elapsed().as_secs_f32() * bpm / 60.0).fract() * 5.0).exp(),
+        _ => 0.0,
+    };
+    (lift, beat)
+}
+
+fn card<'a>(state: &State, entry: &Entry, frame: Option<(Color, bool)>, dim: bool, lively: bool, press: Option<Message>) -> Element<'a, Message> {
+    let faded = dim && entry.slot == "TB";
+    let (lift, beat) = if lively { liveliness(state, entry.beatmap_id) } else { (0.0, 0.0) };
     let title = entry.title.clone().unwrap_or_else(|| entry.beatmap_id.to_string());
     let artist = entry.artist.clone().unwrap_or_default();
     let version = entry.version.clone().unwrap_or_default();
@@ -144,7 +169,13 @@ fn card<'a>(state: &State, entry: &Entry, frame: Option<(Color, bool)>, dim: boo
     .spacing(2)
     .padding(Padding { top: 10.0, right: 12.0, bottom: 10.0, left: 12.0 })
     .height(CARD_HIGH);
-    let mut layers: Vec<Element<'a, Message>> = vec![picture(state, entry, CARD_HIGH, 300.0), veil(), inside.into()];
+    let flash = container(Space::new().width(Length::Fill).height(Length::Fill)).style(move |_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(1.0, 0.96, 0.92, 0.13 * beat))),
+        border: Border { radius: 14.0.into(), ..Border::default() },
+        ..container::Style::default()
+    });
+    let cover = if faded { faded_picture(state, entry, CARD_HIGH, 300.0, 0.28) } else { picture(state, entry, CARD_HIGH, 300.0) };
+    let mut layers: Vec<Element<'a, Message>> = vec![cover, flash.into(), veil(), inside.into()];
     if dim {
         layers.push(shade());
     }
@@ -160,7 +191,11 @@ fn card<'a>(state: &State, entry: &Entry, frame: Option<(Color, bool)>, dim: boo
         Some(message) => button(body).padding(0).style(|_, _| button::Style::default()).on_press(message).into(),
         None => body,
     };
-    mouse_area(pressable).on_enter(Message::Hover(Some(entry.beatmap_id))).on_exit(Message::Hover(None)).into()
+    if !lively {
+        return pressable;
+    }
+    let watched = mouse_area(pressable).on_enter(Message::Hover(Some(entry.beatmap_id))).on_exit(Message::Hover(None));
+    iced::widget::float(watched).scale(1.0 + 0.03 * lift + 0.02 * beat).into()
 }
 
 fn grid<'a>(cells: Vec<Element<'a, Message>>) -> Element<'a, Message> {
@@ -297,7 +332,7 @@ fn reveal_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> Element<'
     let download = row![glyph(Icon::Download, 16.0, Color::WHITE), strong(w.t(if fetching { "duels-downloading" } else { "duels-download-all" }), theme::BODY, Color::WHITE)].spacing(8).align_y(Alignment::Center);
     let made = button(container(download).center_y(theme::CONTROL_HEIGHT - 2.0)).padding([0, 14]).style(ui::button_faded(theme::primary));
     header = header.push(if fetching || sets.is_empty() { made } else { made.on_press(Message::Download(sets)) });
-    let cells = entries(duel).iter().map(|entry| card(state, entry, None, false, None)).collect();
+    let cells = entries(duel).iter().map(|entry| card(state, entry, None, false, true, None)).collect();
     let mut page = column![header, grid(cells)].spacing(12).height(Length::Fill);
     if let Some(room) = &duel.room {
         let password = room.password.clone().unwrap_or_default();
@@ -355,7 +390,7 @@ fn draft_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> (Element<'
             _ => None,
         };
         let press = (free && my_turn).then(|| Message::Act("draft-actions", serde_json::json!({ "slot": entry.slot })));
-        card(state, entry, frame, banned, press)
+        card(state, entry, frame, banned || entry.slot == "TB", free, press)
     }).collect();
     let body = column![strip, chips, grid(cells)].spacing(12).into();
     (body, acting.map(|(_, side)| (side_colour(side), side == "A")))

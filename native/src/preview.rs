@@ -10,6 +10,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 const LEVEL: f32 = 0.45;
 const FADE_SECONDS: f32 = 0.25;
+const TAIL_SECONDS: f32 = 2.5;
+const STOP_SECONDS: f32 = 0.3;
 const PREVIEW_MOST: usize = 4 * 1024 * 1024;
 
 pub fn address(beatmap_id: i64) -> String {
@@ -104,14 +106,30 @@ pub fn fetch_sets(sets: &[i64]) -> Result<usize, String> {
 
 pub struct Preview {
     stop: Arc<AtomicBool>,
+    ended: Arc<AtomicBool>,
     pub beatmap_id: i64,
 }
 
 impl Preview {
     pub fn start(beatmap_id: i64) -> Preview {
         let stop = Arc::new(AtomicBool::new(false));
+        let ended = Arc::new(AtomicBool::new(false));
         let quit = stop.clone();
+        let over = ended.clone();
         thread::spawn(move || {
+            let played = Self::play(beatmap_id, &quit);
+            over.store(true, Ordering::Relaxed);
+            played
+        });
+        Preview { stop, ended, beatmap_id }
+    }
+
+    pub fn ended(&self) -> bool {
+        self.ended.load(Ordering::Relaxed)
+    }
+
+    fn play(beatmap_id: i64, quit: &Arc<AtomicBool>) -> Option<()> {
+        {
             let path = fetched(beatmap_id)?;
             if quit.load(Ordering::Relaxed) {
                 return None;
@@ -126,23 +144,32 @@ impl Preview {
                 return None;
             }
             let total = samples.len();
-            let fade = (FADE_SECONDS * rate as f32) as usize * channels.max(1);
+            let per_second = rate as usize * channels.max(1);
+            let fade = (FADE_SECONDS * per_second as f32) as usize;
+            let tail = (TAIL_SECONDS * per_second as f32) as usize;
+            let stopping = (STOP_SECONDS * per_second as f32) as usize;
             let at = Arc::new(Mutex::new(0usize));
             let played = at.clone();
             let ear = quit.clone();
+            let mut stopped_at: Option<usize> = None;
             let stream = device
                 .build_output_stream(
                     &config.into(),
                     move |data: &mut [f32], _| {
                         let mut at = played.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if ear.load(Ordering::Relaxed) && stopped_at.is_none() {
+                            stopped_at = Some(*at);
+                        }
                         for sample in data.iter_mut() {
-                            if *at >= total || ear.load(Ordering::Relaxed) {
+                            let leaving = stopped_at.map_or(1.0, |from| 1.0 - (*at - from) as f32 / stopping.max(1) as f32);
+                            if *at >= total || leaving <= 0.0 {
                                 *sample = 0.0;
+                                *at = total;
                                 continue;
                             }
                             let rise = (*at as f32 / fade.max(1) as f32).min(1.0);
-                            let fall = ((total - *at) as f32 / fade.max(1) as f32).min(1.0);
-                            *sample = samples[*at] * LEVEL * rise.min(fall);
+                            let fall = ((total - *at) as f32 / tail.max(1) as f32).min(1.0);
+                            *sample = samples[*at] * LEVEL * rise.min(fall * fall).min(leaving);
                             *at += 1;
                         }
                     },
@@ -151,12 +178,12 @@ impl Preview {
                 )
                 .ok()?;
             stream.play().ok()?;
-            while !quit.load(Ordering::Relaxed) && *at.lock().unwrap_or_else(std::sync::PoisonError::into_inner) < total {
-                thread::sleep(Duration::from_millis(50));
+            while *at.lock().unwrap_or_else(std::sync::PoisonError::into_inner) < total {
+                thread::sleep(Duration::from_millis(30));
             }
+            thread::sleep(Duration::from_millis(60));
             Some(())
-        });
-        Preview { stop, beatmap_id }
+        }
     }
 }
 

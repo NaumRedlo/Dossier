@@ -1423,8 +1423,9 @@ impl Main {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
             }
         }
-        if self.duels.watching.is_some() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels {
-            parts.push(iced::time::every(Duration::from_millis(33)).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Frame))));
+        if (self.duels.watching.is_some() || self.duels.lively()) && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels {
+            let every = if self.duels.lively() { Duration::from_millis(16) } else { Duration::from_millis(33) };
+            parts.push(iced::time::every(every).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Frame))));
         }
         if !self.settings.token.is_empty() && !self.gallery {
             let here = self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels;
@@ -1830,6 +1831,10 @@ impl Main {
                 }
                 Effect::Cell(..) if offline => Task::none(),
                 Effect::Cell(slot, band) => ui::in_thread(move || K::Held(crate::desk::cell(&account, &slot, band).map_err(|why| why.to_string()))).map(wrap),
+                Effect::Open(url) => {
+                    let _ = open::that(url);
+                    Task::none()
+                }
                 Effect::About(_) if self.gallery => Task::none(),
                 Effect::About(beatmap) => ui::in_thread(move || K::About(beatmap, crate::desk::about(beatmap))).map(wrap),
                 Effect::Archive => Task::perform(
@@ -1925,6 +1930,8 @@ impl Main {
                         }
                     })
                 }
+                Effect::Tempo(_) if offline => Task::none(),
+                Effect::Tempo(beatmap) => ui::in_thread(move || D::Tempo(beatmap, crate::desk::about(beatmap).and_then(|found| found.bpm))).map(wrap),
                 Effect::Order(order) => {
                     if let Some(link) = &self.duel_link {
                         link.send(order);
@@ -3303,7 +3310,12 @@ impl Main {
                         if let Some(player) = self.account.as_ref().and_then(|me| me.player) {
                             self.duels.player = Some(player);
                         }
-                        let effects = self.duels.update(inner, unix_now());
+                        let mut effects = Vec::new();
+                        if matches!(inner, crate::duels_screen::Message::Frame) && self.duel_preview.as_ref().is_some_and(|preview| preview.ended()) {
+                            self.duel_preview = None;
+                            effects.extend(self.duels.update(crate::duels_screen::Message::PreviewEnded, unix_now()));
+                        }
+                        effects.extend(self.duels.update(inner, unix_now()));
                         return self.duels_work(effects);
                     }
                     C::Desk(inner) => {

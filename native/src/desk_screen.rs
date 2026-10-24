@@ -131,6 +131,7 @@ pub enum Effect {
     Post(Post),
     About(i64),
     Archive,
+    Open(String),
 }
 
 #[derive(Debug, Clone)]
@@ -175,6 +176,7 @@ pub enum Message {
     Archive,
     Archived(Vec<String>),
     Discover,
+    Open(i64),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -338,6 +340,7 @@ impl State {
                 Vec::new()
             }
             Message::Archive => vec![Effect::Archive],
+            Message::Open(beatmap) => vec![Effect::Open(map_page(beatmap))],
             Message::Discover => {
                 let Some((slot, band)) = self.band.clone() else { return Vec::new() };
                 let reason = w.with("desk-discover-reason", &[("slot", slot), ("band", band_name(w, band))]);
@@ -692,6 +695,34 @@ fn main_button_with<'a>(icon: Icon, said: String, on: Option<Message>) -> Elemen
     }
 }
 
+pub fn map_page(beatmap: i64) -> String {
+    format!("https://osu.ppy.sh/b/{beatmap}")
+}
+
+fn link_button<'a>(beatmap: i64, side: f32) -> Element<'a, Message> {
+    button(container(glyph(Icon::External, 16.0, INK)).center_x(side).center_y(side))
+        .padding(0)
+        .style(|_, status| {
+            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style { background: Some(Background::Color(if lit { LIT } else { Color::TRANSPARENT })), border: Border { color: crate::duels_screen::OUTLINE, width: 1.0, radius: theme::CONTROL_RADIUS.into() }, ..button::Style::default() }
+        })
+        .on_press(Message::Open(beatmap))
+        .into()
+}
+
+fn listen_button<'a>(w: &Words, beatmap: i64, on: bool, high: f32) -> Element<'a, Message> {
+    let inside = row![glyph(Icon::Volume, 16.0, INK), tight(w.t("desk-listen"), theme::BODY, INK)].spacing(8).align_y(Alignment::Center);
+    button(container(inside).center_x(Length::Fill).center_y(high))
+        .width(Length::Fill)
+        .padding([0, 12])
+        .style(move |_, status| {
+            let lit = on || matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style { background: Some(Background::Color(if lit { LIT } else { Color::TRANSPARENT })), border: Border { color: if on { PICKED } else { crate::duels_screen::OUTLINE }, width: 1.0, radius: theme::CONTROL_RADIUS.into() }, ..button::Style::default() }
+        })
+        .on_press(Message::Hear(beatmap))
+        .into()
+}
+
 fn line_button<'a>(said: String, on: Option<Message>) -> Element<'a, Message> {
     crate::duels_screen::outlined_wide(container(tight(said, theme::BODY, INK)).center_x(Length::Fill).center_y(theme::CONTROL_HEIGHT + 4.0).into(), on)
 }
@@ -869,8 +900,9 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task) -> Element<'a, Mess
             (w.t("desk-ask-unassigned"), w.t("desk-which-slot"), buttons.wrap().vertical_spacing(6).into())
         }
     };
+    let under = row![listen_button(w, map.beatmap_id, state.hearing == Some(map.beatmap_id), 38.0), link_button(map.beatmap_id, 38.0)].spacing(8).width(280);
     let top = row![
-        card,
+        column![card, under].spacing(8),
         column![words(caption, 14.0, FAINT), bold(question, 26.0, INK), container(answers).padding(Padding { top: 6.0, ..Padding::ZERO })].spacing(8).width(Length::Fill),
     ]
     .spacing(18);
@@ -962,7 +994,7 @@ fn label_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
             let version = pick(&map.version, about.map(|found| &found.version));
             let artist = pick(&map.artist, about.map(|found| &found.artist));
             let mapper = pick(&map.mapper, about.map(|found| &found.mapper));
-            let listen = crate::duels_screen::outlined(row![glyph(Icon::Volume, 16.0, INK), strong(w.t("desk-listen"), theme::BODY, INK)].spacing(8).align_y(Alignment::Center).into(), Some(Message::Hear(map.beatmap_id)));
+            let listen = row![container(listen_button(w, map.beatmap_id, state.hearing == Some(map.beatmap_id), theme::CONTROL_HEIGHT)).width(Length::Shrink), link_button(map.beatmap_id, theme::CONTROL_HEIGHT)].spacing(8);
             let mut facts = row![].spacing(10).align_y(Alignment::Center);
             if let Some(found) = about {
                 facts = facts.push(stars_of(found.stars, 13.0));
@@ -1299,6 +1331,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
                     cover(state, map.beatmapset_id, 72.0, 44.0, 7.0),
                     column![titled_map(map.title.as_deref(), map.beatmap_id, 14.0), strong(w.t(&format!("desk-level-{}", map.level)), 12.0, colour)].spacing(2).width(Length::Fill),
                     stars_of(Some(map.stars), 12.0),
+                    link_button(map.beatmap_id, 32.0),
                 ].spacing(10).align_y(Alignment::Center));
             }
             container(column![

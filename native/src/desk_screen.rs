@@ -228,6 +228,7 @@ pub struct State {
     pub picking: bool,
     pub training: Option<(usize, std::time::Instant)>,
     pub training_lost: bool,
+    pub nothing_new: bool,
     pub moving: bool,
     pub confirming: bool,
     pub revoking: Option<(i64, String)>,
@@ -431,6 +432,9 @@ impl State {
             }
             Message::Posted(said) => {
                 self.posting = false;
+                if said.is_err() {
+                    self.training = None;
+                }
                 match said {
                     Ok(()) => {
                         self.reason.clear();
@@ -442,6 +446,10 @@ impl State {
                         self.game_id.clear();
                         self.loading = true;
                         vec![Effect::Load]
+                    }
+                    Err(why) if why == "NOTHING_NEW" => {
+                        self.nothing_new = true;
+                        Vec::new()
                     }
                     Err(why) => {
                         self.failed = Some(why);
@@ -515,6 +523,7 @@ impl State {
                 let reason = self.reason.trim().to_owned();
                 self.training = Some((self.desk.versions.len(), std::time::Instant::now()));
                 self.training_lost = false;
+                self.nothing_new = false;
                 self.post(Post::Train { reason })
             }
             Message::Delete => {
@@ -1510,6 +1519,8 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
         general = general.push(words(w.t("desk-training"), 13.0 * k, FAINT));
     } else if state.training_lost {
         general = general.push(words(w.t("desk-training-lost"), 13.0 * k, BAD));
+    } else if state.nothing_new {
+        general = general.push(words(w.t("desk-nothing-new"), 13.0 * k, FAINT));
     }
     let aside = container(column![scrollable(list).direction(ui::hidden_bar()).height(Length::Fill), general].spacing(12)).padding(18).width(400.0 * k).height(Length::Fill).style(theme::slab);
     let Some(version) = state.desk.versions.iter().find(|version| Some(&version.version) == chosen.as_ref()) else {
@@ -1573,9 +1584,9 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
         column![strong(w.t("desk-by-year"), 17.0 * k, INK), years].spacing(10).width(Length::FillPortion(2)),
     ]
     .spacing(36.0 * k);
-    let mut page = column![header, figures, body].spacing(22.0 * k);
-    page = page.push(row![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(12).align_y(Alignment::Center));
-    row![aside, panel(scrollable(page).direction(ui::hidden_bar()).into())].spacing(14).height(Length::Fill).into()
+    let reason = row![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(12).align_y(Alignment::Center);
+    let page = column![header, figures, scrollable(body).direction(ui::hidden_bar()).height(Length::Fill), reason].spacing(22.0 * k);
+    row![aside, panel(page.into())].spacing(14).height(Length::Fill).into()
 }
 
 fn duels_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Message> {
@@ -1792,6 +1803,16 @@ mod tests {
         let _ = state.update(Message::Posted(Ok(())), &w);
         assert!(state.update(Message::Revoke(2, desk::REVIEWER.into()), &w).is_empty());
         assert_eq!(state.update(Message::Revoke(2, desk::REVIEWER.into()), &w), [Effect::Post(Post::Revoke { player: 2, role: desk::REVIEWER.into(), reason: String::new() })]);
+    }
+
+    #[test]
+    fn training_on_unchanged_labels_is_answered_without_waiting() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        let mut state = State::default();
+        let _ = state.update(Message::Train, &w);
+        assert!(state.training.is_some());
+        let _ = state.update(Message::Posted(Err("NOTHING_NEW".into())), &w);
+        assert!(state.training.is_none() && state.nothing_new && state.failed.is_none());
     }
 
     #[test]

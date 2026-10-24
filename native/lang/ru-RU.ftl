@@ -1661,6 +1661,7 @@ desk-did-delete-model = Удалил { $target }
 desk-train = Обучить
 desk-training = Kamerton учится. Новая версия появится в списке примерно через минуту
 desk-training-lost = Новая версия так и не появилась. Похоже, обучение на сервере не удалось, подробности в его логах
+desk-nothing-new = С прошлой версии разметка не изменилась, новая версия получилась бы такой же
 desk-kamerton = Kamerton #{ $number }
 desk-fold-queue = Очередь
 desk-did-train-model = Запустил обучение

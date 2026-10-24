@@ -12,6 +12,7 @@ use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
 const OWC_CELL_WIDTH: f32 = 88.0;
+const TRAINING_WAIT: std::time::Duration = std::time::Duration::from_secs(240);
 const OWC_CELL_HEIGHT: f32 = 48.0;
 const OWC_STAGE_WIDTH: f32 = 148.0;
 
@@ -223,7 +224,8 @@ pub struct State {
     pub looked: HashSet<i64>,
     pub picking: bool,
     pub asking: bool,
-    pub training: Option<usize>,
+    pub training: Option<(usize, std::time::Instant)>,
+    pub training_lost: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -371,7 +373,7 @@ impl State {
                 self.loading = false;
                 match found {
                     Ok(desk) => {
-                        if self.training.is_some_and(|count| desk.versions.len() > count) {
+                        if self.training.is_some_and(|(count, _)| desk.versions.len() > count) {
                             self.training = None;
                         }
                         self.desk = desk;
@@ -514,7 +516,8 @@ impl State {
                     return Vec::new();
                 }
                 let reason = self.reason.trim().to_owned();
-                self.training = Some(self.desk.versions.len());
+                self.training = Some((self.desk.versions.len(), std::time::Instant::now()));
+                self.training_lost = false;
                 self.post(Post::Train { reason })
             }
             Message::Delete => {
@@ -528,6 +531,11 @@ impl State {
                 self.post(Post::Delete { version, reason })
             }
             Message::Again => {
+                if self.training.is_some_and(|(_, since)| since.elapsed() > TRAINING_WAIT) {
+                    self.training = None;
+                    self.training_lost = true;
+                    return Vec::new();
+                }
                 if self.loading {
                     return Vec::new();
                 }
@@ -1479,6 +1487,8 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
     .spacing(8);
     if state.training.is_some() {
         general = general.push(words(w.t("desk-training"), 13.0 * k, FAINT));
+    } else if state.training_lost {
+        general = general.push(words(w.t("desk-training-lost"), 13.0 * k, BAD));
     }
     let aside = container(column![scrollable(list).direction(ui::hidden_bar()).height(Length::Fill), general].spacing(12)).padding(18).width(400.0 * k).height(Length::Fill).style(theme::slab);
     let Some(version) = state.desk.versions.iter().find(|version| Some(&version.version) == chosen.as_ref()) else {
@@ -1738,6 +1748,20 @@ mod tests {
         assert!(state.update(Message::Decide("REJECT", None), &w).is_empty());
         assert_eq!(state.update(Message::Posted(Ok(())), &w), [Effect::Load]);
         assert!(state.reason.is_empty() && !state.posting);
+    }
+
+    #[test]
+    fn a_training_that_never_lands_stops_being_awaited() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        let mut state = State::default();
+        state.training = Some((0, std::time::Instant::now()));
+        assert_eq!(state.update(Message::Again, &w), [Effect::Load]);
+        state.loading = false;
+        state.training = std::time::Instant::now().checked_sub(TRAINING_WAIT * 2).map(|since| (0, since));
+        if state.training.is_some() {
+            assert!(state.update(Message::Again, &w).is_empty());
+            assert!(state.training.is_none() && state.training_lost);
+        }
     }
 
     #[test]

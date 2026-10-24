@@ -1612,6 +1612,7 @@ desk-by-year = By year
 desk-did-delete-model = Deleted { $target }
 desk-train = Train
 desk-training = Kamerton is learning. The new version will show up in about a minute
+desk-training-lost = No new version showed up. Training seems to have failed on the server; its logs say why
 desk-kamerton = Kamerton #{ $number }
 desk-fold-queue = Queue
 desk-did-train-model = Started training

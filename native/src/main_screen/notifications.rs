@@ -314,7 +314,7 @@ impl Main {
             footer = footer.push(action(self.words.t("notice-details"), Message::ShowError(notice.id), false));
         }
         let link = match notice.link {
-            notices::Link::OpenVideo(_) | notices::Link::Replay(_) | notices::Link::Received(_) => Some("open"),
+            notices::Link::OpenVideo(_) | notices::Link::Replay(_) | notices::Link::Received(_) | notices::Link::Duels => Some("open"),
             notices::Link::RenderAgain(_) => Some("once-more"),
             notices::Link::Update => Some("update-now"),
             notices::Link::Page(_) => Some("whats-new"),
@@ -409,6 +409,7 @@ impl Main {
                     }
                     Some(notices::Link::Update) => self.get_update(true),
                     Some(notices::Link::Received(id)) => self.update(Message::Sharing(sharing::Message::Open(id))),
+                    Some(notices::Link::Duels) => self.update(Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Open))),
                     Some(notices::Link::Replay(path)) => {
                         let shown = self.update(Message::Show(Overlay::None));
                         match self.entries().iter().position(|e| e.path == path) {

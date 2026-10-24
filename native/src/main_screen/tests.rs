@@ -33,7 +33,7 @@ fn presence_keeps_running_in_the_tray_without_overlapping_requests() {
     assert!(!main.presence_pending);
     let without_account = main.subscription().units();
     main.settings.token = "token".into();
-    assert_eq!(main.subscription().units(), without_account + 2);
+    assert_eq!(main.subscription().units(), without_account + 3);
     let _ = main.update(super::Message::PresenceTick);
     assert!(main.presence_pending);
     let _ = main.update(super::Message::PresenceTick);

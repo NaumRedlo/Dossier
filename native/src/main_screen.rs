@@ -715,7 +715,12 @@ pub struct Main {
     pub community_fetch: crate::community_screen::Fetch,
     community_asked: Option<Instant>,
     pub pools: crate::pools_screen::State,
-    pub duels: crate::duels_screen::State,
+    pub duels: Box<crate::duels_screen::State>,
+    pub desk: Box<crate::desk_screen::State>,
+    pub duel_link: Option<std::sync::Arc<crate::duels::Link>>,
+    pub duel_preview: Option<std::sync::Arc<crate::preview::Preview>>,
+    pub duel_leaving: bool,
+    pub duel_left: bool,
     pool_covers_asked: std::collections::HashSet<String>,
     refresh_asked: bool,
     refresh_answered: Option<Instant>,
@@ -999,7 +1004,12 @@ impl Main {
             community_fetch: crate::community_screen::Fetch::Staged,
             community_asked: None,
             pools: crate::pools_screen::State::new(crate::pools::pools_dir()).guided(pool_guide),
-            duels: crate::duels_screen::State::default(),
+            duels: Box::default(),
+            desk: Box::default(),
+            duel_link: None,
+            duel_preview: None,
+            duel_leaving: false,
+            duel_left: false,
             pool_covers_asked: std::collections::HashSet::new(),
             refresh_asked: false,
             refresh_answered: None,
@@ -1413,8 +1423,12 @@ impl Main {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
             }
         }
-        if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels && !self.settings.token.is_empty() && !self.gallery {
-            let every = if self.duels.polling() { Duration::from_secs(2) } else { Duration::from_secs(10) };
+        if self.duels.watching.is_some() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels {
+            parts.push(iced::time::every(Duration::from_millis(33)).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Frame))));
+        }
+        if !self.settings.token.is_empty() && !self.gallery {
+            let here = self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels;
+            let every = if self.duels.polling() { Duration::from_secs(2) } else if here { Duration::from_secs(10) } else { Duration::from_secs(15) };
             parts.push(iced::time::every(every).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Again))));
         }
         if self.pools.has_unsaved() {
@@ -1758,6 +1772,93 @@ impl Main {
         })
     }
 
+    fn duel_window(&mut self, message: crate::duels_screen::Message) -> Task<Message> {
+        match message {
+            crate::duels_screen::Message::Open => {
+                let shown = if self.overlay == Overlay::Community { Task::none() } else { self.update(Message::Show(Overlay::Community)) };
+                let gone = self.update(Message::Community(crate::community_screen::Message::Go(crate::community_screen::Section::Duels, None)));
+                Task::batch([shown, gone])
+            }
+            crate::duels_screen::Message::Leave => {
+                self.duel_leaving = false;
+                self.duel_left = true;
+                let _ = self.pools.flush_saves(true);
+                iced::exit()
+            }
+            _ => {
+                self.duel_leaving = false;
+                Task::none()
+            }
+        }
+    }
+
+    fn tell_duel(&mut self, event: &crate::witness::Event) {
+        if let crate::witness::Event::Playing(progress) = event {
+            self.duels.played_ms = Some(progress.time);
+        }
+        if let (crate::witness::Event::Playing(progress), Some(link), Some(duel)) = (event, &self.duel_link, self.duels.shown().filter(|duel| duel.state == "PLAYING")) {
+            let hits = progress.n300 + progress.n100 + progress.n50 + progress.miss;
+            let accuracy = if hits == 0 { 1.0 } else { f64::from(300 * progress.n300 + 100 * progress.n100 + 50 * progress.n50) / f64::from(300 * hits) };
+            link.send(crate::duels::Order::Witness(duel.id.clone(), serde_json::json!({ "score": progress.score, "combo": progress.combo, "accuracy": accuracy, "time": progress.time })));
+        }
+    }
+
+    fn desk_work(&mut self, effects: Vec<crate::desk_screen::Effect>) -> Task<Message> {
+        use crate::desk_screen::{Effect, Message as K, Post};
+        let account = crate::duels::Account { server: self.settings.server.clone(), token: self.settings.token.clone(), device: self.settings.device.clone() };
+        let offline = account.token.is_empty() || self.gallery;
+        let roles = self.duels.roles.clone();
+        let wrap = |message: K| Message::Community(crate::community_screen::Message::Desk(message));
+        let mut tasks: Vec<Task<Message>> = Vec::new();
+        for effect in effects {
+            let account = account.clone();
+            tasks.push(match effect {
+                Effect::Load if offline => Task::none(),
+                Effect::Load => {
+                    let roles = roles.clone();
+                    ui::in_thread(move || K::Loaded(crate::desk::load(&account, &roles).map_err(|why| why.to_string()))).map(wrap)
+                }
+                Effect::Cover(_) if self.gallery => Task::none(),
+                Effect::Cover(set) => ui::in_thread(move || {
+                    let url = format!("https://assets.ppy.sh/beatmaps/{set}/covers/cover@2x.jpg");
+                    let handle = crate::news::picture(&url).and_then(|bytes| decoded_from(&bytes, POOL_COVER.0, Some(POOL_COVER)));
+                    K::Cover(set, handle)
+                }).map(wrap),
+                Effect::Hear(beatmap) => {
+                    self.duel_preview = beatmap.filter(|_| !self.gallery).map(|beatmap| std::sync::Arc::new(crate::preview::Preview::start(beatmap)));
+                    Task::none()
+                }
+                Effect::Cell(..) if offline => Task::none(),
+                Effect::Cell(slot, band) => ui::in_thread(move || K::Held(crate::desk::cell(&account, &slot, band).map_err(|why| why.to_string()))).map(wrap),
+                Effect::About(_) if self.gallery => Task::none(),
+                Effect::About(beatmap) => ui::in_thread(move || K::About(beatmap, crate::desk::about(beatmap))).map(wrap),
+                Effect::Archive => Task::perform(
+                    async {
+                        let picked = rfd::AsyncFileDialog::new().add_filter("osu!", &["osz"]).pick_file().await?;
+                        Some(picked.path().to_path_buf())
+                    },
+                    |picked| picked.map_or_else(Vec::new, |path| crate::desk::archive_lines(&path)),
+                ).map(move |lines| wrap(K::Archived(lines))),
+                Effect::Post(_) if offline => Task::done(wrap(K::Posted(Err("offline".to_owned())))),
+                Effect::Post(post) => ui::in_thread(move || {
+                    let said = match post {
+                        Post::Review { beatmap, decision, slot, reason } => crate::desk::review(&account, beatmap, decision, slot.as_deref(), &reason),
+                        Post::Label { cell, beatmap, label, reason } => crate::desk::label(&account, &cell, beatmap, &label, &reason),
+                        Post::Tournament { name, year, pool, reason } => crate::desk::tournament(&account, &name, year, &pool, &reason),
+                        Post::Publish { version, reason } => crate::desk::publish(&account, &version, &reason),
+                        Post::Rollback { reason } => crate::desk::rollback(&account, &reason),
+                        Post::Finalize { duel, match_id, game_id, reason } => crate::desk::finalize(&account, &duel, match_id, game_id, &reason),
+                        Post::Cancel { duel, reason } => crate::desk::cancel(&account, &duel, &reason),
+                        Post::Grant { player, role, reason } => crate::desk::grant(&account, player, &role, &reason),
+                        Post::Discover { band, reason } => crate::desk::discover(&account, band, &reason),
+                    };
+                    K::Posted(said.map(|_| ()).map_err(|why| why.to_string()))
+                }).map(wrap),
+            });
+        }
+        Task::batch(tasks)
+    }
+
     fn duels_work(&mut self, effects: Vec<crate::duels_screen::Effect>) -> Task<Message> {
         use crate::duels_screen::{Effect, Message as D, Snapshot};
         let account = crate::duels::Account { server: self.settings.server.clone(), token: self.settings.token.clone(), device: self.settings.device.clone() };
@@ -1769,7 +1870,7 @@ impl Main {
             tasks.push(match effect {
                 Effect::Load if offline => Task::none(),
                 Effect::Load => ui::in_thread(move || {
-                    let found = (|| Ok::<Snapshot, crate::duels::Failure>(Snapshot { me: crate::duels::me(&account)?, live: crate::duels::live(&account)?, mine: crate::duels::mine(&account)? }))();
+                    let found = (|| Ok::<Snapshot, crate::duels::Failure>(Snapshot { me: crate::duels::me(&account)?, live: crate::duels::live(&account)?, mine: crate::duels::mine(&account)?, notices: crate::duels::notices(&account).unwrap_or_default(), roles: crate::duels::roles(&account).unwrap_or_default() }))();
                     D::Loaded(found.map_err(|why| why.to_string()))
                 }).map(wrap),
                 Effect::Queue(enter) => ui::in_thread(move || {
@@ -1782,6 +1883,76 @@ impl Main {
                     };
                     D::Answered(said)
                 }).map(wrap),
+                Effect::Read(_) if offline => Task::none(),
+                Effect::Read(duel) => ui::in_thread(move || D::Read(crate::duels::read(&account, &duel).map_err(|why| why.to_string()))).map(wrap),
+                Effect::Act(duel, action, body, version) => ui::in_thread(move || {
+                    let said = if offline { Err("offline".to_owned()) } else { crate::duels::act(&account, &duel, action, body, version, &crate::duels::key()).map_err(|why| why.to_string()) };
+                    D::Acted(said)
+                }).map(wrap),
+                Effect::Cover(set) => ui::in_thread(move || {
+                    let url = format!("https://assets.ppy.sh/beatmaps/{set}/covers/cover@2x.jpg");
+                    let handle = crate::news::picture(&url).and_then(|bytes| decoded_from(&bytes, POOL_COVER.0, Some(POOL_COVER)));
+                    D::Cover(set, handle)
+                }).map(wrap),
+                Effect::Hear(beatmap) => {
+                    self.duel_preview = beatmap.filter(|_| !self.gallery).map(|beatmap| std::sync::Arc::new(crate::preview::Preview::start(beatmap)));
+                    Task::none()
+                }
+                Effect::Copy(text) => {
+                    self.say(self.words.t("duels-copied"));
+                    iced::clipboard::write(text)
+                }
+                Effect::Link(false) => {
+                    self.duel_link = None;
+                    if let Some(control) = &self.witness_control {
+                        control.stream_cursor(None);
+                    }
+                    Task::none()
+                }
+                Effect::Link(true) if offline || self.duel_link.is_some() => Task::none(),
+                Effect::Link(true) => {
+                    let (cursor_in, cursor_out) = std::sync::mpsc::channel();
+                    if let Some(control) = &self.witness_control {
+                        control.stream_cursor(Some(cursor_in));
+                    }
+                    let (heard_in, heard_out) = std::sync::mpsc::channel::<crate::duels::Heard>();
+                    self.duel_link = Some(std::sync::Arc::new(crate::duels::connect(account, Some(cursor_out), move |heard| heard_in.send(heard).is_ok())));
+                    ui::streamed(move |push: &mut dyn FnMut(Message) -> bool| {
+                        while let Ok(heard) = heard_out.recv() {
+                            if !push(Message::Community(crate::community_screen::Message::Duels(D::Heard(heard)))) {
+                                return;
+                            }
+                        }
+                    })
+                }
+                Effect::Order(order) => {
+                    if let Some(link) = &self.duel_link {
+                        link.send(order);
+                    }
+                    Task::none()
+                }
+                Effect::Download(sets) => ui::in_thread(move || D::Downloaded(crate::preview::fetch_sets(&sets))).map(wrap),
+                Effect::Tell(told, ids) => {
+                    for (key, name) in told {
+                        let said = self.words.with(key, &[("name", name)]);
+                        self.announce(crate::notices::Mark::Plain, said, String::new(), String::new(), String::new(), crate::notices::Link::Duels);
+                    }
+                    if offline {
+                        Task::none()
+                    } else {
+                        ui::in_thread(move || { let _ = crate::duels::seen(&account, &ids); }).discard()
+                    }
+                }
+                Effect::Invite(player) => ui::in_thread(move || {
+                    let said = if offline { Err("offline".to_owned()) } else { crate::duels::invite(&account, player, &crate::duels::key()).map_err(|why| why.to_string()) };
+                    D::Answered(said)
+                }).map(wrap),
+                Effect::Playing(now) => {
+                    if let Some(link) = &self.duel_link {
+                        link.send(crate::duels::Order::Playing(now));
+                    }
+                    Task::none()
+                }
             });
         }
         Task::batch(tasks)
@@ -2159,6 +2330,10 @@ impl Main {
     }
 
     pub fn prepare_exit(&mut self) -> bool {
+        if !self.duel_left && self.duels.shown().is_some_and(|duel| crate::duels_screen::phase_of(&duel.state) != crate::duels_screen::Phase::Result) {
+            self.duel_leaving = true;
+            return false;
+        }
         if self.pools.flush_saves(true) { return true; }
         self.announce(notices::Mark::Bad, self.words.t("pool-unsaved"), String::new(), String::new(), String::new(), notices::Link::None);
         false
@@ -3119,9 +3294,21 @@ impl Main {
                         self.people_orders_open = false;
                     }
                     C::PeopleOrders(open) => self.people_orders_open = open,
+                    C::Duels(window @ (crate::duels_screen::Message::Open | crate::duels_screen::Message::Stay | crate::duels_screen::Message::Leave)) => return self.duel_window(window),
+                    C::Duels(crate::duels_screen::Message::Profile(osu_id)) => {
+                        let at = self.community.as_ref().and_then(|catalog| catalog.people.iter().position(|person| person.osu_id == Some(osu_id)));
+                        return at.map_or_else(Task::none, |at| self.update(Message::Community(C::Person(Some(at)))));
+                    }
                     C::Duels(inner) => {
+                        if let Some(player) = self.account.as_ref().and_then(|me| me.player) {
+                            self.duels.player = Some(player);
+                        }
                         let effects = self.duels.update(inner, unix_now());
                         return self.duels_work(effects);
+                    }
+                    C::Desk(inner) => {
+                        let effects = self.desk.update(inner, &self.words);
+                        return self.desk_work(effects);
                     }
                     C::Pools(inner) => {
                         if let crate::pools_screen::Message::Saved(said) = &inner {
@@ -3184,6 +3371,10 @@ impl Main {
                             let player = self.account.as_ref().and_then(|me| me.player);
                             let effects = self.duels.open(player);
                             return self.duels_work(effects);
+                        }
+                        if section == crate::community_screen::Section::Balance {
+                            let effects = self.desk.open(&self.duels.roles);
+                            return self.desk_work(effects);
                         }
                         if section == crate::community_screen::Section::Compare {
                             self.pool_players();
@@ -3460,6 +3651,7 @@ impl Main {
                 if let Some(control) = &self.witness_control {
                     control.context(&event, self.witness.state.as_ref(), &self.pools.list, self.settings.lang == crate::lang::Lang::En);
                 }
+                self.tell_duel(&event);
                 let leaving = was_there && matches!(event, crate::witness::Event::Gone | crate::witness::Event::Waiting | crate::witness::Event::Absent);
                 let sitting = Task::batch([self.sitting_task(&event), if leaving { self.history_task(false) } else { Task::none() }]);
                 if let crate::witness::Event::Kept(kept) = &event {
@@ -4535,6 +4727,12 @@ impl Main {
             ui::fading(sheet * awake, || self.community_view(true).unwrap_or_else(blank))
         } else { blank() };
         let toasts = self.toast_layer();
+        let in_duels = self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels;
+        let wrap = |message: crate::duels_screen::Message| Message::Community(crate::community_screen::Message::Duels(message));
+        let duel_strip: Element<'_, Message> = if in_duels { Space::new().into() } else {
+            crate::duel_view::away_strip(&self.duels, &self.words, self.now_unix).map(|strip| strip.map(wrap)).unwrap_or_else(|| Space::new().into())
+        };
+        let duel_leaving: Element<'_, Message> = if self.duel_leaving { crate::duel_view::leaving(&self.words).map(wrap) } else { Space::new().into() };
         let menu = self.menu_layer();
         let signing = self.sign_in_layer();
         let billing = self.billing_layer();
@@ -4560,7 +4758,7 @@ impl Main {
         } else { blank() };
         let mini = self.mini_player_layer();
         let rest_scene = if loaded { self.reel_view(rest) } else { blank() };
-        let layers = stack![scene_before, scene, body, share_menu, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, toasts, menu, billing, signing, skin_ask, witness_ask, failure, rest_scene, resting];
+        let layers = stack![scene_before, scene, body, share_menu, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, duel_strip, toasts, menu, billing, signing, skin_ask, witness_ask, duel_leaving, failure, rest_scene, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
@@ -5731,7 +5929,7 @@ impl Main {
         let w = &self.words;
         let section = self.community_section;
         let item = |key: &'static str, icon: Icon, label: String, on: bool, section: Section, from: Option<PeopleFrom>| Entry::Item { key, icon, label, on, press: Message::Community(C::Go(section, from)) };
-        vec![
+        let mut entries = vec![
             item("profile", Icon::Person, w.t("community-profile"), section == Section::Profile, Section::Profile, None),
             item("feed", Icon::News, w.t("community-feed"), section == Section::Feed, Section::Feed, None),
             item("people", Icon::Chat, w.t("community-people"), section == Section::People, Section::People, Some(PeopleFrom::Chat)),
@@ -5739,10 +5937,16 @@ impl Main {
             Entry::Caption(w.t("community-play")),
             item("pools", Icon::Pool, w.t("community-pools"), section == Section::Pools, Section::Pools, None),
             item("duels", Icon::Swords, w.t("community-duels"), section == Section::Duels, Section::Duels, None),
+        ];
+        if !self.duels.roles.is_empty() {
+            entries.push(item("balance", Icon::Scale, w.t("community-balance"), section == Section::Balance, Section::Balance, None));
+        }
+        entries.extend([
             Entry::Caption(w.t("community-standing")),
             item("boards", Icon::Chart, w.t("community-boards"), section == Section::Boards, Section::Boards, None),
             item("titles", Icon::Trophy, w.t("community-titles"), section == Section::Titles, Section::Titles, None),
-        ]
+        ]);
+        entries
     }
 
     fn settings_entries(&self) -> Vec<crate::sidebar::Entry<Message>> {
@@ -5820,6 +6024,7 @@ impl Main {
             fetch: self.community_fetch,
             pools: &self.pools,
             duels: &self.duels,
+            desk: &self.desk,
             pools_clocks: crate::pools_screen::Clocks::settled(),
             asked: self.refresh_asked,
             answered_t: self.refresh_answered.map_or(f32::MAX, |at| self.now.saturating_duration_since(at).as_secs_f32()),

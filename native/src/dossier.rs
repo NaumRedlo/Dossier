@@ -656,6 +656,22 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a
         ),
     ]
     .spacing(8);
+    let buttons = match you.player.filter(|_| you.app && !you.you) {
+        Some(player) => {
+            let pending = ground.duels.mine.iter().find(|duel| duel.state == "INVITED" && duel.participants.iter().any(|person| person.player == player));
+            let inside: Element<'a, Message> = match pending {
+                Some(duel) => {
+                    let left = crate::duels_screen::seconds_left(duel, ground.now_unix).map(crate::duels_screen::clock).unwrap_or_default();
+                    row![text(left).font(theme::SANS_SEMI).size(13.0).color(ui::faded(theme::GRADE_S)), text(w.t("duels-challenge-waiting")).font(theme::SANS_SEMI).size(13.0)].spacing(6).align_y(iced::Center).into()
+                }
+                None => row![glyph(Icon::Swords, 14.0, INK), text(w.t("duels-challenge")).font(theme::SANS_SEMI).size(13.0)].spacing(6).align_y(iced::Center).into(),
+            };
+            let challenge = button(container(inside).center_x(Length::Fill)).padding([10, 0]).width(Length::Fill).style(ui::button_faded(ui::calm(outline)));
+            let challenge = if pending.is_some() || ground.duels.acting { challenge } else { challenge.on_press(Message::Duels(crate::duels_screen::Message::Challenge(player))) };
+            buttons.push(ui::hover(challenge, ui::Glow::tile(10.0)))
+        }
+        None => buttons,
+    };
     let details = container(column![heading, rows, buttons].spacing(12)).padding(Padding { top: 0.0, right: 18.0, bottom: 18.0, left: 18.0 });
     slab(column![banner, details].spacing(6), 0).id("profile-identity").into()
 }

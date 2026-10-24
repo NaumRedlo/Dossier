@@ -17,6 +17,7 @@ pub enum Link {
     Page(String),
     Replay(PathBuf),
     Received(u64),
+    Duels,
     None,
 }
 

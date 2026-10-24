@@ -11,7 +11,10 @@ fn main() -> Result<(), String> {
     let (_, mut main) = gallery::main_states(Lang::Ru).into_iter()
         .find(|(candidate, _)| candidate == &name)
         .ok_or_else(|| format!("Unknown gallery frame: {name}"))?;
-    let size = Size::new(980.0, 720.0);
+    let size = std::env::var("DOSSIER_PREVIEW_SIZE").ok().and_then(|said| {
+        let (wide, high) = said.split_once('x')?;
+        Some(Size::new(wide.parse().ok()?, high.parse().ok()?))
+    }).unwrap_or(Size::new(980.0, 720.0));
     main.width = size.width;
     main.height = size.height;
     let action = args.next();
@@ -61,7 +64,7 @@ fn main() -> Result<(), String> {
     } else {
         gallery::snapshot_main(&main, size).map_err(|error| format!("{error:?}"))?
     };
-    let file = gallery::write_snapshot(&shot, &out.join(format!("{name}-ru-RU-980")))?;
+    let file = gallery::write_snapshot(&shot, &out.join(format!("{name}-ru-RU-{}", size.width as u32)))?;
     println!("{}", file.display());
     Ok(())
 }

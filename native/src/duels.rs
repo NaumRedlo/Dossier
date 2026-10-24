@@ -43,6 +43,14 @@ pub struct Participant {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Projection {
+    #[serde(default)]
+    pub before: i64,
+    #[serde(default)]
+    pub after: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct Wins {
     #[serde(default, rename = "A")]
     pub a: u32,
@@ -74,6 +82,28 @@ pub struct Entry {
     pub stars: Option<f32>,
     #[serde(default)]
     pub review: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub artist: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub mapper: Option<String>,
+    #[serde(default)]
+    pub beatmapset_id: Option<i64>,
+    #[serde(default)]
+    pub song_seconds: Option<f32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Played {
+    #[serde(default)]
+    pub score: i64,
+    #[serde(default)]
+    pub accuracy: Option<f32>,
+    #[serde(default)]
+    pub combo: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -122,6 +152,8 @@ pub struct Round {
     pub ties: u32,
     #[serde(default)]
     pub picked_by: Option<i64>,
+    #[serde(default)]
+    pub scores: std::collections::BTreeMap<String, Played>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -166,6 +198,8 @@ pub struct Duel {
     pub rounds: Vec<Round>,
     #[serde(default)]
     pub bonus: Option<Bonus>,
+    #[serde(default)]
+    pub rating: Option<Projection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -219,7 +253,7 @@ fn refused(code: u16, body: &str) -> Failure {
     }
 }
 
-fn call<T: serde::de::DeserializeOwned>(account: &Account, method: reqwest::Method, path: &str, body: Option<Value>, operation: Option<&str>) -> Result<T, Failure> {
+pub(crate) fn call<T: serde::de::DeserializeOwned>(account: &Account, method: reqwest::Method, path: &str, body: Option<Value>, operation: Option<&str>) -> Result<T, Failure> {
     let client = crate::bot::client().map_err(|why| Failure::Network(why.to_string()))?;
     let mut request = client
         .request(method, format!("{}{path}", account.server))
@@ -334,6 +368,10 @@ pub struct Running {
     pub beatmap_id: Option<i64>,
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default)]
+    pub stars: Option<f32>,
+    #[serde(default)]
+    pub song_seconds: Option<f32>,
     #[serde(default)]
     pub seconds_ago: Option<i64>,
     #[serde(default)]

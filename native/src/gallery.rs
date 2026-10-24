@@ -1092,6 +1092,84 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-player-wide".to_owned(), playing_wide),
         ("main-nomap".to_owned(), staged(Some(3))),
         ("main-worker".to_owned(), worker),
+        ("main-rendering".to_owned(), rendering),
+        ("main-queued".to_owned(), queued),
+        ("main-rendered".to_owned(), rendered),
+        ("main-hover".to_owned(), hovering.clone()),
+        ("main-focus".to_owned(), {
+            let mut lit = hovering.clone();
+            lit.hover = None;
+            lit.hover_since = None;
+            let heads: Vec<usize> = lit.laid().rows.iter().filter_map(|row| match row { crate::carousel::Row::Head { first, open: false, .. } => Some(*first), _ => None }).collect();
+            lit.focus = heads.get(1).map(|first| crate::main_screen::select::Focus::Head(*first));
+            lit
+        }),
+        ("main-select-menu".to_owned(), {
+            let mut opened = hovering.clone();
+            opened.filters_open = true;
+            opened
+        }),
+        ("main-select-flat".to_owned(), {
+            let mut flat = hovering.clone();
+            flat.group = crate::carousel::Group::Flat;
+            flat
+        }),
+        ("main-select-players".to_owned(), {
+            let mut players = hovering.clone();
+            players.group = crate::carousel::Group::Players;
+            players
+        }),
+        ("main-select-empty".to_owned(), {
+            let mut nothing = hovering.clone();
+            nothing.filters_open = true;
+            nothing.filter.witness = true;
+            nothing
+        }),
+        ("main-shared".to_owned(), {
+            let mut shared = hovering;
+            if let Some(library) = shared.library.as_mut() {
+                for entry in library.entries.iter_mut().take(2) {
+                    let name = entry.path.file_name().map(std::path::PathBuf::from).unwrap_or_default();
+                    entry.path = crate::sources::shared_root().join(name);
+                }
+            }
+            let face = "avatar://staged".to_owned();
+            let picture = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main").join("bg-nevermind.jpg");
+            if let Some(handle) = std::fs::read(&picture).ok().and_then(|bytes| crate::main_screen::covered_bytes(&bytes, 128, 128)) {
+                shared.news_pictures.insert(face.clone(), handle);
+            }
+            let sharing = shared.entries().first().map(|entry| entry.player.to_lowercase());
+            shared.community = Some(shared.staged_community());
+            if let Some(catalog) = shared.community.as_mut() {
+                for person in catalog.people.iter_mut().filter(|person| Some(person.name.to_lowercase()) == sharing) {
+                    person.avatar = face.clone();
+                }
+            }
+            shared
+        }),
+        ("main-fetching".to_owned(), {
+            for job in &mut fetching.fetching {
+                job.shown = job.target().unwrap_or(0.0);
+            }
+            fetching
+        }),
+        ("main-empty".to_owned(), empty),
+        ("main-looking".to_owned(), looking),
+    ];
+    states.extend(community_states(&community, &scored, &titled));
+    states.extend(feed_states(&community));
+    states.extend(duel_states(&community, &staged));
+    states.extend(desk_states(&community));
+    states
+}
+
+fn community_states(
+    community: &dyn Fn(crate::community_screen::Section, Option<usize>) -> crate::main_screen::Main,
+    scored: &dyn Fn(bool) -> crate::main_screen::Main,
+    titled: &dyn Fn(&str, &str) -> crate::main_screen::Main,
+) -> Vec<(String, crate::main_screen::Main)> {
+    let mut states: Vec<(String, crate::main_screen::Main)> = Vec::new();
+    frames![states;
         ("main-community-feed".to_owned(), community(crate::community_screen::Section::Feed, None)),
         ("main-community-feed-cover".to_owned(), {
             let mut main = community(crate::community_screen::Section::Feed, None);
@@ -1166,16 +1244,6 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         }),
         ("main-community-person".to_owned(), community(crate::community_screen::Section::People, Some(1))),
         ("main-community-boards".to_owned(), community(crate::community_screen::Section::Boards, None)),
-        ("main-community-duels".to_owned(), {
-            let mut main = community(crate::community_screen::Section::Duels, None);
-            main.duels = staged_duels(false);
-            main
-        }),
-        ("main-community-duels-offer".to_owned(), {
-            let mut main = community(crate::community_screen::Section::Duels, None);
-            main.duels = staged_duels(true);
-            main
-        }),
         ("main-community-adaptive".to_owned(), {
             let mut main = community(crate::community_screen::Section::Boards, None);
             main.community_standing = crate::community_screen::Standing::Adaptive;
@@ -1228,71 +1296,276 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             main.mini_player = true;
             main
         }),
-        ("main-rendering".to_owned(), rendering),
-        ("main-queued".to_owned(), queued),
-        ("main-rendered".to_owned(), rendered),
-        ("main-hover".to_owned(), hovering.clone()),
-        ("main-focus".to_owned(), {
-            let mut lit = hovering.clone();
-            lit.hover = None;
-            lit.hover_since = None;
-            let heads: Vec<usize> = lit.laid().rows.iter().filter_map(|row| match row { crate::carousel::Row::Head { first, open: false, .. } => Some(*first), _ => None }).collect();
-            lit.focus = heads.get(1).map(|first| crate::main_screen::select::Focus::Head(*first));
-            lit
-        }),
-        ("main-select-menu".to_owned(), {
-            let mut opened = hovering.clone();
-            opened.filters_open = true;
-            opened
-        }),
-        ("main-select-flat".to_owned(), {
-            let mut flat = hovering.clone();
-            flat.group = crate::carousel::Group::Flat;
-            flat
-        }),
-        ("main-select-players".to_owned(), {
-            let mut players = hovering.clone();
-            players.group = crate::carousel::Group::Players;
-            players
-        }),
-        ("main-select-empty".to_owned(), {
-            let mut nothing = hovering.clone();
-            nothing.filters_open = true;
-            nothing.filter.witness = true;
-            nothing
-        }),
-        ("main-shared".to_owned(), {
-            let mut shared = hovering;
-            if let Some(library) = shared.library.as_mut() {
-                for entry in library.entries.iter_mut().take(2) {
-                    let name = entry.path.file_name().map(std::path::PathBuf::from).unwrap_or_default();
-                    entry.path = crate::sources::shared_root().join(name);
-                }
-            }
-            let face = "avatar://staged".to_owned();
-            let picture = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main").join("bg-nevermind.jpg");
-            if let Some(handle) = std::fs::read(&picture).ok().and_then(|bytes| crate::main_screen::covered_bytes(&bytes, 128, 128)) {
-                shared.news_pictures.insert(face.clone(), handle);
-            }
-            let sharing = shared.entries().first().map(|entry| entry.player.to_lowercase());
-            shared.community = Some(shared.staged_community());
-            if let Some(catalog) = shared.community.as_mut() {
-                for person in catalog.people.iter_mut().filter(|person| Some(person.name.to_lowercase()) == sharing) {
-                    person.avatar = face.clone();
-                }
-            }
-            shared
-        }),
-        ("main-fetching".to_owned(), {
-            for job in &mut fetching.fetching {
-                job.shown = job.target().unwrap_or(0.0);
-            }
-            fetching
-        }),
-        ("main-empty".to_owned(), empty),
-        ("main-looking".to_owned(), looking),
     ];
-    states.extend(feed_states(&community));
+    states
+}
+
+fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize>) -> crate::main_screen::Main) -> Vec<(String, crate::main_screen::Main)> {
+    use crate::desk_screen::Tab;
+    let tabbed = |tab: Tab| {
+        let mut main = community(crate::community_screen::Section::Balance, None);
+        main.duels = Box::new(staged_duels(false));
+        main.duels.roles = vec!["OWNER".into()];
+        main.desk = Box::new(staged_desk());
+        main.desk.tab = tab;
+        main
+    };
+    let mut states: Vec<(String, crate::main_screen::Main)> = Vec::new();
+    frames![states;
+        ("main-community-balance".to_owned(), {
+            let mut main = tabbed(Tab::Queue);
+            main.desk.reason = "Альтернейт есть, но стримов больше".into();
+            main
+        }),
+        ("main-community-balance-label".to_owned(), tabbed(Tab::Label)),
+        ("main-community-balance-tournament".to_owned(), {
+            let mut main = tabbed(Tab::Label);
+            main.desk.adding = true;
+            main.desk.name = "Russian Cup 2024".into();
+            main.desk.year_text = "2024".into();
+            main.desk.pool = crate::desk_screen::Pool(iced::widget::text_editor::Content::with_text("NM1 https://osu.ppy.sh/b/1222416\nNM2 https://osu.ppy.sh/b/5379506\nNM3 https://osu.ppy.sh/b/5687673\nHD2 https://osu.ppy.sh/b/5824105\nDT1 https://osu.ppy.sh/b/5860624\nTB https://osu.ppy.sh/b/5397135"));
+            main
+        }),
+        ("main-community-balance-owc".to_owned(), {
+            let mut main = tabbed(Tab::Owc);
+            main.desk.cell = main.desk.desk.cells.iter().position(|cell| cell.stage == "finals" && cell.slot == "NM3");
+            main.desk.label = Some("NM2".into());
+            main.desk.reason = "В 2024 NM3 был стримами".into();
+            main
+        }),
+        ("main-community-balance-catalog".to_owned(), {
+            let mut main = tabbed(Tab::Catalog);
+            main.desk.band = Some(("NM3".into(), 3));
+            main.desk.held = vec![
+                crate::desk::Held { beatmap_id: 5687673, beatmapset_id: Some(2612145), stars: 5.71, level: "human".into(), mapper: Some("Nevo".into()), title: Some("HOT LIMIT".into()) },
+                crate::desk::Held { beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()) },
+            ];
+            main
+        }),
+        ("main-community-balance-model".to_owned(), tabbed(Tab::Model)),
+        ("main-community-balance-duels".to_owned(), {
+            let mut main = tabbed(Tab::Duels);
+            main.desk.match_id = "114482093".into();
+            main.desk.game_id = "602118554".into();
+            main.desk.reason = "API отдал игру с задержкой".into();
+            main
+        }),
+        ("main-community-balance-journal".to_owned(), tabbed(Tab::Journal)),
+        ("main-community-balance-people".to_owned(), {
+            let mut main = tabbed(Tab::People);
+            main.desk.player = "42".into();
+            main.desk.role = Some(crate::desk::REVIEWER);
+            main
+        }),
+    ];
+    states
+}
+
+fn staged_desk() -> crate::desk_screen::State {
+    use crate::desk::{Cell, CorpusMap, Coverage, Desk, Entry, Guess, Map, Odds, Opinions, Person, Reason, Stuck, Task, Totals, Version};
+    use crate::duels::{Seat, Wins};
+    let stamp = |ago: i64| chrono::DateTime::from_timestamp(NOON - ago, 0).map(|at| at.to_rfc3339());
+    let map = |id: i64, set: i64, title: &str, version: &str, mapper: &str, stars: f32| Map {
+        beatmap_id: id, beatmapset_id: Some(set), title: Some(title.into()), artist: Some("Artist".into()), version: Some(version.into()), mapper: Some(mapper.into()), stars: Some(stars), model: None,
+    };
+    let guess = Guess {
+        slot: Some("NM3".into()), probability: 0.64, margin: 0.43,
+        top: vec![Odds { slot: "NM3".into(), probability: 0.64 }, Odds { slot: "NM2".into(), probability: 0.21 }, Odds { slot: "NM4".into(), probability: 0.09 }, Odds { slot: "OTHER".into(), probability: 0.06 }],
+        reasons: vec![Reason { feature: "streams.lengths.3-5".into(), weight: 1.2 }, Reason { feature: "angle_deg.p90".into(), weight: 0.8 }, Reason { feature: "streams.lengths.16-31".into(), weight: -0.6 }],
+        outside: false, version: "owc-202610231200-606".into(),
+    };
+    let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };
+    let mut first = task("review", "uncertain_revealed", Some("NM3"), map(5687673, 2612145, "HOT LIMIT", "Extreme", "Nevo", 5.71), 720);
+    first.map.model = Some(guess);
+    first.opinions = Some(Opinions { played: 5, fits: 3, off: 2, difficulty: [("fine".to_owned(), 4), ("hard".to_owned(), 1)].into_iter().collect(), comments: vec!["Альтернейта тут половина".into()] });
+    let tasks = vec![
+        first,
+        task("review", "feedback", Some("HD2"), map(5824105, 2662331, "Ascension to Heaven", "Heaven", "Sotarks", 5.68), 3600),
+        task("review", "feedback_exclusion", Some("NM2"), map(5379506, 2440213, "Harumodoki", "Insane", "Shmiklak", 5.39), 10_800),
+        task("review", "uncertain_revealed", Some("DT2"), map(5860624, 2681134, "Blue Zenith", "Zenith", "Asphyxia", 5.30), 18_000),
+        task("unassigned", "unassigned", None, map(1222416, 571525, "The Big Black", "WHO'S AFRAID OF THE BIG BLACK", "Blue Dragon", 6.10), 90_000),
+        task("unassigned", "unassigned", None, map(5397135, 2448804, "Nihon-shiki Koukaku", "Ouka", "Mirash", 5.95), 95_000),
+    ];
+    let counts: [(&str, [u32; 8]); 9] = [
+        ("NM1", [6, 9, 14, 12, 8, 5, 2, 0]), ("NM2", [5, 8, 11, 10, 6, 3, 1, 0]), ("NM3", [1, 2, 3, 2, 1, 0, 0, 0]), ("NM4", [3, 6, 9, 7, 5, 2, 1, 0]), ("HD2", [4, 6, 8, 9, 6, 3, 1, 0]),
+        ("HR2", [2, 4, 7, 6, 4, 2, 0, 0]), ("DT1", [7, 10, 12, 11, 8, 4, 2, 1]), ("DT2", [3, 5, 8, 8, 5, 2, 1, 0]), ("TB", [1, 2, 3, 3, 2, 1, 0, 0]),
+    ];
+    let coverage = Coverage {
+        slots: counts.iter().map(|(slot, _)| (*slot).to_owned()).collect(),
+        grid: counts.iter().map(|(slot, row)| ((*slot).to_owned(), row.to_vec())).collect(),
+        totals: Totals { playable: 412, human: 96, uncertain: 58, quarantined: 7, unassigned: 1204 },
+    };
+    let corpus_map = |id: i64, label: &str, verified: bool, title: &str| CorpusMap { beatmap_id: id, beatmapset_id: None, label: label.into(), verified, file: true, conflict: false, title: Some(title.into()), artist: Some("Artist".into()), version: Some("Insane".into()), mapper: Some("Mapper".into()) };
+    let mut cells = Vec::new();
+    let slots = ["NM1", "NM2", "NM3", "NM4", "NM5", "HD1", "HD2", "HD3", "HR1", "HR2", "HR3", "DT1", "DT2", "DT3", "DT4", "FM1", "TB"];
+    let label_of = |slot: &str| match slot {
+        "NM1" | "NM2" | "NM3" | "NM4" | "HD2" | "HR2" | "DT1" | "DT2" | "TB" => slot.to_owned(),
+        _ => "NONE".to_owned(),
+    };
+    for (row, stage) in ["grand finals", "finals", "semifinals", "quarterfinals", "round of 16", "round of 32", "qualifiers"].into_iter().enumerate() {
+        for (column, slot) in slots.into_iter().enumerate() {
+            let verified = (row * 7 + column * 3) % 5 < 2;
+            let id = (row * 100 + column) as i64 + 1;
+            cells.push(Cell { corpus: "owc-2021-2025-v1".into(), year: 2024, stage: stage.into(), slot: slot.into(), label: None, maps: vec![corpus_map(id, &label_of(slot), verified, "Map")] });
+        }
+    }
+    if let Some(cell) = cells.iter_mut().find(|cell| cell.stage == "finals" && cell.slot == "NM3") {
+        let with_set = |mut map: CorpusMap, set: i64| {
+            map.beatmapset_id = Some(set);
+            map
+        };
+        cell.maps = vec![with_set(corpus_map(9001, "NM2", false, "Harumodoki"), 2440213), with_set(corpus_map(9002, "NM2", false, "Blue Zenith"), 2681134), with_set(corpus_map(9003, "NM3", true, "HOT LIMIT"), 2612145)];
+    }
+    for (stage, slot, label) in [("grand finals", "NM3", "NM2"), ("semifinals", "HD3", "DT1"), ("quarterfinals", "NM5", "NM4"), ("round of 16", "HR3", "HD2"), ("qualifiers", "DT3", "NM4")] {
+        if let Some(cell) = cells.iter_mut().find(|cell| cell.stage == stage && cell.slot == slot) {
+            cell.maps[0].label = label.into();
+        }
+    }
+    for year in [2021, 2022, 2023, 2025] {
+        cells.push(Cell { corpus: "owc-2021-2025-v1".into(), year, stage: "finals".into(), slot: "NM1".into(), label: None, maps: vec![corpus_map(8000 + i64::from(year), "NM1", false, "Map")] });
+    }
+    let own = |id: i64, slot: &str, title: &str, version: &str, mapper: &str, verified: bool| CorpusMap { beatmap_id: id, beatmapset_id: Some(id), label: slot.into(), verified, file: true, conflict: false, title: Some(title.into()), artist: Some("t+pazolite".into()), version: Some(version.into()), mapper: Some(mapper.into()) };
+    cells.push(Cell { corpus: "own-v1".into(), year: 2024, stage: "Russian Cup".into(), slot: "NM1".into(), label: None, maps: vec![own(571525, "NM1", "The Big Black", "WHO'S AFRAID", "Blue Dragon", true), own(2612145, "NM3", "HOT LIMIT", "Extreme", "Nevo", false), own(2440213, "NM2", "Harumodoki", "Insane", "Shmiklak", false)] });
+    let version = |name: &str, state: &str, f1: f64, ago: i64| Version {
+        version: name.into(), state: state.into(), labels: 572,
+        report: serde_json::json!({ "verified": 41, "test": { "macro_f1": f1, "confident": { "precision": 0.75 }, "per_slot": {
+            "NM1": { "precision": 0.62, "recall": 0.71 }, "NM2": { "precision": 0.75, "recall": 0.43 }, "NM3": { "precision": 0.25, "recall": 0.14 },
+            "NM4": { "precision": 0.75, "recall": 0.43 }, "HD2": { "precision": 0.57, "recall": 0.57 }, "HR2": { "precision": 0.67, "recall": 0.57 },
+            "DT1": { "precision": 1.0, "recall": 0.43 }, "DT2": { "precision": 0.75, "recall": 0.43 }, "TB": { "precision": 0.86, "recall": 1.0 } } } }),
+        created_at: stamp(ago), published_at: None,
+    };
+    let seat = |player: i64, side: &str, name: &str| Seat { player, side: Some(side.into()), name: Some(name.into()) };
+    let stuck = |id: &str, reason: &str, a: Seat, b: Seat, wins: (u32, u32), ago: i64| Stuck { id: id.into(), state: "VERIFYING".into(), reason: reason.into(), since: stamp(ago), wins: Wins { a: wins.0, b: wins.1 }, mode: "rated".into(), players: vec![a, b] };
+    let entry = |id: i64, name: &str, role: &str, action: &str, target: &str, reason: &str, ago: i64, after: serde_json::Value| Entry { id, actor: id, name: Some(name.into()), role: role.into(), action: action.into(), target: target.into(), reason: reason.into(), at: stamp(ago), after };
+    let desk = Desk {
+        tasks,
+        coverage: Some(coverage),
+        stuck: vec![
+            stuck("s1", "verifying", seat(2, "A", "kotofey"), seat(6, "B", "Mirrorwave"), (1, 1), 480),
+            stuck("s2", "absent", seat(4, "A", "d1ce"), seat(8, "B", "hmosha"), (2, 0), 900),
+            stuck("s3", "room_setup", seat(5, "A", "aeris"), seat(7, "B", "mrekk"), (0, 0), 1500),
+        ],
+        journal: vec![
+            entry(1, "NaumRedlo", "OWNER", "publish_model", "owc-202610211200-606", "Лучше на NM1 и HR2", 172_800, serde_json::Value::Null),
+            entry(3, "ssnowy", "BALANCE_REVIEWER", "map_approve", "5687673", "Короткие группы, повороты", 10_800, serde_json::json!({ "slot": "NM3" })),
+            entry(3, "ssnowy", "BALANCE_REVIEWER", "corpus_label", "2024:finals:NM3", "В 2024 NM3 был стримами", 14_400, serde_json::json!({ "label": "NM2" })),
+            entry(4, "d1ce", "TECHNICAL_OPERATOR", "cancel", "a1b2", "Комната не создаётся", 18_000, serde_json::Value::Null),
+            entry(3, "ssnowy", "BALANCE_REVIEWER", "map_quarantine", "5379506", "Карта обновлена маппером", 90_000, serde_json::json!({ "slot": "NM2" })),
+        ],
+        people: vec![
+            Person { player: 3, name: Some("ssnowy".into()), roles: vec!["BALANCE_REVIEWER".into()] },
+            Person { player: 4, name: Some("d1ce".into()), roles: vec!["TECHNICAL_OPERATOR".into()] },
+            Person { player: 5, name: Some("aeris".into()), roles: vec!["BALANCE_REVIEWER".into(), "MODEL_PUBLISHER".into()] },
+        ],
+        versions: vec![version("owc-202610231200-606", "shadow", 0.58, 3600), version("owc-202610211200-606", "published", 0.55, 172_800), version("owc-202610151200-572", "retired", 0.49, 777_600)],
+        cells,
+    };
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main");
+    let mut covers = std::collections::HashMap::new();
+    for (set, name) in [(2612145, "bg-nevermind.jpg"), (2662331, "bg-astral.jpg"), (2440213, "bg-sink.jpg"), (2681134, "bg-zenith.jpg"), (571525, "bg-galactic.jpg"), (2448804, "bg-lucky.jpg")] {
+        if let Some(handle) = crate::main_screen::decoded(&folder.join(name), 640, None) {
+            covers.insert(set, handle);
+        }
+    }
+    let about = |set: i64, title: &str, version: &str, mapper: &str, stars: f32, bpm: f32, seconds: u32| crate::desk::About { set: Some(set), title: title.into(), artist: "Artist".into(), version: version.into(), mapper: mapper.into(), stars: Some(stars), bpm: Some(bpm), seconds: Some(seconds) };
+    let abouts = [
+        (2612145, about(2612145, "HOT LIMIT", "Extreme", "Nevo", 5.71, 137.0, 216)),
+        (1222416, about(571525, "The Big Black", "WHO'S AFRAID", "Blue Dragon", 6.10, 360.0, 119)),
+        (5379506, about(2440213, "Harumodoki", "Insane", "Shmiklak", 5.39, 190.0, 152)),
+        (5687673, about(2612145, "HOT LIMIT", "Extreme", "Nevo", 5.86, 137.0, 216)),
+        (5824105, about(2662331, "Ascension to Heaven", "Heaven", "Sotarks", 5.90, 200.0, 201)),
+        (5860624, about(2681134, "Blue Zenith", "Zenith", "Asphyxia", 6.04, 200.0, 245)),
+        (5397135, about(2448804, "Nihon-shiki Koukaku", "Ouka", "Mirash", 5.97, 175.0, 230)),
+    ]
+    .into_iter()
+    .collect();
+    crate::desk_screen::State { desk, year: Some(2024), covers, abouts, ..crate::desk_screen::State::default() }
+}
+
+fn duel_states(community: &dyn Fn(crate::community_screen::Section, Option<usize>) -> crate::main_screen::Main, staged: &dyn Fn(Option<usize>) -> crate::main_screen::Main) -> Vec<(String, crate::main_screen::Main)> {
+    let mut states: Vec<(String, crate::main_screen::Main)> = Vec::new();
+    frames![states;
+        ("main-community-duels".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            main
+        }),
+        ("main-community-duel-room".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            main.duels.duel = Some(staged_duel("WAITING_PLAYERS"));
+            main
+        }),
+        ("main-community-duel-reveal".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            main.duels.duel = Some(staged_duel("PREPARING"));
+            main
+        }),
+        ("main-community-duel-draft".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            main.duels.duel = Some(staged_duel("DRAFTING"));
+            main
+        }),
+        ("main-community-duel-ready".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            main.duels.duel = Some(staged_duel("WAITING_READY"));
+            main
+        }),
+        ("main-community-duel-playing".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            main.duels.duel = Some(staged_duel("PLAYING"));
+            main.duels.played_ms = Some(48_000);
+            main
+        }),
+        ("main-community-duel-result".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            main.duels.duel = Some(staged_duel("COMPLETED"));
+            main
+        }),
+        ("main-community-duel-watch".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            let running = main.duels.live.running[0].clone();
+            let heard = std::time::Instant::now() - std::time::Duration::from_secs(10);
+            for (player, phase, score, combo, accuracy) in [(4_i64, 0.0_f32, 512_340_i64, 412_i64, 0.9871_f64), (5, 1.7, 498_115, 236, 0.9794)] {
+                let frames: Vec<(i32, f32, f32, u32)> = (0..375).map(|step| {
+                    let t = step as f32 / 60.0 + phase;
+                    (step * 16, 256.0 + 170.0 * (t * 1.3).sin(), 192.0 + 120.0 * (t * 2.1).cos(), 1)
+                }).collect();
+                main.duels.broadcast.take(player, 2, &frames, heard);
+                main.duels.rounds.insert(player, 2);
+                main.duels.heard_states.insert(player, serde_json::json!({ "score": score, "combo": combo, "accuracy": accuracy, "time": 108_000 }));
+            }
+            main.duels.watching = Some(running);
+            main
+        }),
+        ("main-community-duels-offer".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(true));
+            main
+        }),
+        ("main-duel-away".to_owned(), {
+            let mut main = staged(Some(0));
+            main.duels = Box::new(staged_duels(false));
+            let mut duel = staged_duel("DRAFTING");
+            duel.draft.clear();
+            duel.actions = vec!["ban".into()];
+            main.duels.duel = Some(duel);
+            main
+        }),
+        ("main-duel-leaving".to_owned(), {
+            let mut main = staged(Some(0));
+            main.duels = Box::new(staged_duels(false));
+            main.duels.duel = Some(staged_duel("PLAYING"));
+            main.duel_leaving = true;
+            main
+        }),
+    ];
     states
 }
 
@@ -2004,7 +2277,7 @@ fn staged_duels(offer: bool) -> crate::duels_screen::State {
     use crate::duels::{Deadline, Duel, Live, Me, Participant, Running, Seat, Standing, Wins};
     let seat = |player: i64, side: &str, name: &str| Seat { player, side: Some(side.into()), name: Some(name.into()) };
     let running = |id: &str, a: Seat, b: Seat, wins: (u32, u32), title: Option<&str>, watching: u32| Running {
-        id: id.into(), mode: "rated".into(), state: "PLAYING".into(), wins: Wins { a: wins.0, b: wins.1 }, players: vec![a, b], watching, title: title.map(Into::into), slot: title.map(|_| "DT1".into()), ..Running::default()
+        id: id.into(), mode: "rated".into(), state: "PLAYING".into(), wins: Wins { a: wins.0, b: wins.1 }, players: vec![a, b], watching, title: title.map(Into::into), slot: title.map(|_| "DT1".into()), stars: title.map(|_| 5.95), song_seconds: title.map(|_| 216.0), ..Running::default()
     };
     let finished = |id: &str, a: Seat, b: Seat, wins: (u32, u32), ago: i64| Running { id: id.into(), state: "COMPLETED".into(), wins: Wins { a: wins.0, b: wins.1 }, players: vec![a, b], seconds_ago: Some(ago), ..Running::default() };
     let live = Live {
@@ -2035,11 +2308,85 @@ fn staged_duels(offer: bool) -> crate::duels_screen::State {
     } else {
         Vec::new()
     };
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main");
+    let pictures = ["bg-astral.jpg", "bg-freedom.jpg", "bg-galactic.jpg", "bg-lucky.jpg", "bg-nevermind.jpg", "bg-sink.jpg", "bg-zenith.jpg"];
+    let covers = (0..9).filter_map(|at| crate::main_screen::decoded(&folder.join(pictures[at % pictures.len()]), 640, None).map(|handle| (2000 + at as i64, handle))).collect();
     crate::duels_screen::State {
+        covers,
         me: Some(Me { rating: Standing { calibrating: false, played: 5, needed: 5, rating: Some(1612), rd: Some(168) }, observations: 40, won: 14, lost: 9 }),
         live,
         mine,
         player: Some(1),
         ..crate::duels_screen::State::default()
     }
+}
+
+fn staged_duel(state: &str) -> crate::duels::Duel {
+    use crate::duels::{Bonus, Deadline, Duel, Entry, Participant, Played, PoolView, Room, Round, Turn, Wins};
+    let maps = [
+        ("NM1", "Atropos", "sasakure.UK", "LEGGENDARIA", "captin1", 6.25), ("NM2", "Empyrean", "himmel", "Extra", "Moete", 5.72),
+        ("NM3", "HOT LIMIT", "T.M.Revolution", "Pata-Mon's YO SAY!", "Pata-Mon", 5.86), ("NM4", "Space Pirates", "Waterflame", "Galactic Thieves", "ItzShadowCraft", 5.88),
+        ("HD2", "Kurage", "BLU-SWING", "pink jellyfish", "FuJu", 5.90), ("HR2", "Harumodoki", "Pastel*Palettes", "Elegiac", "Zawajiro", 5.90),
+        ("DT1", "Nihon-shiki Koukaku -OukaRanman-", "ETIA.", "yuyu's Expert", "yuyu", 6.04), ("DT2", "reach for your victory!!!", "AAAA", "basherman's extra!!!", "basherman", 5.99),
+        ("TB", "LONG LIVE THE KING", "fur:trash", "Extra", "-Links", 5.97),
+    ];
+    let entries = maps.iter().enumerate().map(|(at, (slot, title, artist, version, mapper, stars))| Entry {
+        slot: (*slot).into(), beatmap_id: 1000 + at as i64, beatmapset_id: Some(2000 + at as i64), stars: Some(*stars), title: Some((*title).into()), artist: Some((*artist).into()),
+        version: Some((*version).into()), mapper: Some((*mapper).into()), ..Entry::default()
+    }).collect();
+    let at = chrono::DateTime::from_timestamp(NOON + 64, 0).map(|at| at.to_rfc3339());
+    let me = Participant { player: 1, name: Some("NaumRedlo".into()), side: Some("A".into()), connection: "present".into(), ..Participant::default() };
+    let them = Participant { player: 3, name: Some("ssnowy".into()), side: Some("B".into()), connection: "present".into(), ..Participant::default() };
+    let turn = |turn: u32, kind: &str, slot: &str, by: i64| Turn { turn, kind: kind.into(), slot: slot.into(), by: Some(by), automatic: false };
+    let mut duel = Duel {
+        id: "staged".into(), mode: "rated".into(), state: state.into(), version: 7, participants: vec![me, them],
+        deadlines: vec![Deadline { kind: "draft".into(), at }], pool: Some(PoolView { manifest: "m".into(), entries }),
+        room: Some(Room { name: "Dossier: NaumRedlo и ssnowy".into(), match_id: Some(114_482_093), password: Some("kx4Rv0aZ".into()) }),
+        ..Duel::default()
+    };
+    let scores = |a: i64, b: i64| [("1".to_owned(), Played { score: a, ..Played::default() }), ("3".to_owned(), Played { score: b, ..Played::default() })].into_iter().collect();
+    match state {
+        "WAITING_PLAYERS" => {
+            duel.deadlines = vec![Deadline { kind: "room_join".into(), at: chrono::DateTime::from_timestamp(NOON + 199, 0).map(|at| at.to_rfc3339()) }];
+            duel.actions = vec!["reinvite".into(), "surrender".into()];
+            duel.pool = None;
+        }
+        "DRAFTING" => {
+            duel.draft = vec![turn(0, "ban", "NM3", 1), turn(1, "ban", "HR2", 3), turn(2, "ban", "NM2", 1)];
+            duel.actions = Vec::new();
+        }
+        "WAITING_READY" | "PLAYING" => {
+            duel.wins = Wins { a: 2, b: 1 };
+            duel.rounds = vec![Round { ordinal: 4, slot: "DT1".into(), state: "playing".into(), picked_by: Some(3), ..Round::default() }];
+            duel.actions = if state == "WAITING_READY" { vec!["ready".into(), "surrender".into()] } else { vec!["surrender".into()] };
+            if state == "WAITING_READY" {
+                duel.participants[0].connection = "ready".into();
+            } else {
+                duel.participants[0].connection = "playing".into();
+                duel.participants[1].connection = "playing".into();
+                if let Some(entry) = duel.pool.as_mut().and_then(|pool| pool.entries.iter_mut().find(|entry| entry.slot == "DT1")) {
+                    entry.song_seconds = Some(116.0);
+                }
+            }
+        }
+        "COMPLETED" => {
+            duel.wins = Wins { a: 3, b: 1 };
+            duel.winner = Some(1);
+            duel.rounds = vec![
+                Round { ordinal: 1, slot: "NM2".into(), winner: Some(1), picked_by: Some(3), scores: scores(812_440, 790_115), ..Round::default() },
+                Round { ordinal: 2, slot: "HD2".into(), winner: Some(3), picked_by: Some(1), scores: scores(655_902, 701_330), ..Round::default() },
+                Round { ordinal: 3, slot: "DT2".into(), winner: Some(1), picked_by: Some(3), scores: scores(744_018, 612_774), ..Round::default() },
+                Round { ordinal: 4, slot: "DT1".into(), winner: Some(1), picked_by: Some(1), scores: scores(690_551, 688_902), ..Round::default() },
+            ];
+            duel.bonus = Some(Bonus { state: "offered".into(), consents: Vec::new(), winner: None });
+            duel.actions = vec!["bonus".into()];
+            duel.rating = Some(crate::duels::Projection { before: 1612, after: 1635 });
+            duel.deadlines = vec![
+                Deadline { kind: "bonus_tb".into(), at: chrono::DateTime::from_timestamp(NOON + 48, 0).map(|at| at.to_rfc3339()) },
+                Deadline { kind: "room_linger".into(), at: chrono::DateTime::from_timestamp(NOON + 252, 0).map(|at| at.to_rfc3339()) },
+            ];
+        }
+        _ => {}
+    }
+    duel
 }

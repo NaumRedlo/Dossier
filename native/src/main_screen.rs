@@ -1025,7 +1025,8 @@ impl Main {
         let who = made.ask_who();
         let warm = if made.settings.token.is_empty() { Task::none() } else { warm_pictures() };
         let warm = if made.settings.worker_on { Task::batch([warm, made.start_worker()]) } else { warm };
-        (made, Task::batch([read_library(sources, Message::Loaded), adopt, who, warm]))
+        let duels = if made.settings.token.is_empty() { Task::none() } else { Task::done(Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Again))) };
+        (made, Task::batch([read_library(sources, Message::Loaded), adopt, who, warm, duels]))
     }
 
     pub fn launched(&mut self) -> Task<Message> {

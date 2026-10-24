@@ -329,6 +329,10 @@ pub fn finalize(account: &Account, duel: &str, match_id: i64, game_id: i64, reas
     call(account, reqwest::Method::POST, &format!("/render/admin/duels/{duel}/finalize"), Some(json!({ "match_id": match_id, "game_id": game_id, "reason": reason })), None)
 }
 
+pub fn train(account: &Account, reason: &str) -> Result<Value, Failure> {
+    call(account, reqwest::Method::POST, "/render/admin/duels/models/train", Some(json!({ "reason": reason })), None)
+}
+
 pub fn discover(account: &Account, band: usize, reason: &str) -> Result<Value, Failure> {
     call(account, reqwest::Method::POST, "/render/admin/duels/catalog/discover", Some(json!({ "band": band, "reason": reason })), None)
 }

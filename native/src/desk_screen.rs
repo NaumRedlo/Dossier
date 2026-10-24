@@ -124,6 +124,7 @@ pub enum Post {
     Cancel { duel: String, reason: String },
     Grant { player: i64, role: String, reason: String },
     Discover { band: usize, reason: String },
+    Train { reason: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -159,6 +160,8 @@ pub enum Message {
     Version(String),
     Publish,
     Rollback,
+    Train,
+    Again,
     Stuck(String),
     MatchId(String),
     GameId(String),
@@ -218,6 +221,7 @@ pub struct State {
     pub looked: HashSet<i64>,
     pub picking: bool,
     pub asking: bool,
+    pub training: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -365,6 +369,9 @@ impl State {
                 self.loading = false;
                 match found {
                     Ok(desk) => {
+                        if self.training.is_some_and(|count| desk.versions.len() > count) {
+                            self.training = None;
+                        }
                         self.desk = desk;
                         let sets: Vec<Option<i64>> = self.desk.tasks.iter().map(|task| task.map.beatmapset_id).collect();
                         self.covered(sets)
@@ -499,6 +506,22 @@ impl State {
                 let reason = self.reason.trim().to_owned();
                 self.post(Post::Publish { version, reason })
             }
+            Message::Train => {
+                if self.reason.trim().is_empty() {
+                    self.asking = true;
+                    return Vec::new();
+                }
+                let reason = self.reason.trim().to_owned();
+                self.training = Some(self.desk.versions.len());
+                self.post(Post::Train { reason })
+            }
+            Message::Again => {
+                if self.loading {
+                    return Vec::new();
+                }
+                self.loading = true;
+                vec![Effect::Load]
+            }
             Message::Rollback => {
                 if self.reason.trim().is_empty() {
                     self.asking = true;
@@ -611,6 +634,13 @@ impl State {
 
     fn stuck_shown(&self) -> Option<&desk::Stuck> {
         self.stuck.as_ref().and_then(|id| self.desk.stuck.iter().find(|found| found.id == *id)).or_else(|| self.desk.stuck.first())
+    }
+}
+
+pub fn version_name(w: &Words, version: &str) -> String {
+    match version.strip_prefix("kamerton-").and_then(|number| number.parse::<u32>().ok()) {
+        Some(number) => w.with("desk-kamerton", &[("number", number.to_string())]),
+        None => short_version(version),
     }
 }
 
@@ -734,7 +764,7 @@ fn line_button<'a>(said: String, on: Option<Message>) -> Element<'a, Message> {
 }
 
 fn line_button_k<'a>(said: String, on: Option<Message>, k: f32) -> Element<'a, Message> {
-    button(container(tight(said, theme::BODY * k, INK)).center_x(Length::Fill).center_y((theme::CONTROL_HEIGHT + 4.0) * k)).padding([0.0, 12.0 * k]).style(quiet(false, theme::CONTROL_RADIUS)).on_press_maybe(on).into()
+    button(container(tight(said, theme::BODY * k, INK)).center_x(Length::Fill).center_y((theme::CONTROL_HEIGHT + 6.0) * k)).padding([0.0, 12.0 * k]).style(quiet(false, theme::CONTROL_RADIUS)).on_press_maybe(on).into()
 }
 
 fn quiet(on: bool, radius: f32) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
@@ -944,7 +974,7 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32) -> Element<
     } else {
         why = why.push(words(w.t("desk-no-model"), 14.0 * k, FAINT));
     }
-    let version = map.model.as_ref().map(|guess| short_version(&guess.version)).unwrap_or_default();
+    let version = map.model.as_ref().map(|guess| version_name(w, &guess.version)).unwrap_or_default();
     let model_side = column![row![strong(w.t("desk-why"), 17.0 * k, INK), container(tight(version, 13.0, FAINT)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right).clip(true)].spacing(12).align_y(Alignment::Center), why].spacing(10).width(Length::Fill);
     let mut said = column![strong(w.t("desk-players-say"), 17.0 * k, INK)].spacing(10).width(Length::Fill);
     match &task.opinions {
@@ -1401,9 +1431,9 @@ fn rate(value: Option<f64>) -> (String, Color) {
     }
 }
 
-fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64) -> Element<'a, Message> {
+fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f32) -> Element<'a, Message> {
     let chosen = state.version.clone().or_else(|| state.desk.versions.first().map(|found| found.version.clone()));
-    let mut list = column![heading(w.t("desk-versions"))].spacing(8);
+    let mut list = column![strong(w.t("desk-versions"), 17.0 * k, INK)].spacing(8);
     for version in &state.desk.versions {
         let on = Some(&version.version) == chosen.as_ref();
         let colour = match version.state.as_str() {
@@ -1413,53 +1443,67 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64) -> El
         };
         let f1 = version.report.pointer("/test/macro_f1").and_then(serde_json::Value::as_f64);
         let inside = row![
-            one_line(short_version(&version.version), 15.0, INK, theme::SANS_SEMI),
-            tight(w.t(&format!("desk-model-{}", version.state.to_lowercase())), 14.0, colour),
-            container(bold(rate(f1).0, 15.0, INK)).width(46).align_x(iced::alignment::Horizontal::Right),
-            container(words(ago(w, version.created_at.as_deref(), now), 13.0, FAINT)).width(76).align_x(iced::alignment::Horizontal::Right),
+            column![one_line(version_name(w, &version.version), 15.0 * k, INK, theme::SANS_SEMI), tight(w.t(&format!("desk-model-{}", version.state.to_lowercase())), 13.0 * k, colour)].spacing(2).width(Length::Fill),
+            container(bold(rate(f1).0, 16.0 * k, INK)).width(52.0 * k).align_x(iced::alignment::Horizontal::Right),
+            container(tight(ago(w, version.created_at.as_deref(), now), 13.0 * k, FAINT)).width(76.0 * k).align_x(iced::alignment::Horizontal::Right),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
         let fill = if on { LIT } else { ROW };
-        list = list.push(tile(fill, on.then_some((Color { a: 0.5, ..UNSURE }, 1.5)), container(inside).center_y(34.0).into(), Some(Message::Version(version.version.clone()))));
+        list = list.push(tile(fill, on.then_some((Color { a: 0.5, ..UNSURE }, 1.5)), container(inside).center_y(44.0 * k).into(), Some(Message::Version(version.version.clone()))));
     }
     if state.desk.versions.is_empty() {
-        list = list.push(words(w.t("desk-no-versions"), 14.0, FAINT));
+        list = list.push(words(w.t("desk-no-versions"), 14.0 * k, FAINT));
     }
     let may = desk::allows(roles, desk::PUBLISHER) && !state.posting;
     let published = state.desk.versions.iter().any(|version| version.state == "published");
     let chosen_published = state.desk.versions.iter().any(|version| Some(&version.version) == chosen.as_ref() && version.state == "published");
     let mut actions = column![].spacing(10);
     if state.asking {
-        actions = actions.push(labelled(w.t("desk-reason"), field(w.t("desk-reason-hint"), &state.reason, Message::Reason)));
+        actions = actions.push(column![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(6));
     }
     let actions = actions.push(
-        row![main_button(w.t("desk-publish"), (may && !chosen_published && chosen.is_some()).then_some(Message::Publish)), container(line_button(w.t("desk-rollback"), (may && published).then_some(Message::Rollback))).width(Length::Shrink)].spacing(8),
+        row![
+            container(line_button_k(w.t("desk-train"), (desk::allows(roles, desk::REVIEWER) && !state.posting && state.training.is_none()).then_some(Message::Train), k)).width(Length::Fill),
+            container(main_button_k(w.t("desk-publish"), (may && !chosen_published && chosen.is_some()).then_some(Message::Publish), k)).width(Length::Fill),
+            container(line_button_k(w.t("desk-rollback"), (may && published).then_some(Message::Rollback), k)).width(Length::Fill),
+        ].spacing(8),
     );
-    let aside = container(column![scrollable(list).direction(ui::hidden_bar()).height(Length::Fill), actions].spacing(10)).padding(18).width(400).height(Length::Fill).style(theme::slab);
+    let actions = if state.training.is_some() { actions.push(words(w.t("desk-training"), 13.0 * k, FAINT)) } else { actions };
+    let aside = container(column![scrollable(list).direction(ui::hidden_bar()).height(Length::Fill), actions].spacing(10)).padding(18).width(400.0 * k).height(Length::Fill).style(theme::slab);
     let report = state.desk.versions.iter().find(|version| Some(&version.version) == chosen.as_ref()).map(|version| (version.version.clone(), version.labels, version.report.clone()));
     let section: Element<'a, Message> = match report {
         Some((name, labels, report)) => {
-            let mut table = column![row![container(words(w.t("desk-slot"), 13.0, FAINT)).width(64), container(words(w.t("desk-precision"), 13.0, FAINT)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right), container(words(w.t("desk-recall"), 13.0, FAINT)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right)].spacing(10)].spacing(6);
+            let mut table = column![row![container(words(w.t("desk-slot"), 13.0 * k, FAINT)).width(64.0 * k), container(words(w.t("desk-precision"), 13.0 * k, FAINT)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right), container(words(w.t("desk-recall"), 13.0 * k, FAINT)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right)].spacing(10)].spacing(6).max_width(560.0 * k);
             for slot in desk::SLOTS {
                 let held = report.pointer(&format!("/test/per_slot/{slot}"));
                 let (precision, pc) = rate(held.and_then(|held| held.get("precision")).and_then(serde_json::Value::as_f64));
                 let (recall, rc) = rate(held.and_then(|held| held.get("recall")).and_then(serde_json::Value::as_f64));
-                table = table.push(row![container(slot_tag(slot)).width(64), container(bold(precision, 15.0, pc)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right), container(bold(recall, 15.0, rc)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right)].spacing(10).height(34).align_y(Alignment::Center));
+                table = table.push(row![container(tag(slot, k)).width(64.0 * k), container(bold(precision, 16.0 * k, pc)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right), container(bold(recall, 16.0 * k, rc)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right)].spacing(10).height(36.0 * k).align_y(Alignment::Center));
             }
+            let mut years = row![].spacing(24.0 * k);
+            if let Some(found) = report.get("years").and_then(serde_json::Value::as_object) {
+                for (fold, scored) in found {
+                    let (value, colour) = rate(scored.get("macro_f1").and_then(serde_json::Value::as_f64));
+                    let name = if fold == "queue" { w.t("desk-fold-queue") } else { fold.clone() };
+                    years = years.push(column![bold(value, 20.0 * k, colour), words(name, 13.0 * k, FAINT)].spacing(2));
+                }
+            }
+            let years = column![words(w.t("desk-folds"), 13.0 * k, FAINT), years].spacing(8);
             let verified = report.get("verified").and_then(serde_json::Value::as_u64).unwrap_or_default();
             let sure = report.pointer("/test/confident/precision").and_then(serde_json::Value::as_f64);
-            let figure = |value: String, label: String, colour: Color| -> Element<'a, Message> { column![bold(value, 24.0, colour), words(label, 13.0, FAINT)].spacing(2).into() };
+            let figure = |value: String, label: String, colour: Color| -> Element<'a, Message> { column![bold(value, 24.0 * k, colour), words(label, 13.0 * k, FAINT)].spacing(2).into() };
             panel(column![
-                heading(w.with("desk-model-on", &[("version", short_version(&name))])),
+                strong(w.with("desk-model-on", &[("version", version_name(w, &name))]), 22.0 * k, INK),
                 table,
+                years,
                 Space::new().height(Length::Fill),
                 row![
                     figure(w.lang().group(u64::from(labels)), w.t("desk-labels"), INK),
                     figure(verified.to_string(), w.t("desk-verified"), INK),
                     figure(sure.map(|value| format!("{:.0}%", value * 100.0)).unwrap_or_else(|| "—".to_owned()), w.t("desk-sure-right"), UNSURE),
-                ].spacing(24),
-            ].spacing(6).into())
+                ].spacing(24.0 * k),
+            ].spacing(14.0 * k).into())
         }
         None => panel(Space::new().into()),
     };
@@ -1556,7 +1600,7 @@ fn did(w: &Words, state: &State, entry: &desk::Entry) -> String {
         let label = if label == desk::EXCLUDED { w.t("desk-no-slot") } else { label };
         return w.with(&key, &[("year", year), ("stage", stage_name(w, stage).to_lowercase()), ("slot", slot), ("label", label)]);
     }
-    let target = if entry.action == "publish_model" { short_version(&entry.target) } else { entry.target.clone() };
+    let target = if entry.action == "publish_model" { version_name(w, &entry.target) } else { entry.target.clone() };
     w.with(&key, &[("target", target)])
 }
 
@@ -1613,7 +1657,7 @@ pub fn view<'a>(state: &'a State, roles: &[String], w: &Words, now: i64, wide: f
         Tab::Label => label_view(w, state),
         Tab::Owc => owc_view(w, state),
         Tab::Catalog => catalog_view(w, state),
-        Tab::Model => model_view(w, state, roles, now),
+        Tab::Model => model_view(w, state, roles, now, k),
         Tab::Duels => duels_view(w, state, now),
         Tab::Journal => journal_view(w, state, now),
         Tab::People => people_view(w, state, roles),

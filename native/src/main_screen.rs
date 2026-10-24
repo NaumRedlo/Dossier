@@ -1424,6 +1424,9 @@ impl Main {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
             }
         }
+        if self.desk.training.is_some() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance {
+            parts.push(iced::time::every(Duration::from_secs(15)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Again))));
+        }
         if self.desk.hearing.is_some() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance {
             parts.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Heard))));
         }
@@ -1861,6 +1864,7 @@ impl Main {
                         Post::Cancel { duel, reason } => crate::desk::cancel(&account, &duel, &reason),
                         Post::Grant { player, role, reason } => crate::desk::grant(&account, player, &role, &reason),
                         Post::Discover { band, reason } => crate::desk::discover(&account, band, &reason),
+                        Post::Train { reason } => crate::desk::train(&account, &reason),
                     };
                     K::Posted(said.map(|_| ()).map_err(|why| why.to_string()))
                 }).map(wrap),

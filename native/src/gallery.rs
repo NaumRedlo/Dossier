@@ -1411,7 +1411,7 @@ fn staged_desk() -> crate::desk_screen::State {
         slot: Some("NM3".into()), probability: 0.64, margin: 0.43,
         top: vec![Odds { slot: "NM3".into(), probability: 0.64 }, Odds { slot: "NM2".into(), probability: 0.21 }, Odds { slot: "NM4".into(), probability: 0.09 }, Odds { slot: "OTHER".into(), probability: 0.06 }],
         reasons: vec![Reason { feature: "streams.lengths.3-5".into(), weight: 1.2 }, Reason { feature: "angle_deg.p90".into(), weight: 0.8 }, Reason { feature: "streams.lengths.16-31".into(), weight: -0.6 }],
-        outside: false, version: "owc-202610231200-606".into(),
+        outside: false, version: "kamerton-3".into(),
     };
     let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };
     let mut first = task("review", "uncertain_revealed", Some("NM3"), map(5687673, 2612145, "HOT LIMIT", "Extreme", "Nevo", 5.71), 720);
@@ -1470,7 +1470,8 @@ fn staged_desk() -> crate::desk_screen::State {
         report: serde_json::json!({ "verified": 41, "test": { "macro_f1": f1, "confident": { "precision": 0.75 }, "per_slot": {
             "NM1": { "precision": 0.62, "recall": 0.71 }, "NM2": { "precision": 0.75, "recall": 0.43 }, "NM3": { "precision": 0.25, "recall": 0.14 },
             "NM4": { "precision": 0.75, "recall": 0.43 }, "HD2": { "precision": 0.57, "recall": 0.57 }, "HR2": { "precision": 0.67, "recall": 0.57 },
-            "DT1": { "precision": 1.0, "recall": 0.43 }, "DT2": { "precision": 0.75, "recall": 0.43 }, "TB": { "precision": 0.86, "recall": 1.0 } } } }),
+            "DT1": { "precision": 1.0, "recall": 0.43 }, "DT2": { "precision": 0.75, "recall": 0.43 }, "TB": { "precision": 0.86, "recall": 1.0 } } },
+            "years": { "2021": { "macro_f1": f1 - 0.04 }, "2022": { "macro_f1": f1 + 0.03 }, "2023": { "macro_f1": f1 - 0.07 }, "2024": { "macro_f1": f1 + 0.05 }, "2025": { "macro_f1": f1 + 0.01 }, "queue": { "macro_f1": f1 + 0.12 } } }),
         created_at: stamp(ago), published_at: None,
     };
     let seat = |player: i64, side: &str, name: &str| Seat { player, side: Some(side.into()), name: Some(name.into()) };
@@ -1485,7 +1486,7 @@ fn staged_desk() -> crate::desk_screen::State {
             stuck("s3", "room_setup", seat(5, "A", "aeris"), seat(7, "B", "mrekk"), (0, 0), 1500),
         ],
         journal: vec![
-            entry(1, "NaumRedlo", "OWNER", "publish_model", "owc-202610211200-606", "Лучше на NM1 и HR2", 172_800, serde_json::Value::Null),
+            entry(1, "NaumRedlo", "OWNER", "publish_model", "kamerton-2", "Лучше на NM1 и HR2", 172_800, serde_json::Value::Null),
             entry(3, "ssnowy", "BALANCE_REVIEWER", "map_approve", "5687673", "Короткие группы, повороты", 10_800, serde_json::json!({ "slot": "NM3" })),
             entry(3, "ssnowy", "BALANCE_REVIEWER", "corpus_label", "2024:finals:NM3", "В 2024 NM3 был стримами", 14_400, serde_json::json!({ "label": "NM2" })),
             entry(4, "d1ce", "TECHNICAL_OPERATOR", "cancel", "a1b2", "Комната не создаётся", 18_000, serde_json::Value::Null),
@@ -1496,7 +1497,7 @@ fn staged_desk() -> crate::desk_screen::State {
             Person { player: 4, name: Some("d1ce".into()), roles: vec!["TECHNICAL_OPERATOR".into()] },
             Person { player: 5, name: Some("aeris".into()), roles: vec!["BALANCE_REVIEWER".into(), "MODEL_PUBLISHER".into()] },
         ],
-        versions: vec![version("owc-202610231200-606", "shadow", 0.58, 3600), version("owc-202610211200-606", "published", 0.55, 172_800), version("owc-202610151200-572", "retired", 0.49, 777_600)],
+        versions: vec![version("kamerton-3", "shadow", 0.58, 3600), version("kamerton-2", "published", 0.55, 172_800), version("kamerton-1", "retired", 0.49, 777_600)],
         cells,
     };
     let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main");

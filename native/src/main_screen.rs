@@ -1423,6 +1423,9 @@ impl Main {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
             }
         }
+        if self.desk.hearing.is_some() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance {
+            parts.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Heard))));
+        }
         let moving = self.duels.lively() || self.duels.animating();
         if (self.duels.watching.is_some() || moving) && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels {
             let every = if moving { Duration::from_millis(16) } else { Duration::from_millis(33) };
@@ -1827,7 +1830,7 @@ impl Main {
                     K::Cover(set, handle)
                 }).map(wrap),
                 Effect::Hear(beatmap) => {
-                    self.duel_preview = beatmap.filter(|_| !self.gallery).map(|beatmap| std::sync::Arc::new(crate::preview::Preview::start(beatmap)));
+                    self.duel_preview = beatmap.filter(|_| !self.gallery).map(|beatmap| std::sync::Arc::new(crate::preview::Preview::start_with_set(beatmap, self.desk.map_set(beatmap))));
                     Task::none()
                 }
                 Effect::Cell(..) if offline => Task::none(),
@@ -3320,12 +3323,19 @@ impl Main {
                         let mut effects = Vec::new();
                         if matches!(inner, crate::duels_screen::Message::Frame) && self.duel_preview.as_ref().is_some_and(|preview| preview.ended()) {
                             self.duel_preview = None;
+                            self.desk.hearing = None;
                             effects.extend(self.duels.update(crate::duels_screen::Message::PreviewEnded, unix_now()));
                         }
                         effects.extend(self.duels.update(inner, unix_now()));
                         return self.duels_work(effects);
                     }
                     C::Desk(inner) => {
+                        if matches!(inner, crate::desk_screen::Message::Heard) {
+                            if !self.duel_preview.as_ref().is_some_and(|preview| preview.ended()) {
+                                return Task::none();
+                            }
+                            self.duel_preview = None;
+                        }
                         let effects = self.desk.update(inner, &self.words);
                         return self.desk_work(effects);
                     }

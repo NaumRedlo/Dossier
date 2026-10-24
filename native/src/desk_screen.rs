@@ -11,6 +11,10 @@ use crate::lang::Words;
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
+const OWC_CELL_WIDTH: f32 = 88.0;
+const OWC_CELL_HEIGHT: f32 = 48.0;
+const OWC_STAGE_WIDTH: f32 = 148.0;
+
 const GOOD: Color = theme::GRADE_A;
 const UNSURE: Color = theme::GRADE_S;
 const BAD: Color = iced::color!(0xf38a8a);
@@ -144,8 +148,8 @@ pub enum Message {
     Decide(&'static str, Option<String>),
     Posted(Result<(), String>),
     Cover(i64, Option<image::Handle>),
-    Hover(Option<i64>),
     Hear(i64),
+    Heard,
     Year(i32),
     Cell(usize),
     Label(String),
@@ -323,6 +327,13 @@ impl State {
         ids.into_iter().filter(|beatmap| self.looked.insert(*beatmap)).map(Effect::About).collect()
     }
 
+    pub fn map_set(&self, beatmap: i64) -> Option<i64> {
+        self.about(beatmap).and_then(|map| map.set)
+            .or_else(|| self.desk.tasks.iter().find(|task| task.map.beatmap_id == beatmap).and_then(|task| task.map.beatmapset_id))
+            .or_else(|| self.held.iter().find(|map| map.beatmap_id == beatmap).and_then(|map| map.beatmapset_id))
+            .or_else(|| self.desk.cells.iter().flat_map(|cell| &cell.maps).find(|map| map.beatmap_id == beatmap).and_then(|map| map.beatmapset_id))
+    }
+
     pub fn about(&self, beatmap: i64) -> Option<&desk::About> {
         self.abouts.get(&beatmap)
     }
@@ -362,7 +373,7 @@ impl State {
                 match found {
                     Ok(desk) => {
                         self.desk = desk;
-                        let sets: Vec<Option<i64>> = self.desk.tasks.iter().take(30).map(|task| task.map.beatmapset_id).collect();
+                        let sets: Vec<Option<i64>> = self.desk.tasks.iter().map(|task| task.map.beatmapset_id).collect();
                         self.covered(sets)
                     }
                     Err(why) => {
@@ -393,7 +404,8 @@ impl State {
             Message::Pick(beatmap) => {
                 self.picked = Some(beatmap);
                 self.reason.clear();
-                Vec::new()
+                let set = self.task().and_then(|task| task.map.beatmapset_id);
+                self.covered([set])
             }
             Message::Reason(said) => {
                 self.reason = said;
@@ -432,12 +444,9 @@ impl State {
                 }
                 Vec::new()
             }
-            Message::Hover(beatmap) => {
-                if beatmap == self.hearing {
-                    return Vec::new();
-                }
-                self.hearing = beatmap;
-                vec![Effect::Hear(beatmap)]
+            Message::Heard => {
+                self.hearing = None;
+                Vec::new()
             }
             Message::Hear(beatmap) => {
                 self.hearing = if self.hearing == Some(beatmap) { None } else { Some(beatmap) };
@@ -460,7 +469,8 @@ impl State {
                 Vec::new()
             }
             Message::SaveCell => {
-                let (Some(cell), Some(label)) = (self.cell.and_then(|at| self.desk.cells.get(at)).cloned(), self.label.clone()) else { return Vec::new() };
+                let Some(cell) = self.cell.and_then(|at| self.desk.cells.get(at)).cloned() else { return Vec::new() };
+                let label = self.label.clone().unwrap_or_else(|| cell.shown());
                 if self.reason.trim().is_empty() {
                     return Vec::new();
                 }
@@ -660,8 +670,12 @@ fn tight<'a>(said: String, size: f32, colour: Color) -> Element<'a, Message> {
 }
 
 fn chip<'a>(said: String, on: bool, press: Message) -> Element<'a, Message> {
-    button(container(tight(said, 13.0, if on { INK } else { MUTED })).center_y(30.0))
-        .padding([0, 11])
+    chip_k(said, on, press, 1.0)
+}
+
+fn chip_k<'a>(said: String, on: bool, press: Message, k: f32) -> Element<'a, Message> {
+    button(container(tight(said, 13.0 * k, if on { INK } else { MUTED })).center_y(30.0 * k))
+        .padding([0.0, 11.0 * k])
         .style(move |_, status| {
             let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
             button::Style {
@@ -676,9 +690,13 @@ fn chip<'a>(said: String, on: bool, press: Message) -> Element<'a, Message> {
 }
 
 fn main_button<'a>(said: String, on: Option<Message>) -> Element<'a, Message> {
-    let made = button(container(tight(said, theme::BODY, Color::WHITE)).center_x(Length::Fill).center_y(theme::CONTROL_HEIGHT + 6.0))
+    main_button_k(said, on, 1.0)
+}
+
+fn main_button_k<'a>(said: String, on: Option<Message>, k: f32) -> Element<'a, Message> {
+    let made = button(container(tight(said, theme::BODY * k, Color::WHITE)).center_x(Length::Fill).center_y((theme::CONTROL_HEIGHT + 6.0) * k))
         .width(Length::Fill)
-        .padding([0, 14])
+        .padding([0.0, 14.0 * k])
         .style(ui::button_faded(theme::primary));
     match on {
         Some(message) => made.on_press(message).into(),
@@ -700,35 +718,51 @@ pub fn map_page(beatmap: i64) -> String {
 }
 
 fn link_button<'a>(beatmap: i64, side: f32) -> Element<'a, Message> {
-    button(container(glyph(Icon::External, 16.0, INK)).center_x(side).center_y(side))
+    button(container(glyph(Icon::External, 16.0 * (side / 38.0).max(32.0 / 38.0), INK)).center_x(side).center_y(side))
         .padding(0)
-        .style(|_, status| {
-            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style { background: Some(Background::Color(if lit { LIT } else { Color::TRANSPARENT })), border: Border { color: crate::duels_screen::OUTLINE, width: 1.0, radius: theme::CONTROL_RADIUS.into() }, ..button::Style::default() }
-        })
+        .style(quiet(false, theme::CONTROL_RADIUS))
         .on_press(Message::Open(beatmap))
         .into()
 }
 
 fn listen_button<'a>(w: &Words, beatmap: i64, on: bool, high: f32) -> Element<'a, Message> {
-    let inside = row![glyph(Icon::Volume, 16.0, INK), tight(w.t("desk-listen"), theme::BODY, INK)].spacing(8).align_y(Alignment::Center);
+    let k = (high / 38.0).max(32.0 / 38.0);
+    let inside = row![glyph(Icon::Volume, 16.0 * k, INK), tight(w.t("desk-listen"), theme::BODY * k, INK)].spacing(8).align_y(Alignment::Center);
     button(container(inside).center_x(Length::Fill).center_y(high))
         .width(Length::Fill)
         .padding([0, 12])
-        .style(move |_, status| {
-            let lit = on || matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style { background: Some(Background::Color(if lit { LIT } else { Color::TRANSPARENT })), border: Border { color: if on { PICKED } else { crate::duels_screen::OUTLINE }, width: 1.0, radius: theme::CONTROL_RADIUS.into() }, ..button::Style::default() }
-        })
+        .style(quiet(on, theme::CONTROL_RADIUS))
         .on_press(Message::Hear(beatmap))
         .into()
 }
 
 fn line_button<'a>(said: String, on: Option<Message>) -> Element<'a, Message> {
-    crate::duels_screen::outlined_wide(container(tight(said, theme::BODY, INK)).center_x(Length::Fill).center_y(theme::CONTROL_HEIGHT + 4.0).into(), on)
+    line_button_k(said, on, 1.0)
+}
+
+fn line_button_k<'a>(said: String, on: Option<Message>, k: f32) -> Element<'a, Message> {
+    button(container(tight(said, theme::BODY * k, INK)).center_x(Length::Fill).center_y((theme::CONTROL_HEIGHT + 4.0) * k)).padding([0.0, 12.0 * k]).style(quiet(false, theme::CONTROL_RADIUS)).on_press_maybe(on).into()
+}
+
+fn quiet(on: bool, radius: f32) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        let fill = if on { ui::mix(ACCENT, theme::GROUND, 0.78) } else if lit { LIT } else { ROW };
+        button::Style {
+            background: Some(Background::Color(fill)),
+            text_color: INK,
+            border: Border { color: if on { PICKED } else { Color::TRANSPARENT }, width: if on { 1.0 } else { 0.0 }, radius: radius.into() },
+            ..button::Style::default()
+        }
+    }
 }
 
 fn field<'a>(hint: String, value: &str, on: fn(String) -> Message) -> Element<'a, Message> {
-    text_input(&hint, value).on_input(on).font(theme::SANS).size(15.0).padding([11, 14]).width(Length::Fill).style(theme::field).into()
+    field_k(hint, value, on, 1.0)
+}
+
+fn field_k<'a>(hint: String, value: &str, on: fn(String) -> Message, k: f32) -> Element<'a, Message> {
+    text_input(&hint, value).on_input(on).font(theme::SANS).size(15.0 * k).padding([11.0 * k, 14.0 * k]).width(Length::Fill).style(theme::field).into()
 }
 
 fn labelled<'a>(caption: String, inside: Element<'a, Message>) -> Element<'a, Message> {
@@ -813,11 +847,11 @@ fn reason_colour(task: &Task) -> Color {
     }
 }
 
-fn queue_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Message> {
+fn queue_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a, Message> {
     let mut chips = row![].spacing(6);
     for filter in Filter::ALL {
         let count = state.desk.tasks.iter().filter(|task| filter.holds(task)).count();
-        chips = chips.push(chip(format!("{} {count}", w.t(filter.key())), state.filter == filter, Message::Filter(filter)));
+        chips = chips.push(chip_k(format!("{} {count}", w.t(filter.key())), state.filter == filter, Message::Filter(filter), k));
     }
     let picked = state.task().map(|task| task.map.beatmap_id);
     let mut list = column![].spacing(6);
@@ -825,13 +859,13 @@ fn queue_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Message>
         let on = picked == Some(task.map.beatmap_id);
         let mut tags = row![].spacing(6).align_y(Alignment::Center);
         if let Some(slot) = task.slot.as_deref().filter(|_| task.kind != "unassigned") {
-            tags = tags.push(slot_tag(slot));
+            tags = tags.push(tag(slot, k));
         }
-        tags = tags.push(strong(w.t(&format!("desk-reason-{}", task.reason.replace('_', "-"))), 12.0, reason_colour(task)));
+        tags = tags.push(strong(w.t(&format!("desk-reason-{}", task.reason.replace('_', "-"))), 12.0 * k, reason_colour(task)));
         let inside = row![
-            cover(state, task.map.beatmapset_id, 60.0, 38.0, 7.0),
-            column![titled_map(task.map.title.as_deref(), task.map.beatmap_id, 14.0), tags].spacing(3).width(Length::Fill),
-            words(ago(w, task.since.as_deref(), now), 12.0, FAINT),
+            cover(state, task.map.beatmapset_id, 60.0 * k, 38.0 * k, 7.0),
+            column![titled_map(task.map.title.as_deref(), task.map.beatmap_id, 14.0 * k), tags].spacing(3).width(Length::Fill),
+            tight(ago(w, task.since.as_deref(), now), 12.0 * k, FAINT),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -841,43 +875,41 @@ fn queue_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Message>
     if state.tasks().is_empty() {
         list = list.push(words(w.t("desk-queue-empty"), 14.0, FAINT));
     }
-    let aside = container(column![chips.wrap().vertical_spacing(6), scrollable(list).height(Length::Fill)].spacing(10)).padding(14).width(330).height(Length::Fill).style(theme::slab);
+    let aside = container(column![chips.wrap().vertical_spacing(6), scrollable(list).direction(ui::hidden_bar()).height(Length::Fill)].spacing(10)).padding(14).width(330.0 * k).height(Length::Fill).style(theme::slab);
     let detail: Element<'a, Message> = match state.task() {
-        Some(task) => task_detail(w, state, task),
+        Some(task) => task_detail(w, state, task, k),
         None => panel(Space::new().into()),
     };
     row![aside, detail].spacing(14).height(Length::Fill).into()
 }
 
-fn task_detail<'a>(w: &Words, state: &'a State, task: &Task) -> Element<'a, Message> {
+fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32) -> Element<'a, Message> {
     let map = &task.map;
-    let card = mouse_area(stack![
-        cover(state, map.beatmapset_id, 280.0, 160.0, 14.0),
+    let card = stack![
+        cover(state, map.beatmapset_id, 280.0 * k, 160.0 * k, 14.0),
         container(column![
-            row![task.slot.as_deref().filter(|_| task.kind != "unassigned").map(slot_tag).unwrap_or_else(|| Space::new().into()), Space::new().width(Length::Fill), stars_of(map.stars, 12.0)].align_y(Alignment::Center),
+            row![task.slot.as_deref().filter(|_| task.kind != "unassigned").map(|slot| tag(slot, k)).unwrap_or_else(|| Space::new().into()), Space::new().width(Length::Fill), stars_of(map.stars, 12.0 * k)].align_y(Alignment::Center),
             Space::new().height(Length::Fill),
-            one_line(map.version.clone().unwrap_or_default(), 13.0, MUTED, theme::SANS),
-            titled_map(map.title.as_deref(), map.beatmap_id, 17.0),
-            one_line(map.artist.clone().unwrap_or_default(), 13.0, MUTED, theme::SANS),
-            row![crate::duels_screen::mapper_face(map.mapper.as_deref().unwrap_or_default(), 18.0), words(map.mapper.clone().unwrap_or_default(), 13.0, MUTED)].spacing(6).align_y(Alignment::Center),
+            one_line(map.version.clone().unwrap_or_default(), 13.0 * k, MUTED, theme::SANS),
+            titled_map(map.title.as_deref(), map.beatmap_id, 17.0 * k),
+            one_line(map.artist.clone().unwrap_or_default(), 13.0 * k, MUTED, theme::SANS),
+            row![crate::duels_screen::mapper_face(map.mapper.as_deref().unwrap_or_default(), 18.0 * k), words(map.mapper.clone().unwrap_or_default(), 13.0 * k, MUTED)].spacing(6).align_y(Alignment::Center),
         ].spacing(1))
-        .padding(12)
-        .width(280)
-        .height(160)
+        .padding(12.0 * k)
+        .width(280.0 * k)
+        .height(160.0 * k)
         .align_y(iced::alignment::Vertical::Bottom)
         .style(|_| container::Style { background: Some(crate::duel_view::veil_fill()), border: Border { radius: 14.0.into(), ..Border::default() }, ..container::Style::default() }),
-    ])
-    .on_enter(Message::Hover(Some(map.beatmap_id)))
-    .on_exit(Message::Hover(None));
+    ];
     let ready = !state.reason.trim().is_empty() && !state.posting;
     let ask = |message: Message| ready.then_some(message);
     let (caption, question, answers): (String, String, Element<'a, Message>) = match (task.kind.as_str(), task.slot.clone()) {
         ("review", Some(slot)) => {
             let caption = if task.reason == "uncertain_revealed" { w.with("desk-ask-uncertain", &[("slot", slot.clone())]) } else { w.with("desk-ask-feedback", &[("slot", slot.clone())]) };
             let buttons = row![
-                container(main_button(w.with("desk-yes", &[("slot", slot.clone())]), ask(Message::Decide("APPROVE", None)))).width(Length::Shrink),
-                container(line_button(w.with("desk-no", &[("slot", slot.clone())]), ask(Message::Decide("REJECT", None)))).width(Length::Shrink),
-                container(line_button(w.t("desk-quarantine"), ask(Message::Decide("QUARANTINE", None)))).width(Length::Shrink),
+                container(main_button_k(w.with("desk-yes", &[("slot", slot.clone())]), ask(Message::Decide("APPROVE", None)), k)).width(Length::Shrink),
+                container(line_button_k(w.with("desk-no", &[("slot", slot.clone())]), ask(Message::Decide("REJECT", None)), k)).width(Length::Shrink),
+                container(line_button_k(w.t("desk-quarantine"), ask(Message::Decide("QUARANTINE", None)), k)).width(Length::Shrink),
             ]
             .spacing(8)
             .wrap()
@@ -887,44 +919,41 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task) -> Element<'a, Mess
         _ => {
             let mut buttons = row![].spacing(6).align_y(Alignment::Center);
             for slot in desk::SLOTS {
-                let made = button(container(slot_tag(slot)).center_y(36.0)).padding([0, 6]).style(|_, status| {
-                    let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                    button::Style { background: Some(Background::Color(if lit { ROW } else { Color::TRANSPARENT })), border: Border { color: crate::duels_screen::OUTLINE, width: 1.0, radius: 9.0.into() }, ..button::Style::default() }
-                });
+                let made = button(container(tag(slot, k)).center_y(36.0 * k)).padding([0.0, 6.0 * k]).style(quiet(false, 9.0));
                 buttons = buttons.push(match ask(Message::Decide("APPROVE", Some(slot.to_owned()))) {
                     Some(message) => made.on_press(message),
                     None => made,
                 });
             }
-            buttons = buttons.push(container(line_button(w.t("desk-quarantine"), ask(Message::Decide("QUARANTINE", None)))).width(Length::Shrink));
+            buttons = buttons.push(container(line_button_k(w.t("desk-quarantine"), ask(Message::Decide("QUARANTINE", None)), k)).width(Length::Shrink));
             (w.t("desk-ask-unassigned"), w.t("desk-which-slot"), buttons.wrap().vertical_spacing(6).into())
         }
     };
-    let under = row![listen_button(w, map.beatmap_id, state.hearing == Some(map.beatmap_id), 38.0), link_button(map.beatmap_id, 38.0)].spacing(8).width(280);
+    let under = row![listen_button(w, map.beatmap_id, state.hearing == Some(map.beatmap_id), 38.0 * k), link_button(map.beatmap_id, 38.0 * k)].spacing(8).width(280.0 * k);
     let top = row![
         column![card, under].spacing(8),
-        column![words(caption, 14.0, FAINT), bold(question, 26.0, INK), container(answers).padding(Padding { top: 6.0, ..Padding::ZERO })].spacing(8).width(Length::Fill),
+        column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(answers).padding(Padding { top: 6.0, ..Padding::ZERO })].spacing(8).width(Length::Fill),
     ]
     .spacing(18);
     let mut why = column![].spacing(6);
     if let Some(guess) = &map.model {
         for odds in &guess.top {
             let chosen = Some(&odds.slot) == task.slot.as_ref() || (task.slot.is_none() && Some(&odds.slot) == guess.slot.as_ref());
-            let name: Element<'a, Message> = if odds.slot == desk::OTHER { words(w.t("desk-other"), 13.0, FAINT) } else { slot_tag(&odds.slot) };
-            why = why.push(row![container(name).width(56), bar(odds.probability, if chosen { ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.28) }), container(strong(format!("{:.0}%", odds.probability * 100.0), 14.0, INK)).width(44).align_x(iced::alignment::Horizontal::Right)].spacing(10).align_y(Alignment::Center));
+            let name: Element<'a, Message> = if odds.slot == desk::OTHER { words(w.t("desk-other"), 13.0 * k, FAINT) } else { tag(&odds.slot, k) };
+            why = why.push(row![container(name).width(56.0 * k), bar(odds.probability, if chosen { ACCENT } else { Color::from_rgba(1.0, 1.0, 1.0, 0.28) }), container(strong(format!("{:.0}%", odds.probability * 100.0), 14.0 * k, INK)).width(44.0 * k).align_x(iced::alignment::Horizontal::Right)].spacing(10).align_y(Alignment::Center));
         }
         let mut reasons = column![].spacing(5).padding(Padding { top: 4.0, ..Padding::ZERO });
         for reason in guess.reasons.iter().take(3) {
             let (sign, colour) = if reason.weight >= 0.0 { ("+", GOOD) } else { ("−", BAD) };
-            reasons = reasons.push(row![container(strong(sign.to_owned(), 14.0, colour)).width(14), words(feature(w, &reason.feature), 14.0, MUTED)].spacing(10));
+            reasons = reasons.push(row![container(strong(sign.to_owned(), 14.0 * k, colour)).width(14.0 * k), words(feature(w, &reason.feature), 14.0 * k, MUTED)].spacing(10));
         }
         why = why.push(reasons);
     } else {
-        why = why.push(words(w.t("desk-no-model"), 14.0, FAINT));
+        why = why.push(words(w.t("desk-no-model"), 14.0 * k, FAINT));
     }
     let version = map.model.as_ref().map(|guess| short_version(&guess.version)).unwrap_or_default();
-    let model_side = column![row![heading(w.t("desk-why")), container(tight(version, 13.0, FAINT)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right).clip(true)].spacing(12).align_y(Alignment::Center), why].spacing(10).width(Length::Fill);
-    let mut said = column![heading(w.t("desk-players-say"))].spacing(10).width(Length::Fill);
+    let model_side = column![row![strong(w.t("desk-why"), 17.0 * k, INK), container(tight(version, 13.0, FAINT)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right).clip(true)].spacing(12).align_y(Alignment::Center), why].spacing(10).width(Length::Fill);
+    let mut said = column![strong(w.t("desk-players-say"), 17.0 * k, INK)].spacing(10).width(Length::Fill);
     match &task.opinions {
         Some(opinions) => {
             let voted = opinions.fits + opinions.off;
@@ -932,18 +961,28 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task) -> Element<'a, Mess
             let slot = task.slot.clone().unwrap_or_default();
             let notes = column![
                 row![
-                    note(opinions.played.to_string(), w.t("desk-played"), INK),
-                    note(w.with("desk-of", &[("count", opinions.off.to_string()), ("total", voted.to_string())]), w.with("desk-off", &[("slot", slot)]), if opinions.off > 0 { BAD } else { INK }),
+                    note(opinions.played.to_string(), w.t("desk-played"), INK, k),
+                    note(w.with("desk-of", &[("count", opinions.off.to_string()), ("total", voted.to_string())]), w.with("desk-off", &[("slot", slot)]), if opinions.off > 0 { BAD } else { INK }, k),
                 ].spacing(8),
-                row![note(difficulty, w.t("desk-difficulty"), INK), Space::new().width(Length::Fill)].spacing(8),
+                row![note(difficulty, w.t("desk-difficulty"), INK, k), Space::new().width(Length::Fill)].spacing(8),
             ]
             .spacing(8);
             said = said.push(notes);
         }
-        None => said = said.push(words(w.t("desk-no-opinions"), 14.0, FAINT)),
+        None => said = said.push(words(w.t("desk-no-opinions"), 14.0 * k, FAINT)),
     }
-    let reason = row![words(w.t("desk-reason"), 13.0, FAINT), field(w.t("desk-reason-hint"), &state.reason, Message::Reason)].spacing(12).align_y(Alignment::Center);
+    let reason = row![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(12).align_y(Alignment::Center);
     panel(column![top, row![model_side, said].spacing(18), Space::new().height(Length::Fill), reason].spacing(16).into())
+}
+
+fn tag<'a>(slot: &str, k: f32) -> Element<'a, Message> {
+    let base = crate::duel_view::slot_colour(slot);
+    let fill = ui::mix(base, theme::GROUND, 0.74);
+    container(strong(slot.to_owned(), 12.0 * k, ui::mix(base, Color::WHITE, 0.45)))
+        .center_x(42.0 * k)
+        .padding([3.0 * k, 0.0])
+        .style(move |_| container::Style { background: Some(Background::Color(fill)), border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() })
+        .into()
 }
 
 fn bar<'a>(share: f32, colour: Color) -> Element<'a, Message> {
@@ -956,9 +995,9 @@ fn bar<'a>(share: f32, colour: Color) -> Element<'a, Message> {
     container(track).width(Length::Fill).style(|_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.08))), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default() }).into()
 }
 
-fn note<'a>(value: String, label: String, colour: Color) -> Element<'a, Message> {
-    container(column![bold(value, 19.0, colour), words(label, 13.0, FAINT)].spacing(2))
-        .padding([10, 14])
+fn note<'a>(value: String, label: String, colour: Color, k: f32) -> Element<'a, Message> {
+    container(column![bold(value, 19.0 * k, colour), words(label, 13.0 * k, FAINT)].spacing(2))
+        .padding([10.0 * k, 14.0 * k])
         .width(Length::Fill)
         .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default() })
         .into()
@@ -1025,10 +1064,7 @@ fn label_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
             };
             let mut keys = row![].spacing(8);
             for slot in desk::SLOTS {
-                let made = button(container(slot_tag(slot)).center_x(Length::Fill).center_y(52.0)).width(Length::Fill).padding(0).style(|_, status| {
-                    let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-                    button::Style { background: Some(Background::Color(if lit { LIT } else { Color::TRANSPARENT })), border: Border { color: crate::duels_screen::OUTLINE, width: 1.0, radius: theme::CONTROL_RADIUS.into() }, ..button::Style::default() }
-                });
+                let made = button(container(slot_tag(slot)).center_x(Length::Fill).center_y(52.0)).width(Length::Fill).padding(0).style(quiet(false, theme::CONTROL_RADIUS));
                 keys = keys.push(if state.posting { made } else { made.on_press(Message::MapLabel(slot.to_owned())) });
             }
             let rest = row![line_button(w.t("desk-fits-none"), (!state.posting).then(|| Message::MapLabel(desk::OTHER.to_owned()))), line_button(w.t("desk-skip"), Some(Message::Skip))].spacing(8);
@@ -1075,7 +1111,7 @@ fn tournament_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
         });
         text_editor::Style { background: field.background, border: field.border, placeholder: field.placeholder, value: field.value, selection: field.selection }
     });
-    let archive = crate::duels_screen::outlined(row![glyph(Icon::Download, 16.0, INK), strong(w.t("desk-from-archive"), theme::BODY, INK)].spacing(8).align_y(Alignment::Center).into(), Some(Message::Archive));
+    let archive = button(container(row![glyph(Icon::Download, 16.0, INK), strong(w.t("desk-from-archive"), theme::BODY, INK)].spacing(8).align_y(Alignment::Center)).center_y(theme::CONTROL_HEIGHT - 2.0)).padding([0, 12]).style(quiet(false, theme::CONTROL_RADIUS)).on_press(Message::Archive);
     let form = panel(column![
         heading(w.t("desk-add-tournament")),
         row![labelled(w.t("desk-name"), field(String::new(), &state.name, Message::Name)), container(labelled(w.t("desk-year"), field(String::new(), &state.year_text, Message::YearText))).width(120)].spacing(10),
@@ -1093,7 +1129,7 @@ fn tournament_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
             stars_of(about.and_then(|found| found.stars), 12.0),
         ].spacing(10).height(46).align_y(Alignment::Center));
     }
-    let aside = container(scrollable(parsed)).padding(18).width(440).height(Length::Fill).style(theme::slab);
+    let aside = container(scrollable(parsed).direction(ui::hidden_bar())).padding(18).width(440).height(Length::Fill).style(theme::slab);
     row![form, aside].spacing(14).height(Length::Fill).into()
 }
 
@@ -1131,7 +1167,7 @@ fn owc_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
     let mut stages: Vec<String> = shown.iter().map(|(_, cell)| cell.stage.clone()).collect();
     stages.sort_by_key(|stage| STAGES.iter().position(|known| known == stage).unwrap_or(STAGES.len()));
     stages.dedup();
-    let mut groups = row![Space::new().width(110)].spacing(4);
+    let mut groups = row![Space::new().width(OWC_STAGE_WIDTH)].spacing(4);
     let mut at = 0;
     while at < slots.len() {
         let order = owc_order(&slots[at]).min(4);
@@ -1144,21 +1180,21 @@ fn owc_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
             _ => w.t("desk-group-other"),
         };
         let line = container(Space::new()).width(Length::Fill).height(1).style(|_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.1))), ..container::Style::default() });
-        groups = groups.push(container(column![container(words(name, 12.0, FAINT)).center_x(Length::Fill), line].spacing(6)).padding([0, 4]).width(Length::FillPortion(count as u16)));
+        groups = groups.push(container(column![container(words(name, 12.0, FAINT)).center_x(Length::Fill), line].spacing(6)).padding([0, 4]).width(count as f32 * (OWC_CELL_WIDTH + 4.0) - 4.0));
         at += count;
     }
-    let mut head = row![Space::new().width(110)].spacing(4);
+    let mut head = row![Space::new().width(OWC_STAGE_WIDTH)].spacing(4);
     for slot in &slots {
-        head = head.push(container(strong(slot.clone(), 12.0, pastel(slot))).center_x(Length::Fill));
+        head = head.push(container(strong(slot.clone(), 12.0, pastel(slot))).center_x(OWC_CELL_WIDTH));
     }
     let mut grid = column![groups, head].spacing(4);
     for stage in &stages {
-        let mut line = row![container(words(stage_name(w, stage), 13.0, MUTED)).width(110).center_y(36.0)].spacing(4);
+        let mut line = row![container(words(stage_name(w, stage), 13.0, MUTED)).width(OWC_STAGE_WIDTH).center_y(OWC_CELL_HEIGHT)].spacing(4);
         for slot in &slots {
             let found = shown.iter().find(|(_, cell)| cell.stage == *stage && cell.slot == *slot);
             line = line.push(match found {
                 Some((at, cell)) => owc_cell(*at, cell, state.cell == Some(*at)),
-                None => Space::new().width(Length::Fill).height(36).into(),
+                None => Space::new().width(OWC_CELL_WIDTH).height(OWC_CELL_HEIGHT).into(),
             });
         }
         grid = grid.push(line);
@@ -1169,7 +1205,7 @@ fn owc_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
         swatch(Color::TRANSPARENT, Some(UNSURE), w.t("desk-legend-moved")),
     ]
     .spacing(18);
-    let table = panel(column![picker, scrollable(grid).height(Length::Fill), legend].spacing(14).into());
+    let table = panel(column![picker, scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::hidden(), horizontal: scrollable::Scrollbar::hidden() }).height(Length::Fill), legend].spacing(14).into());
     row![table, owc_aside(w, state)].spacing(14).height(Length::Fill).into()
 }
 
@@ -1195,7 +1231,8 @@ fn owc_cell<'a>(at: usize, cell: &Cell, chosen: bool) -> Element<'a, Message> {
     let shown = if label == desk::EXCLUDED || label == desk::OTHER { "—".to_owned() } else { label.clone() };
     let fill = if checked { CHECKED } else { ROW };
     let frame = if chosen { Some((INK, 2.0)) } else if moved { Some((UNSURE, 1.5)) } else { None };
-    let made = container(strong(shown, 12.0, if checked { INK } else { MUTED })).center_x(Length::Fill).center_y(36.0).style(move |_| container::Style {
+    let spare = label != desk::EXCLUDED && label != desk::OTHER && !desk::SLOTS.contains(&label.as_str());
+    let made = container(strong(shown, 14.0, if spare { FAINT } else if checked { INK } else { MUTED })).center_x(OWC_CELL_WIDTH).center_y(OWC_CELL_HEIGHT).style(move |_| container::Style {
         background: Some(Background::Color(fill)),
         border: frame.map_or(Border { radius: 7.0.into(), ..Border::default() }, |(colour, width)| Border { color: colour, width, radius: 7.0.into() }),
         ..container::Style::default()
@@ -1229,14 +1266,31 @@ fn owc_aside<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
         choices = choices.push(chip_with(slot_tag(slot), skill(w, slot), on, Message::Label(slot.to_owned())));
     }
     let none = chip_with(Space::new().width(0).into(), w.t("desk-no-slot"), current == desk::EXCLUDED, Message::Label(desk::EXCLUDED.to_owned()));
+    let prefix = &cell.slot[..cell.slot.len().min(2)];
+    let mut spare: Vec<String> = state.desk.cells.iter().map(|other| other.slot.clone()).chain([cell.slot.clone()])
+        .filter(|slot| slot.starts_with(prefix) && slot != "TB" && !desk::SLOTS.contains(&slot.as_str()))
+        .collect();
+    spare.sort();
+    spare.dedup();
+    let reserve: Element<'a, Message> = if spare.is_empty() {
+        Space::new().into()
+    } else {
+        let mut chips = row![].spacing(6).align_y(Alignment::Center);
+        for slot in spare {
+            let on = current == slot;
+            chips = chips.push(button(container(slot_tag(&slot)).center_y(38.0)).padding([0, 10]).style(quiet(on, 9.0)).on_press(Message::Label(slot)));
+        }
+        column![words(w.t("desk-reserve"), 13.0, FAINT), chips.wrap().vertical_spacing(6)].spacing(8).into()
+    };
     let mut maps = column![heading(w.t("desk-cell-maps"))].spacing(8);
     for map in &cell.maps {
         maps = maps.push(row![cover(state, map.beatmapset_id, 66.0, 40.0, 7.0), container(titled_map(map.title.as_deref(), map.beatmap_id, 14.0)).width(Length::Fill), if map.label == desk::EXCLUDED || map.label == desk::OTHER { words("—".to_owned(), 13.0, FAINT) } else { slot_tag(&map.label) }].spacing(10).align_y(Alignment::Center));
     }
-    let ready = state.label.is_some() && !state.reason.trim().is_empty() && !state.posting;
+    let ready = !state.reason.trim().is_empty() && !state.posting;
     container(column![
         column![words(w.with("desk-owc-cell", &[("year", cell.year.to_string()), ("stage", stage_name(w, &cell.stage).to_lowercase())]), 14.0, FAINT), bold(w.with("desk-owc-question", &[("slot", cell.slot.clone())]), 22.0, INK)].spacing(4),
         choices.push(none).wrap().vertical_spacing(6),
+        reserve,
         maps,
         Space::new().height(Length::Fill),
         labelled(w.t("desk-reason"), field(w.t("desk-reason-hint"), &state.reason, Message::Reason)),
@@ -1252,14 +1306,7 @@ fn owc_aside<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
 fn chip_with<'a>(tag: Element<'a, Message>, said: String, on: bool, press: Message) -> Element<'a, Message> {
     button(container(row![tag, strong(said, 13.0, INK)].spacing(6).align_y(Alignment::Center)).center_y(38.0))
         .padding([0, 10])
-        .style(move |_, status| {
-            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(Background::Color(if on { ui::mix(ACCENT, theme::GROUND, 0.78) } else if lit { ROW } else { Color::TRANSPARENT })),
-                border: Border { color: if on { Color { a: 0.7, ..ACCENT } } else { Color::from_rgba(1.0, 1.0, 1.0, 0.14) }, width: 1.0, radius: 9.0.into() },
-                ..button::Style::default()
-            }
-        })
+        .style(quiet(on, 9.0))
         .on_press(press)
         .into()
 }
@@ -1285,11 +1332,11 @@ fn catalog_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
     let totals = &coverage.totals;
     let group = |value: u32| w.lang().group(u64::from(value));
     let tiles = row![
-        note(group(totals.playable), w.t("desk-total-playable"), INK),
-        note(group(totals.human), w.t("desk-total-human"), GOOD),
-        note(group(totals.uncertain), w.t("desk-total-uncertain"), UNSURE),
-        note(group(totals.quarantined), w.t("desk-total-quarantined"), BAD),
-        note(group(totals.unassigned), w.t("desk-total-unassigned"), MUTED),
+        note(group(totals.playable), w.t("desk-total-playable"), INK, 1.0),
+        note(group(totals.human), w.t("desk-total-human"), GOOD, 1.0),
+        note(group(totals.uncertain), w.t("desk-total-uncertain"), UNSURE, 1.0),
+        note(group(totals.quarantined), w.t("desk-total-quarantined"), BAD, 1.0),
+        note(group(totals.unassigned), w.t("desk-total-unassigned"), MUTED, 1.0),
     ]
     .spacing(10);
     let mut head = row![Space::new().width(150)].spacing(5);
@@ -1331,6 +1378,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
                     cover(state, map.beatmapset_id, 72.0, 44.0, 7.0),
                     column![titled_map(map.title.as_deref(), map.beatmap_id, 14.0), strong(w.t(&format!("desk-level-{}", map.level)), 12.0, colour)].spacing(2).width(Length::Fill),
                     stars_of(Some(map.stars), 12.0),
+                    container(listen_button(w, map.beatmap_id, state.hearing == Some(map.beatmap_id), 32.0)).width(150),
                     link_button(map.beatmap_id, 32.0),
                 ].spacing(10).align_y(Alignment::Center));
             }
@@ -1338,7 +1386,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
                 slot_tag(slot),
                 heading(format!("{}, {}", skill(w, slot), band_name(w, *band))),
                 strong(w.with("desk-band-count", &[("count", count.to_string())]), 14.0, ink),
-                scrollable(list).height(Length::Fill),
+                scrollable(list).direction(ui::hidden_bar()).height(Length::Fill),
                 main_button_with(Icon::Download, w.t("desk-discover"), (!state.posting).then_some(Message::Discover)),
                 line_button(w.t("desk-label-waiting"), Some(Message::Tab(Tab::Queue))),
             ].spacing(10))
@@ -1395,7 +1443,7 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64) -> El
     let actions = actions.push(
         row![main_button(w.t("desk-publish"), (may && !chosen_published && chosen.is_some()).then_some(Message::Publish)), container(line_button(w.t("desk-rollback"), (may && published).then_some(Message::Rollback))).width(Length::Shrink)].spacing(8),
     );
-    let aside = container(column![scrollable(list).height(Length::Fill), actions].spacing(10)).padding(18).width(400).height(Length::Fill).style(theme::slab);
+    let aside = container(column![scrollable(list).direction(ui::hidden_bar()).height(Length::Fill), actions].spacing(10)).padding(18).width(400).height(Length::Fill).style(theme::slab);
     let report = state.desk.versions.iter().find(|version| Some(&version.version) == chosen.as_ref()).map(|version| (version.version.clone(), version.labels, version.report.clone()));
     let section: Element<'a, Message> = match report {
         Some((name, labels, report)) => {
@@ -1447,7 +1495,7 @@ fn duels_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Message>
     if state.desk.stuck.is_empty() {
         list = list.push(words(w.t("desk-stuck-none"), 14.0, FAINT));
     }
-    let aside = container(scrollable(list)).padding(18).width(400).height(Length::Fill).style(theme::slab);
+    let aside = container(scrollable(list).direction(ui::hidden_bar())).padding(18).width(400).height(Length::Fill).style(theme::slab);
     let Some(duel) = state.stuck_shown() else { return row![aside, panel(Space::new().into())].spacing(14).height(Length::Fill).into() };
     let a = duel.players.first().and_then(|seat| seat.name.clone()).unwrap_or_default();
     let b = duel.players.get(1).and_then(|seat| seat.name.clone()).unwrap_or_default();
@@ -1539,7 +1587,7 @@ fn journal_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Messag
         log = log.push(words(w.t("desk-journal-empty"), 14.0, FAINT));
     }
     let aside = container(column![heading(w.t("desk-people")), people_list(w, state), Space::new().height(Length::Fill), rights(w), main_button(w.t("desk-grant"), Some(Message::Tab(Tab::People)))].spacing(8)).padding(18).width(360).height(Length::Fill).style(theme::slab);
-    row![panel(scrollable(log).into()), aside].spacing(14).height(Length::Fill).into()
+    row![panel(scrollable(log).direction(ui::hidden_bar()).into()), aside].spacing(14).height(Length::Fill).into()
 }
 
 fn people_view<'a>(w: &Words, state: &'a State, roles: &[String]) -> Element<'a, Message> {
@@ -1562,12 +1610,13 @@ fn people_view<'a>(w: &Words, state: &'a State, roles: &[String]) -> Element<'a,
     .width(420)
     .height(Length::Fill)
     .style(theme::slab);
-    row![panel(column![heading(w.t("desk-people")), scrollable(people_list(w, state))].spacing(8).into()), form].spacing(14).height(Length::Fill).into()
+    row![panel(column![heading(w.t("desk-people")), scrollable(people_list(w, state)).direction(ui::hidden_bar())].spacing(8).into()), form].spacing(14).height(Length::Fill).into()
 }
 
-pub fn view<'a>(state: &'a State, roles: &[String], w: &Words, now: i64) -> Element<'a, Message> {
+pub fn view<'a>(state: &'a State, roles: &[String], w: &Words, now: i64, wide: f32) -> Element<'a, Message> {
+    let k = ((wide - 80.0) / 1200.0).clamp(1.0, 1.45);
     let body: Element<'a, Message> = match state.tab {
-        Tab::Queue => queue_view(w, state, now),
+        Tab::Queue => queue_view(w, state, now, k),
         Tab::Label => label_view(w, state),
         Tab::Owc => owc_view(w, state),
         Tab::Catalog => catalog_view(w, state),

@@ -1576,6 +1576,7 @@ desk-legend-number = Taken from the number
 desk-legend-moved = Differs from the number
 desk-owc-pick = Pick a table cell
 desk-no-slot = No slot
+desk-reserve = Not in duels yet
 desk-cell-maps = Maps in the cell
 desk-owc-cell = OWC { $year }, { $stage }
 desk-owc-question = What was { $slot } in this pool?

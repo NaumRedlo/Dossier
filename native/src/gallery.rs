@@ -1366,6 +1366,12 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.desk.reason = "В 2024 NM3 был стримами".into();
             main
         }),
+        ("main-community-balance-owc-reserve".to_owned(), {
+            let mut main = tabbed(Tab::Owc);
+            main.desk.cell = main.desk.desk.cells.iter().position(|cell| !crate::desk::SLOTS.contains(&cell.slot.as_str()) && cell.slot != "TB");
+            main.desk.label = main.desk.cell.and_then(|at| main.desk.desk.cells.get(at)).map(|cell| cell.slot.clone());
+            main
+        }),
         ("main-community-balance-catalog".to_owned(), {
             let mut main = tabbed(Tab::Catalog);
             main.desk.band = Some(("NM3".into(), 3));

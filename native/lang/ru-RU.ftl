@@ -1618,6 +1618,7 @@ desk-legend-number = Взято по номеру
 desk-legend-moved = Отличается от номера
 desk-owc-pick = Выберите ячейку таблицы
 desk-no-slot = Нет слота
+desk-reserve = Пока не в дуэлях
 desk-cell-maps = Карты ячейки
 desk-owc-cell = OWC { $year }, { $stage }
 desk-owc-question = Чем был { $slot } в этом пуле?

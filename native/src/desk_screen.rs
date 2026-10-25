@@ -968,7 +968,7 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32) -> Element<
             .spacing(8)
             .wrap()
             .vertical_spacing(8);
-            (caption, w.with("desk-is-it", &[("skill", skill(w, &slot).to_lowercase())]), buttons.into())
+            (caption, w.with("desk-is-it", &[("skill", first_lower(&skill(w, &slot)))]), buttons.into())
         }
         _ => {
             let mut buttons = row![].spacing(6).align_y(Alignment::Center);
@@ -999,7 +999,17 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32) -> Element<
     let decision = column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(answers).padding(Padding { top: 6.0 * k, bottom: 10.0 * k, ..Padding::ZERO }), reason]
         .spacing(8)
         .width(Length::Fill);
-    let top = row![column![card, facts, under].spacing(8), decision].spacing(22.0 * k);
+    let played: Element<'a, Message> = match (map.mods.is_empty(), map.plain_stars) {
+        (false, Some(plain)) => row![
+            container(strong(map.mods.join(""), 12.0 * k, INK)).padding([2.0 * k, 8.0 * k]).style(|_| container::Style { background: Some(Background::Color(LIT)), border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() }),
+            words(w.with("desk-plain-stars", &[("stars", w.decimal(f64::from(plain), 2))]), 13.0 * k, FAINT),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .into(),
+        _ => Space::new().into(),
+    };
+    let top = row![column![card, played, facts, under].spacing(8), decision].spacing(22.0 * k);
     let mut why = column![].spacing(8);
     if let Some(guess) = &map.model {
         for odds in guess.top.iter().filter(|odds| odds.slot != desk::OTHER) {
@@ -1046,6 +1056,11 @@ fn spare_slots<'a>(w: &Words, state: &State, decision: &'static str, ready: bool
         chips = chips.push(if ready { made.on_press(Message::Decide(decision, Some(slot))) } else { made });
     }
     column![words(w.t("desk-reserve"), 13.0 * k, FAINT), chips.wrap().vertical_spacing(6)].spacing(6).into()
+}
+
+fn first_lower(said: &str) -> String {
+    let mut letters = said.chars();
+    letters.next().map(|first| first.to_lowercase().chain(letters).collect()).unwrap_or_default()
 }
 
 fn fact<'a>(name: String, value: String, k: f32) -> Element<'a, Message> {

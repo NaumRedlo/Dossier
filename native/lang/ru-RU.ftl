@@ -1533,6 +1533,7 @@ desk-level-above = выше обычного
 desk-level-below = ниже обычного
 desk-level-usual = как обычно
 desk-length = Длина
+desk-plain-stars = Без модов { $stars }
 desk-why = Почему Kamerton так решил
 desk-no-model = Kamerton ещё не опубликован
 desk-players-say = Что говорят игроки

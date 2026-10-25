@@ -1491,6 +1491,7 @@ desk-level-above = above usual
 desk-level-below = below usual
 desk-level-usual = as usual
 desk-length = Length
+desk-plain-stars = Without mods { $stars }
 desk-why = Why Kamerton chose this
 desk-no-model = No Kamerton is published yet
 desk-players-say = What players say

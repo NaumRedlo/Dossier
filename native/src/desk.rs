@@ -55,6 +55,8 @@ pub struct Map {
     pub model: Option<Guess>,
     pub settings: std::collections::BTreeMap<String, f32>,
     pub length: Option<f32>,
+    pub plain_stars: Option<f32>,
+    pub mods: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

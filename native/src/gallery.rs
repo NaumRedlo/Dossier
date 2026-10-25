@@ -1350,6 +1350,18 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.desk.reason = "Альтернейт есть, но стримов больше".into();
             main
         }),
+        ("main-community-balance-dt".to_owned(), {
+            let mut main = tabbed(Tab::Queue);
+            if let Some(task) = main.desk.desk.tasks.iter_mut().find(|task| task.slot.as_deref() == Some("DT2")) {
+                task.map.mods = vec!["DT".into()];
+                task.map.plain_stars = task.map.stars;
+                task.map.stars = task.map.stars.map(|stars| stars + 1.4);
+                task.map.settings.insert("ar".into(), 10.3);
+                task.map.length = Some(144.0);
+                main.desk.picked = Some(task.map.beatmap_id);
+            }
+            main
+        }),
         ("main-community-balance-move".to_owned(), {
             let mut main = tabbed(Tab::Queue);
             main.desk.moving = true;
@@ -1412,7 +1424,7 @@ fn staged_desk() -> crate::desk_screen::State {
     let stamp = |ago: i64| chrono::DateTime::from_timestamp(NOON - ago, 0).map(|at| at.to_rfc3339());
     let map = |id: i64, set: i64, title: &str, version: &str, mapper: &str, stars: f32| Map {
         beatmap_id: id, beatmapset_id: Some(set), title: Some(title.into()), artist: Some("Artist".into()), version: Some(version.into()), mapper: Some(mapper.into()), stars: Some(stars), model: None,
-        settings: [("cs".to_owned(), 4.2), ("ar".to_owned(), 9.3), ("od".to_owned(), 8.8), ("hp".to_owned(), 5.5)].into_iter().collect(), length: Some(216.0),
+        settings: [("cs".to_owned(), 4.2), ("ar".to_owned(), 9.3), ("od".to_owned(), 8.8), ("hp".to_owned(), 5.5)].into_iter().collect(), length: Some(216.0), plain_stars: None, mods: Vec::new(),
     };
     let guess = Guess {
         slot: Some("NM3".into()), probability: 0.64, margin: 0.43,

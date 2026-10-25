@@ -511,6 +511,7 @@ fn added(out: &mut Vec<(String, crate::main_screen::Main)>, name: String, build:
 }
 
 pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
+    crate::mapper_faces::quiet();
     use crate::main_screen::{decoded, Main, Overlay};
     let mut settings = crate::settings::Settings::default();
     settings.lang = lang;

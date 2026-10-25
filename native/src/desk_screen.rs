@@ -933,7 +933,7 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32) -> Element<
             one_line(map.version.clone().unwrap_or_default(), 13.0 * k, MUTED, theme::SANS),
             titled_map(map.title.as_deref(), map.beatmap_id, 17.0 * k),
             one_line(map.artist.clone().unwrap_or_default(), 13.0 * k, MUTED, theme::SANS),
-            row![crate::duels_screen::mapper_face(map.mapper.as_deref().unwrap_or_default(), 18.0 * k), words(map.mapper.clone().unwrap_or_default(), 13.0 * k, MUTED)].spacing(6).align_y(Alignment::Center),
+            row![crate::duels_screen::mapper_face(map.mapper.as_deref().unwrap_or_default(), map.beatmap_id, 18.0 * k), words(map.mapper.clone().unwrap_or_default(), 13.0 * k, MUTED)].spacing(6).align_y(Alignment::Center),
         ].spacing(1))
         .padding(12.0 * k)
         .width(280.0 * k)
@@ -1153,7 +1153,7 @@ fn label_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
                 words(version, 16.0 * k, MUTED),
                 one_line(shown_title, 34.0 * k, INK, theme::SANS_SEMI),
                 words(artist, 17.0 * k, MUTED),
-                row![crate::duels_screen::mapper_face(&mapper, 24.0), words(mapper.clone(), 15.0 * k, MUTED)].spacing(8).align_y(Alignment::Center),
+                row![crate::duels_screen::mapper_face(&mapper, map.beatmap_id, 24.0 * k), words(mapper.clone(), 15.0 * k, MUTED)].spacing(8).align_y(Alignment::Center),
             ]
             .spacing(4);
             let shown = container(column![row![facts, Space::new().width(Length::Fill), listen].align_y(Alignment::Center), Space::new().height(Length::Fill), words_block])

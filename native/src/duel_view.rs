@@ -212,7 +212,7 @@ fn moving_card<'a>(state: &State, entry: &Entry, frame: Option<(Color, bool)>, d
         words(fit(&version, 12.0, 230.0), 12.0, MUTED),
         strong(ui::fitted(&title, theme::SANS_SEMI, 15.0, 230.0), 15.0, INK),
         words(fit(&artist, 12.0, 230.0), 12.0, color!(0xd8c4c1)),
-        row![crate::duels_screen::mapper_face(&mapper, 20.0), words(fit(&mapper, 12.0, 200.0), 12.0, color!(0xd8c4c1))].spacing(6).align_y(Alignment::Center),
+        row![crate::duels_screen::mapper_face(&mapper, entry.beatmap_id, 20.0), words(fit(&mapper, 12.0, 200.0), 12.0, color!(0xd8c4c1))].spacing(6).align_y(Alignment::Center),
     ]
     .spacing(2)
     .padding(Padding { top: 10.0, right: 12.0, bottom: 10.0, left: 12.0 })
@@ -523,7 +523,7 @@ fn hero<'a>(w: &Words, state: &State, duel: &Duel) -> Element<'a, Message> {
         words(entry.version.clone().unwrap_or_default(), 15.0, MUTED),
         strong(ui::fitted(&entry.title.clone().unwrap_or_default(), theme::SANS_SEMI, 30.0, 640.0), 30.0, INK),
         words(entry.artist.clone().unwrap_or_default(), 16.0, color!(0xd8c4c1)),
-        row![crate::duels_screen::mapper_face(&entry.mapper.clone().unwrap_or_default(), 22.0), words(entry.mapper.clone().unwrap_or_default(), 14.0, color!(0xd8c4c1))].spacing(8).align_y(Alignment::Center),
+        row![crate::duels_screen::mapper_face(&entry.mapper.clone().unwrap_or_default(), entry.beatmap_id, 22.0), words(entry.mapper.clone().unwrap_or_default(), 14.0, color!(0xd8c4c1))].spacing(8).align_y(Alignment::Center),
     ]
     .spacing(4)
     .padding(Padding { top: 18.0, right: 22.0, bottom: 18.0, left: 22.0 })
@@ -894,7 +894,7 @@ fn grow_card<'a>(state: &State, entry: &Entry, wide: f32, high: f32, title: f32,
         words(entry.version.clone().unwrap_or_default(), size(12.0, 15.0), MUTED),
         strong(ui::fitted(&entry.title.clone().unwrap_or_default(), theme::SANS_SEMI, title, (wide - 40.0).max(60.0)), title, INK),
         words(entry.artist.clone().unwrap_or_default(), size(12.0, 16.0), color!(0xd8c4c1)),
-        row![crate::duels_screen::mapper_face(&entry.mapper.clone().unwrap_or_default(), size(20.0, 22.0)), words(entry.mapper.clone().unwrap_or_default(), size(12.0, 14.0), color!(0xd8c4c1))].spacing(8).align_y(Alignment::Center),
+        row![crate::duels_screen::mapper_face(&entry.mapper.clone().unwrap_or_default(), entry.beatmap_id, size(20.0, 22.0)), words(entry.mapper.clone().unwrap_or_default(), size(12.0, 14.0), color!(0xd8c4c1))].spacing(8).align_y(Alignment::Center),
     ]
     .spacing(size(2.0, 4.0))
     .padding(Padding { top: size(10.0, 18.0), right: size(12.0, 22.0), bottom: size(10.0, 18.0), left: size(12.0, 22.0) })

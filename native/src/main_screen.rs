@@ -163,6 +163,7 @@ pub enum Message {
     Billing(crate::billing::Message),
     BillingReply(u64, crate::billing::Message),
     RetryPictures,
+    FacesArrived,
     MenuClose,
     SeenAll,
     ClearNotices,
@@ -1423,6 +1424,9 @@ impl Main {
             if self.witness_delivery.pending() > 0 {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
             }
+        }
+        if crate::mapper_faces::waiting() && self.overlay == Overlay::Community {
+            parts.push(iced::time::every(Duration::from_millis(300)).map(|_| Message::FacesArrived));
         }
         if self.desk.training.is_some() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance {
             parts.push(iced::time::every(Duration::from_secs(15)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Again))));
@@ -3658,6 +3662,7 @@ impl Main {
                 }
                 Task::none()
             }
+            Message::FacesArrived => Task::none(),
             Message::RetryPictures => {
                 let wide = self.community_reading.as_ref().map(|reading| reading.pictures()).unwrap_or_default();
                 let tasks = [self.news_pictures_task(), self.community_pictures_task(), self.wide_pictures_task(wide)];

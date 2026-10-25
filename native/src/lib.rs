@@ -37,6 +37,7 @@ pub mod lang;
 pub mod library;
 pub mod live;
 pub mod main_screen;
+pub mod mapper_faces;
 pub mod maps;
 pub mod mixed;
 pub mod modicons;

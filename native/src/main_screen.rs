@@ -12,9 +12,9 @@ use std::time::{Duration, Instant};
 
 use iced::animation::Easing;
 use iced::widget::{
-    button, column, container, float, image, mouse_area, pin, row, scrollable, stack, text, Space,
+    button, column, container, image, mouse_area, pin, row, scrollable, stack, text, Space,
 };
-use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Point, Subscription, Task, Vector};
+use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Point, Subscription, Task};
 
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
@@ -4745,8 +4745,7 @@ impl Main {
         };
         let early = self.arrive.interpolate(0.0, 1.0, self.now) * (1.0 - self.cinema.interpolate(0.0, 1.0, self.now)) * awake;
         let crest = ui::fading(early, ui::brand);
-        let crest: Element<'_, Message> =
-            pin(float(crest).translate(move |_, _| Vector::new(0.0, (1.0 - early) * CREST_RISE))).x(CREST_HOME.0).y(CREST_HOME.1).into();
+        let crest: Element<'_, Message> = pin(crest).x(CREST_HOME.0).y(CREST_HOME.1 + (1.0 - early) * CREST_RISE).into();
         let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
         let showing = self.overlay != Overlay::None || self.overlay_fade.is_animating(self.now);
         let late = ((k - 0.7) / 0.3).clamp(0.0, 1.0);

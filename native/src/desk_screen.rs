@@ -242,7 +242,7 @@ pub struct Tournament {
     pub stage: Option<String>,
 }
 
-const RESERVE: [&str; 11] = ["NM5", "HD1", "HD3", "HR1", "HR3", "DT3", "DT4", "FM1", "FM2", "FM3", "FM4"];
+const RESERVE: [&str; 12] = ["NM5", "NM6", "HD1", "HD3", "HR1", "HR3", "DT3", "DT4", "FM1", "FM2", "FM3", "FM4"];
 
 impl State {
     pub fn reserve(&self) -> Vec<String> {
@@ -1623,9 +1623,11 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
         slots = slots.push(line(slot));
     }
     let mut spare: Vec<String> = report.pointer("/test/per_slot").and_then(serde_json::Value::as_object)
-        .map(|found| found.iter().filter(|(slot, held)| !desk::SLOTS.contains(&slot.as_str()) && slot.as_str() != desk::OTHER && held.get("support").and_then(serde_json::Value::as_u64).unwrap_or_default() > 0).map(|(slot, _)| slot.clone()).collect())
+        .map(|found| found.keys().filter(|slot| !desk::SLOTS.contains(&slot.as_str()) && slot.as_str() != desk::OTHER).cloned().collect())
         .unwrap_or_default();
+    spare.extend(state.reserve());
     spare.sort_by_key(|slot| (owc_order(slot), slot.clone()));
+    spare.dedup();
     if !spare.is_empty() {
         slots = slots.push(container(words(w.t("desk-reserve"), 13.0 * k, FAINT)).padding(Padding { top: 12.0 * k, ..Padding::ZERO }));
         for slot in &spare {

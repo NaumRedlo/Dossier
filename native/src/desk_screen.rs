@@ -918,7 +918,7 @@ fn queue_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a, 
         list = list.push(tile(fill, on.then_some((PICKED, 1.5)), inside.into(), Some(Message::Pick(task.map.beatmap_id))));
     }
     if state.tasks().is_empty() {
-        list = list.push(words(w.t("desk-queue-empty"), 14.0, FAINT));
+        list = list.push(words(w.t(if state.loading { "desk-loading" } else { "desk-queue-empty" }), 14.0, FAINT));
     }
     let aside = container(column![chips.wrap().vertical_spacing(6), scrollable(list).direction(ui::hidden_bar()).height(Length::Fill)].spacing(10)).padding(14).width(330.0 * k).height(Length::Fill).style(theme::slab);
     let detail: Element<'a, Message> = match state.task() {
@@ -1116,7 +1116,7 @@ fn label_view<'a>(w: &Words, state: &'a State) -> Element<'a, Message> {
     let tournaments = state.tournaments();
     let at = state.tournament.unwrap_or(0);
     let Some(tournament) = tournaments.get(at) else {
-        return row![panel(words(w.t("desk-label-empty"), 15.0, FAINT)), container(line_button(w.t("desk-add-tournament"), Some(Message::Adding(true)))).width(260)].spacing(14).into();
+        return row![panel(words(w.t(if state.loading { "desk-loading" } else { "desk-label-empty" }), 15.0, FAINT)), container(line_button(w.t("desk-add-tournament"), Some(Message::Adding(true)))).width(260)].spacing(14).into();
     };
     let held = state.held_by(tournament);
     let done = held.iter().filter(|(_, map)| map.verified || state.skipped.contains(&map.beatmap_id)).count();
@@ -1331,7 +1331,7 @@ fn owc_cell<'a>(at: usize, cell: &Cell, chosen: bool) -> Element<'a, Message> {
     let fill = if checked { CHECKED } else { ROW };
     let frame = if chosen { Some((INK, 2.0)) } else if moved { Some((UNSURE, 1.5)) } else { None };
     let spare = label != desk::EXCLUDED && label != desk::OTHER && !desk::SLOTS.contains(&label.as_str());
-    let made = container(strong(shown, 14.0, if spare { FAINT } else if checked { INK } else { MUTED })).center_x(OWC_CELL_WIDTH).center_y(OWC_CELL_HEIGHT).style(move |_| container::Style {
+    let made = container(strong(shown, 14.0, if spare && checked { MUTED } else if spare { FAINT } else if checked { INK } else { MUTED })).center_x(OWC_CELL_WIDTH).center_y(OWC_CELL_HEIGHT).style(move |_| container::Style {
         background: Some(Background::Color(fill)),
         border: frame.map_or(Border { radius: 7.0.into(), ..Border::default() }, |(colour, width)| Border { color: colour, width, radius: 7.0.into() }),
         ..container::Style::default()
@@ -1539,7 +1539,7 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
         list = list.push(tile(fill, on.then_some((PICKED, 1.5)), container(inside).padding([2.0 * k, 4.0 * k]).into(), Some(Message::Version(version.version.clone()))));
     }
     if state.desk.versions.is_empty() {
-        list = list.push(words(w.t("desk-no-versions"), 14.0 * k, FAINT));
+        list = list.push(words(w.t(if state.loading { "desk-loading" } else { "desk-no-versions" }), 14.0 * k, FAINT));
     }
     let may = desk::allows(roles, desk::PUBLISHER) && !state.posting;
     let published = state.desk.versions.iter().any(|version| version.state == "published");
@@ -1643,7 +1643,7 @@ fn duels_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Message>
         list = list.push(tile(fill, on.then_some((PICKED, 1.5)), inside.into(), Some(Message::Stuck(duel.id.clone()))));
     }
     if state.desk.stuck.is_empty() {
-        list = list.push(words(w.t("desk-stuck-none"), 14.0, FAINT));
+        list = list.push(words(w.t(if state.loading { "desk-loading" } else { "desk-stuck-none" }), 14.0, FAINT));
     }
     let aside = container(scrollable(list).direction(ui::hidden_bar())).padding(18).width(400).height(Length::Fill).style(theme::slab);
     let Some(duel) = state.stuck_shown() else { return row![aside, panel(Space::new().into())].spacing(14).height(Length::Fill).into() };
@@ -1741,7 +1741,7 @@ fn journal_view<'a>(w: &Words, state: &'a State, now: i64) -> Element<'a, Messag
         log = log.push(container(line).padding([10, 0]));
     }
     if state.desk.journal.is_empty() {
-        log = log.push(words(w.t("desk-journal-empty"), 14.0, FAINT));
+        log = log.push(words(w.t(if state.loading { "desk-loading" } else { "desk-journal-empty" }), 14.0, FAINT));
     }
     let aside = container(column![heading(w.t("desk-people")), people_list(w, state, false, 1.0), Space::new().height(Length::Fill), main_button(w.t("desk-grant"), Some(Message::Tab(Tab::People)))].spacing(8)).padding(18).width(360).height(Length::Fill).style(theme::slab);
     row![panel(scrollable(log).direction(ui::hidden_bar()).into()), aside].spacing(14).height(Length::Fill).into()
@@ -1771,7 +1771,7 @@ fn people_view<'a>(w: &Words, state: &'a State, roles: &[String], k: f32) -> Ele
     .width(440.0 * k)
     .height(Length::Fill)
     .style(theme::slab);
-    let list: Element<'a, Message> = if state.desk.people.is_empty() { words(w.t("desk-people-none"), 15.0 * k, FAINT) } else { people_list(w, state, owner, k) };
+    let list: Element<'a, Message> = if state.desk.people.is_empty() { words(w.t(if state.loading { "desk-loading" } else { "desk-people-none" }), 15.0 * k, FAINT) } else { people_list(w, state, owner, k) };
     row![panel(column![strong(w.t("desk-people"), 20.0 * k, INK), scrollable(list).direction(ui::hidden_bar())].spacing(14.0 * k).into()), form].spacing(14).height(Length::Fill).into()
 }
 

@@ -1007,10 +1007,9 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32) -> Element<
     let top = row![column![card, facts, under].spacing(8), decision].spacing(22.0 * k);
     let mut why = column![].spacing(8);
     if let Some(guess) = &map.model {
-        for odds in &guess.top {
+        for odds in guess.top.iter().filter(|odds| odds.slot != desk::OTHER) {
             let chosen = Some(&odds.slot) == task.slot.as_ref() || (task.slot.is_none() && Some(&odds.slot) == guess.slot.as_ref());
-            let name: Element<'a, Message> = if odds.slot == desk::OTHER { tight(w.t("desk-other"), 13.0 * k, FAINT) } else { tag(&odds.slot, k) };
-            why = why.push(row![container(name).width(92.0 * k), bar(odds.probability, if chosen { ACCENT } else { MUTED }), container(strong(format!("{:.0}%", odds.probability * 100.0), 14.0 * k, INK)).width(44.0 * k).align_x(iced::alignment::Horizontal::Right)].spacing(10).align_y(Alignment::Center));
+            why = why.push(row![container(tag(&odds.slot, k)).width(56.0 * k), bar(odds.probability, if chosen { ACCENT } else { MUTED }), container(strong(format!("{:.0}%", odds.probability * 100.0), 14.0 * k, INK)).width(44.0 * k).align_x(iced::alignment::Horizontal::Right)].spacing(10).align_y(Alignment::Center));
         }
         let mut reasons = column![].spacing(5).padding(Padding { top: 6.0 * k, ..Padding::ZERO });
         for reason in guess.reasons.iter().take(3) {

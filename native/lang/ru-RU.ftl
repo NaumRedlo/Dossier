@@ -1528,7 +1528,6 @@ desk-which-then = Какой тогда это слот?
 desk-back = Назад
 desk-did-map-move = Перенёс в { $slot } { $title }
 desk-quarantine = В карантин
-desk-other = Вне слотов
 desk-level-above = выше обычного
 desk-level-below = ниже обычного
 desk-level-usual = как обычно

@@ -1512,6 +1512,7 @@ desk-filter-uncertain = Неуверенные
 desk-filter-feedback = Отзывы
 desk-filter-unassigned = Без слота
 desk-reason-uncertain-revealed = Неуверенная
+desk-reason-uncertain = Неуверенная
 desk-reason-feedback = Против отзывов
 desk-reason-feedback-exclusion = Исключена игроками
 desk-reason-unassigned = Без слота

@@ -107,6 +107,7 @@ pub struct Held {
     pub level: String,
     pub mapper: Option<String>,
     pub title: Option<String>,
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

@@ -1470,6 +1470,7 @@ desk-filter-uncertain = Uncertain
 desk-filter-feedback = Feedback
 desk-filter-unassigned = No slot
 desk-reason-uncertain-revealed = Uncertain
+desk-reason-uncertain = Unsure
 desk-reason-feedback = Against feedback
 desk-reason-feedback-exclusion = Excluded by players
 desk-reason-unassigned = No slot

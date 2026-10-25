@@ -707,6 +707,9 @@ fn stage_name(w: &Words, stage: &str) -> String {
 }
 
 fn feature(w: &Words, path: &str) -> String {
+    if let Some((mods, inner)) = path.split_once(':') {
+        return w.with("desk-feature-with", &[("feature", feature(w, inner)), ("mods", mods.trim_start_matches("NF").to_owned())]);
+    }
     let key = format!("desk-feature-{}", path.replace(['.', '_'], "-"));
     let said = w.t(&key);
     if said == key { path.to_owned() } else { said }

@@ -1487,6 +1487,7 @@ desk-which-then = Which slot is it then?
 desk-back = Back
 desk-did-map-move = Moved to { $slot } { $title }
 desk-quarantine = Quarantine
+desk-feature-with = { $feature } with { $mods }
 desk-level-above = above usual
 desk-level-below = below usual
 desk-level-usual = as usual

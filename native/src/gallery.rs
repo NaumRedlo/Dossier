@@ -1412,11 +1412,12 @@ fn staged_desk() -> crate::desk_screen::State {
     let stamp = |ago: i64| chrono::DateTime::from_timestamp(NOON - ago, 0).map(|at| at.to_rfc3339());
     let map = |id: i64, set: i64, title: &str, version: &str, mapper: &str, stars: f32| Map {
         beatmap_id: id, beatmapset_id: Some(set), title: Some(title.into()), artist: Some("Artist".into()), version: Some(version.into()), mapper: Some(mapper.into()), stars: Some(stars), model: None,
+        settings: [("cs".to_owned(), 4.2), ("ar".to_owned(), 9.3), ("od".to_owned(), 8.8), ("hp".to_owned(), 5.5)].into_iter().collect(), length: Some(216.0),
     };
     let guess = Guess {
         slot: Some("NM3".into()), probability: 0.64, margin: 0.43,
         top: vec![Odds { slot: "NM3".into(), probability: 0.64 }, Odds { slot: "NM2".into(), probability: 0.21 }, Odds { slot: "NM4".into(), probability: 0.09 }, Odds { slot: "OTHER".into(), probability: 0.06 }],
-        reasons: vec![Reason { feature: "streams.lengths.3-5".into(), weight: 1.2 }, Reason { feature: "angle_deg.p90".into(), weight: 0.8 }, Reason { feature: "streams.lengths.16-31".into(), weight: -0.6 }],
+        reasons: vec![Reason { feature: "streams.lengths.3-5".into(), weight: 1.2, level: 1.4 }, Reason { feature: "angle_deg.p90".into(), weight: 0.8, level: 0.9 }, Reason { feature: "streams.lengths.16-31".into(), weight: -0.6, level: 0.2 }],
         outside: false, version: "kamerton-3".into(),
     };
     let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };

@@ -27,6 +27,7 @@ pub struct Odds {
 pub struct Reason {
     pub feature: String,
     pub weight: f32,
+    pub level: f32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -52,6 +53,8 @@ pub struct Map {
     pub version: Option<String>,
     pub stars: Option<f32>,
     pub model: Option<Guess>,
+    pub settings: std::collections::BTreeMap<String, f32>,
+    pub length: Option<f32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

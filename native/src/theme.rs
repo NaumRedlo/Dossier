@@ -1,3 +1,5 @@
+pub mod workspace;
+
 use iced::widget::{button, container, text_input, toggler};
 use iced::{color, font, Background, Border, Color, Font, Shadow, Theme};
 

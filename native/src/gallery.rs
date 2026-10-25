@@ -1490,7 +1490,8 @@ fn staged_desk() -> crate::desk_screen::State {
         report: serde_json::json!({ "verified": 41, "maps": 572, "test": { "macro_f1": f1, "confident": { "precision": 0.75 }, "per_slot": {
             "NM1": { "precision": 0.62, "recall": 0.71 }, "NM2": { "precision": 0.75, "recall": 0.43 }, "NM3": { "precision": 0.25, "recall": 0.14 },
             "NM4": { "precision": 0.75, "recall": 0.43 }, "HD2": { "precision": 0.57, "recall": 0.57 }, "HR2": { "precision": 0.67, "recall": 0.57 },
-            "DT1": { "precision": 1.0, "recall": 0.43 }, "DT2": { "precision": 0.75, "recall": 0.43 }, "TB": { "precision": 0.86, "recall": 1.0 } } },
+            "DT1": { "precision": 1.0, "recall": 0.43 }, "DT2": { "precision": 0.75, "recall": 0.43 }, "TB": { "precision": 0.86, "recall": 1.0 },
+            "NM5": { "precision": 0.4, "recall": 0.33, "support": 6 }, "FM1": { "precision": 0.5, "recall": 0.29, "support": 7 }, "FM4": { "precision": 0.0, "recall": 0.0, "support": 2 } } },
             "years": { "2021": { "macro_f1": f1 - 0.04 }, "2022": { "macro_f1": f1 + 0.03 }, "2023": { "macro_f1": f1 - 0.07 }, "2024": { "macro_f1": f1 + 0.05 }, "2025": { "macro_f1": f1 + 0.01 }, "queue": { "macro_f1": f1 + 0.12 } } }),
         created_at: stamp(ago), published_at: None,
     };

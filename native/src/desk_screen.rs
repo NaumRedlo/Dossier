@@ -697,7 +697,9 @@ pub fn short_version(version: &str) -> String {
 }
 
 fn skill(w: &Words, slot: &str) -> String {
-    w.t(&format!("desk-skill-{}", slot.to_lowercase()))
+    let key = format!("desk-skill-{}", slot.to_lowercase());
+    let said = w.t(&key);
+    if said == format!("[{key}]") { String::new() } else { said }
 }
 
 fn stage_name(w: &Words, stage: &str) -> String {
@@ -712,7 +714,7 @@ fn feature(w: &Words, path: &str) -> String {
     }
     let key = format!("desk-feature-{}", path.replace(['.', '_'], "-"));
     let said = w.t(&key);
-    if said == key { path.to_owned() } else { said }
+    if said == format!("[{key}]") { path.to_owned() } else { said }
 }
 
 fn ago(w: &Words, stamp: Option<&str>, now: i64) -> String {
@@ -1389,7 +1391,8 @@ fn owc_aside<'a>(w: &Words, state: &'a State, stacked: bool, k: f32) -> Element<
         let mut chips = row![].spacing(6).align_y(Alignment::Center);
         for slot in spare {
             let on = current == slot;
-            chips = chips.push(button(container(tag(&slot, k)).center_y(38.0 * k)).padding([0, 10]).style(quiet(on, 9.0)).on_press(Message::Label(slot)));
+            let name = skill(w, &slot);
+            chips = chips.push(chip_with(tag(&slot, k), name, on, Message::Label(slot), k));
         }
         column![words(w.t("desk-reserve"), 13.0 * k, FAINT), chips.wrap().vertical_spacing(6)].spacing(8).into()
     };
@@ -1610,11 +1613,24 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
     .spacing(10);
     let cell = |said: String, colour: Color| -> Element<'a, Message> { container(tight(said, 16.0 * k, colour)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right).into() };
     let mut slots = column![row![Space::new().width(Length::Fill), container(tight(w.t("desk-precision"), 13.0 * k, FAINT)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right), container(tight(w.t("desk-recall"), 13.0 * k, FAINT)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right)]].spacing(4);
-    for slot in desk::SLOTS {
+    let line = |slot: &str| -> Element<'a, Message> {
         let held = report.pointer(&format!("/test/per_slot/{slot}"));
         let (precision, pc) = percent(held.and_then(|held| held.get("precision")).and_then(serde_json::Value::as_f64));
         let (recall, rc) = percent(held.and_then(|held| held.get("recall")).and_then(serde_json::Value::as_f64));
-        slots = slots.push(row![row![tag(slot, k), tight(skill(w, slot), 14.0 * k, MUTED)].spacing(10).align_y(Alignment::Center).width(Length::Fill), cell(precision, pc), cell(recall, rc)].height(36.0 * k).align_y(Alignment::Center));
+        row![row![tag(slot, k), tight(skill(w, slot), 14.0 * k, MUTED)].spacing(10).align_y(Alignment::Center).width(Length::Fill), cell(precision, pc), cell(recall, rc)].height(36.0 * k).align_y(Alignment::Center).into()
+    };
+    for slot in desk::SLOTS {
+        slots = slots.push(line(slot));
+    }
+    let mut spare: Vec<String> = report.pointer("/test/per_slot").and_then(serde_json::Value::as_object)
+        .map(|found| found.iter().filter(|(slot, held)| !desk::SLOTS.contains(&slot.as_str()) && slot.as_str() != desk::OTHER && held.get("support").and_then(serde_json::Value::as_u64).unwrap_or_default() > 0).map(|(slot, _)| slot.clone()).collect())
+        .unwrap_or_default();
+    spare.sort_by_key(|slot| (owc_order(slot), slot.clone()));
+    if !spare.is_empty() {
+        slots = slots.push(container(words(w.t("desk-reserve"), 13.0 * k, FAINT)).padding(Padding { top: 12.0 * k, ..Padding::ZERO }));
+        for slot in &spare {
+            slots = slots.push(line(slot));
+        }
     }
     let mut years = column![].spacing(10);
     if let Some(found) = report.get("years").and_then(serde_json::Value::as_object) {
@@ -1859,6 +1875,14 @@ mod tests {
         assert!(state.training.is_some());
         let _ = state.update(Message::Posted(Err("NOTHING_NEW".into())), &w);
         assert!(state.training.is_none() && state.nothing_new && state.failed.is_none());
+    }
+
+    #[test]
+    fn a_slot_without_a_name_shows_only_its_tag() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        assert_eq!(skill(&w, "NM5"), "Speed");
+        assert_eq!(skill(&w, "FM4"), "");
+        assert_eq!(feature(&w, "no.such_path"), "no.such_path");
     }
 
     #[test]

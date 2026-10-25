@@ -205,6 +205,7 @@ pub struct State {
     pub covers: HashMap<i64, image::Handle>,
     pub asked: HashSet<i64>,
     pub hearing: Option<i64>,
+    pub silent: Option<i64>,
     pub year: Option<i32>,
     pub cell: Option<usize>,
     pub label: Option<String>,
@@ -480,6 +481,7 @@ impl State {
                 Vec::new()
             }
             Message::Hear(beatmap) => {
+                self.silent = None;
                 self.hearing = if self.hearing == Some(beatmap) { None } else { Some(beatmap) };
                 vec![Effect::Hear(self.hearing)]
             }
@@ -761,9 +763,11 @@ fn link_button<'a>(beatmap: i64, side: f32) -> Element<'a, Message> {
         .into()
 }
 
-fn listen_button<'a>(w: &Words, beatmap: i64, on: bool, high: f32) -> Element<'a, Message> {
+fn listen_button<'a>(w: &Words, state: &State, beatmap: i64, high: f32) -> Element<'a, Message> {
+    let on = state.hearing == Some(beatmap);
+    let said = if state.silent == Some(beatmap) { w.t("desk-no-preview") } else { w.t("desk-listen") };
     let k = (high / 38.0).max(32.0 / 38.0);
-    let inside = row![glyph(Icon::Volume, 16.0 * k, INK), tight(w.t("desk-listen"), theme::BODY * k, INK)].spacing(8).align_y(Alignment::Center);
+    let inside = row![glyph(Icon::Volume, 16.0 * k, INK), tight(said, theme::BODY * k, INK)].spacing(8).align_y(Alignment::Center);
     button(container(inside).center_x(Length::Fill).center_y(high))
         .width(Length::Fill)
         .padding([0, 12])
@@ -980,7 +984,7 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32) -> Element<
             (w.t("desk-ask-unassigned"), w.t("desk-which-slot"), answers.into())
         }
     };
-    let under = row![listen_button(w, map.beatmap_id, state.hearing == Some(map.beatmap_id), 38.0 * k), link_button(map.beatmap_id, 38.0 * k)].spacing(8).width(280.0 * k);
+    let under = row![listen_button(w, state, map.beatmap_id, 38.0 * k), link_button(map.beatmap_id, 38.0 * k)].spacing(8).width(280.0 * k);
     let mut facts = row![].spacing(6).width(280.0 * k);
     for (key, name) in [("cs", "CS"), ("ar", "AR"), ("od", "OD"), ("hp", "HP")] {
         if let Some(value) = map.settings.get(key) {
@@ -1118,7 +1122,7 @@ fn label_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
             let version = pick(&map.version, about.map(|found| &found.version));
             let artist = pick(&map.artist, about.map(|found| &found.artist));
             let mapper = pick(&map.mapper, about.map(|found| &found.mapper));
-            let listen = row![container(listen_button(w, map.beatmap_id, state.hearing == Some(map.beatmap_id), theme::CONTROL_HEIGHT)).width(Length::Shrink), link_button(map.beatmap_id, theme::CONTROL_HEIGHT)].spacing(8);
+            let listen = row![container(listen_button(w, state, map.beatmap_id, theme::CONTROL_HEIGHT)).width(Length::Shrink), link_button(map.beatmap_id, theme::CONTROL_HEIGHT)].spacing(8);
             let mut facts = row![].spacing(10).align_y(Alignment::Center);
             if let Some(found) = about {
                 facts = facts.push(stars_of(found.stars, 13.0 * k));
@@ -1469,7 +1473,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
                         column![titled_map(map.title.as_deref(), map.beatmap_id, 14.0 * k), one_line(map.version.clone().unwrap_or_default(), 12.0 * k, MUTED, theme::SANS), strong(w.t(&format!("desk-level-{}", map.level)), 12.0 * k, colour)].spacing(2).width(Length::Fill)
                     ].spacing(10).align_y(Alignment::Center),
                     row![stars_of(Some(map.stars), 12.0 * k), Space::new().width(Length::Fill),
-                        container(listen_button(w, map.beatmap_id, state.hearing == Some(map.beatmap_id), 32.0 * k)).width(130.0 * k),
+                        container(listen_button(w, state, map.beatmap_id, 32.0 * k)).width(130.0 * k),
                         link_button(map.beatmap_id, 32.0 * k)
                     ].spacing(8).align_y(Alignment::Center)
                 ].spacing(8));

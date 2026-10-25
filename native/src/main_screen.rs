@@ -3341,7 +3341,7 @@ impl Main {
                             if !self.duel_preview.as_ref().is_some_and(|preview| preview.ended()) {
                                 return Task::none();
                             }
-                            self.duel_preview = None;
+                            self.desk.silent = self.duel_preview.take().filter(|preview| preview.silent()).map(|preview| preview.beatmap_id);
                         }
                         let effects = self.desk.update(inner, &self.words);
                         return self.desk_work(effects);

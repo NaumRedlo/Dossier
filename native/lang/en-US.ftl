@@ -1565,6 +1565,7 @@ desk-owc-year = OWC { $year }
 desk-add-tournament = Add your own tournament
 desk-label-empty = No tournaments to label yet
 desk-listen = Listen
+desk-no-preview = No preview
 desk-fits-none = Fits none of them
 desk-skip = Skip
 desk-label-done = Every map of the tournament is labelled

@@ -18,6 +18,10 @@ pub fn address(beatmap_id: i64) -> String {
     format!("https://catboy.best/preview/audio/{beatmap_id}")
 }
 
+pub fn addresses(beatmap_id: i64) -> [String; 2] {
+    [address(beatmap_id), format!("https://osu.direct/api/media/preview/{beatmap_id}")]
+}
+
 fn cached(beatmap_id: i64) -> PathBuf {
     crate::sources::own_root().join("cache").join("previews").join(format!("{beatmap_id}.audio"))
 }
@@ -28,15 +32,15 @@ fn fetched(beatmap_id: i64) -> Option<PathBuf> {
         return Some(path);
     }
     let client = crate::bot::client().ok()?;
-    let response = client.get(address(beatmap_id)).header("User-Agent", "Dossier").send().ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    let mut body = Vec::new();
-    response.take(PREVIEW_MOST as u64 + 1).read_to_end(&mut body).ok()?;
-    if body.is_empty() || body.len() > PREVIEW_MOST {
-        return None;
-    }
+    let body = addresses(beatmap_id).into_iter().find_map(|at| {
+        let response = client.get(at).header("User-Agent", "Dossier").send().ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        let mut body = Vec::new();
+        response.take(PREVIEW_MOST as u64 + 1).read_to_end(&mut body).ok()?;
+        (!body.is_empty() && body.len() <= PREVIEW_MOST && !body.starts_with(b"{")).then_some(body)
+    })?;
     std::fs::create_dir_all(path.parent()?).ok()?;
     let part = path.with_extension("part");
     std::fs::write(&part, &body).ok()?;
@@ -107,6 +111,7 @@ pub fn fetch_sets(sets: &[i64]) -> Result<usize, String> {
 pub struct Preview {
     stop: Arc<AtomicBool>,
     ended: Arc<AtomicBool>,
+    sounded: Arc<AtomicBool>,
     pub beatmap_id: i64,
 }
 
@@ -114,21 +119,27 @@ impl Preview {
     pub fn start(beatmap_id: i64) -> Preview {
         let stop = Arc::new(AtomicBool::new(false));
         let ended = Arc::new(AtomicBool::new(false));
+        let sounded = Arc::new(AtomicBool::new(false));
         let quit = stop.clone();
         let over = ended.clone();
+        let heard = sounded.clone();
         thread::spawn(move || {
-            let played = Self::play(beatmap_id, &quit);
+            let played = Self::play(beatmap_id, &quit, &heard);
             over.store(true, Ordering::Relaxed);
             played
         });
-        Preview { stop, ended, beatmap_id }
+        Preview { stop, ended, sounded, beatmap_id }
+    }
+
+    pub fn silent(&self) -> bool {
+        self.ended() && !self.sounded.load(Ordering::Relaxed) && !self.stop.load(Ordering::Relaxed)
     }
 
     pub fn ended(&self) -> bool {
         self.ended.load(Ordering::Relaxed)
     }
 
-    fn play(beatmap_id: i64, quit: &Arc<AtomicBool>) -> Option<()> {
+    fn play(beatmap_id: i64, quit: &Arc<AtomicBool>, heard: &Arc<AtomicBool>) -> Option<()> {
         {
             let path = fetched(beatmap_id)?;
             if quit.load(Ordering::Relaxed) {
@@ -178,6 +189,7 @@ impl Preview {
                 )
                 .ok()?;
             stream.play().ok()?;
+            heard.store(true, Ordering::Relaxed);
             while *at.lock().unwrap_or_else(std::sync::PoisonError::into_inner) < total {
                 thread::sleep(Duration::from_millis(30));
             }
@@ -205,6 +217,7 @@ mod tests {
     fn previews_come_from_the_mirror_and_never_from_osu() {
         let at = super::address(5379506);
         assert!(at.starts_with("https://catboy.best/") && !at.contains("ppy.sh"));
+        assert!(super::addresses(5379506).iter().all(|at| !at.contains("ppy.sh")));
         assert!(super::archive_addresses(1).iter().all(|address| !address.contains("ppy.sh") && (address.contains("noVideo") || address.ends_with("1n") || address.contains("nekoha"))));
     }
 }

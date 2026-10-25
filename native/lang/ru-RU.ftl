@@ -1607,6 +1607,7 @@ desk-owc-year = OWC { $year }
 desk-add-tournament = Добавить свой турнир
 desk-label-empty = Турниров для разметки пока нет
 desk-listen = Слушать
+desk-no-preview = Нет записи
 desk-fits-none = Не подходит ни к одному
 desk-skip = Пропустить
 desk-label-done = Все карты турнира размечены

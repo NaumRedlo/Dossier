@@ -1568,6 +1568,7 @@ desk-skill-dt4 = DT Tech / Gimmick
 desk-skill-fm1 = Freemod Aim
 desk-skill-fm2 = Antimod / Reading
 desk-skill-fm3 = Freemod Tech
+desk-skill-fm4 = Rhythm Shift
 desk-stage-grand-finals = Гранд-финал
 desk-stage-finals = Финал
 desk-stage-semifinals = Полуфинал

@@ -1881,7 +1881,8 @@ mod tests {
     fn a_slot_without_a_name_shows_only_its_tag() {
         let w = Words::new(crate::lang::Lang::Ru);
         assert_eq!(skill(&w, "NM5"), "Speed");
-        assert_eq!(skill(&w, "FM4"), "");
+        assert_eq!(skill(&w, "FM4"), "Rhythm Shift");
+        assert_eq!(skill(&w, "EZ1"), "");
         assert_eq!(feature(&w, "no.such_path"), "no.such_path");
     }
 

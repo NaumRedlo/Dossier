@@ -317,16 +317,31 @@ pub fn read(account: &Account, duel: &str) -> Result<Duel, Failure> {
     call(account, reqwest::Method::GET, &format!("/render/duels/{duel}"), None, None)
 }
 
-pub fn mine(account: &Account) -> Result<Vec<Duel>, Failure> {
-    #[derive(Deserialize)]
-    struct Listed {
-        #[serde(default)]
-        duels: Vec<Duel>,
-    }
-    call::<Listed>(account, reqwest::Method::GET, "/render/duels", None, None).map(|listed| listed.duels)
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Queue {
+    pub since: String,
+    pub status: String,
 }
 
-pub fn queue(account: &Account, enter: bool, operation: &str) -> Result<Value, Failure> {
+impl Queue {
+    pub fn since_unix(&self) -> Option<i64> {
+        (self.status == "waiting").then(|| chrono::DateTime::parse_from_rfc3339(&self.since).ok().map(|date| date.timestamp())).flatten()
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Mine {
+    #[serde(default)]
+    pub duels: Vec<Duel>,
+    #[serde(default)]
+    pub queue: Option<Queue>,
+}
+
+pub fn mine(account: &Account) -> Result<Mine, Failure> {
+    call(account, reqwest::Method::GET, "/render/duels", None, None)
+}
+
+pub fn queue(account: &Account, enter: bool, operation: &str) -> Result<Mine, Failure> {
     call(account, if enter { reqwest::Method::POST } else { reqwest::Method::DELETE }, "/render/duels/queue", None, Some(operation))
 }
 

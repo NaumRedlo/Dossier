@@ -79,6 +79,7 @@ pub fn since(at: Option<std::time::Instant>) -> f32 {
 
 #[derive(Debug, Clone)]
 pub struct Snapshot {
+    pub queue: Option<crate::duels::Queue>,
     pub me: Me,
     pub live: Live,
     pub mine: Vec<Duel>,
@@ -91,7 +92,7 @@ pub enum Message {
     Roles(Result<Vec<String>, String>),
     Search,
     Cancel,
-    Queued(bool, Result<(), String>),
+    Queued(Result<Option<crate::duels::Queue>, String>),
     Answer(String, u32, bool),
     Answered(Result<Duel, String>),
     Again,
@@ -262,8 +263,8 @@ impl State {
                 self.me = Some(snapshot.me);
                 self.live = snapshot.live;
                 self.mine = snapshot.mine;
-                if self.current().is_some() {
-                    self.searching = None;
+                if !self.acting {
+                    self.searching = snapshot.queue.as_ref().and_then(crate::duels::Queue::since_unix);
                 }
                 let mut effects = self.follow();
                 if !snapshot.notices.is_empty() {
@@ -286,14 +287,18 @@ impl State {
                 self.acting = true;
                 vec![Effect::Queue(false)]
             }
-            Message::Queued(entered, said) => {
+            Message::Queued(said) => {
                 self.acting = false;
                 match said {
-                    Ok(()) => {
-                        self.searching = entered.then_some(now);
+                    Ok(queue) => {
+                        self.searching = queue.as_ref().and_then(crate::duels::Queue::since_unix);
                         self.failed = None;
                     }
-                    Err(why) => self.failed = Some(why),
+                    Err(why) => {
+                        self.failed = Some(why);
+                        self.loading = true;
+                        return vec![Effect::Load];
+                    },
                 }
                 Vec::new()
             }
@@ -962,12 +967,32 @@ mod tests {
     }
 
     #[test]
+    fn server_queue_restores_search_after_an_offer_and_clears_it_after_cancellation() {
+        let queue = crate::duels::Queue { since: "1970-01-01T00:01:40Z".into(), status: "waiting".into() };
+        let snapshot = |queue| Snapshot { queue, me: Me::default(), live: Live::default(), mine: Vec::new(), notices: Vec::new() };
+        let mut state = State::default();
+        state.update(Message::Loaded(Ok(snapshot(Some(queue.clone())))), 130);
+        assert_eq!(state.searching, Some(100));
+        assert_eq!(state.stage(), Stage::Searching);
+        assert!(state.update(Message::Search, 130).is_empty());
+        state.update(Message::Loaded(Ok(snapshot(None))), 140);
+        assert_eq!(state.stage(), Stage::Idle);
+        assert_eq!(state.update(Message::Search, 140), vec![Effect::Queue(true)]);
+        state.update(Message::Loaded(Ok(snapshot(None))), 141);
+        state.update(Message::Queued(Ok(Some(queue))), 142);
+        assert_eq!(state.searching, Some(100), "retries retain the server's original queue time");
+        state.update(Message::Queued(Ok(None)), 150);
+        assert_eq!(state.stage(), Stage::Idle);
+        assert_eq!(state.update(Message::Queued(Err("busy".into())), 160), vec![Effect::Load]);
+    }
+
+    #[test]
     fn the_stage_follows_the_current_duel_and_the_queue() {
         let mut state = State { player: Some(1), ..State::default() };
         assert_eq!(state.stage(), Stage::Idle);
         assert_eq!(state.update(Message::Search, 100), vec![Effect::Queue(true)]);
         assert!(state.update(Message::Search, 100).is_empty());
-        state.update(Message::Queued(true, Ok(())), 100);
+        state.update(Message::Queued(Ok(Some(crate::duels::Queue { since: "1970-01-01T00:01:40Z".into(), status: "waiting".into() }))), 100);
         assert_eq!((state.stage(), state.searching), (Stage::Searching, Some(100)));
         state.mine = vec![duel("MATCH_OFFERED", &["accept", "decline"])];
         assert_eq!(state.stage(), Stage::Offer);
@@ -1010,7 +1035,7 @@ mod tests {
     fn a_running_duel_is_followed_linked_read_acknowledged_and_closed() {
         use crate::duels::{Entry, PoolView};
         let mut state = State { player: Some(1), ..State::default() };
-        let snapshot = |mine: Vec<Duel>, notices: Vec<crate::duels::Notice>| Snapshot { me: Me::default(), live: Live::default(), mine, notices };
+        let snapshot = |mine: Vec<Duel>, notices: Vec<crate::duels::Notice>| Snapshot { queue: None, me: Me::default(), live: Live::default(), mine, notices };
         let effects = state.update(Message::Loaded(Ok(snapshot(vec![duel("PREPARING", &[])], Vec::new()))), 0);
         assert_eq!(effects, vec![Effect::Link(true), Effect::Read("d".into())]);
         let mut full = duel("PREPARING", &["pool_ack"]);
@@ -1035,7 +1060,7 @@ mod tests {
         assert_eq!(state.update(Message::Challenge(3), 0), vec![Effect::Invite(3)]);
         state.acting = false;
         let notice = crate::duels::Notice { id: 9, duel: "d".into(), sequence: 1, payload: serde_json::json!({ "kind": "invitation", "by": 2 }) };
-        let effects = state.update(Message::Loaded(Ok(Snapshot { me: Me::default(), live: Live::default(), mine: vec![duel("INVITED", &["accept"])], notices: vec![notice] })), 0);
+        let effects = state.update(Message::Loaded(Ok(Snapshot { queue: None, me: Me::default(), live: Live::default(), mine: vec![duel("INVITED", &["accept"])], notices: vec![notice] })), 0);
         assert_eq!(effects.last(), Some(&Effect::Tell(vec![("duels-told-invitation", "ssnowy".into())], vec![9])));
     }
 

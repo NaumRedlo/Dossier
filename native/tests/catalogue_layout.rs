@@ -799,6 +799,8 @@ fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
         let table = ui.find(iced::widget::Id::new("desk-catalog-table")).unwrap().bounds();
         let area = ui.find(iced::widget::Id::new("desk-work-area")).unwrap().bounds();
         let work = ui.find(iced::widget::Id::new("desk-workspace")).unwrap().bounds();
+        let tabs = ui.find(iced::widget::Id::new("desk-tabs")).unwrap().bounds();
+        assert!((tabs.center_x() - work.center_x()).abs() < 1.0, "tabs must be centered: {tabs:?}, {work:?}");
         assert!((area.center_x() - work.center_x()).abs() < 1.0, "workspace must be centered: {area:?}, {work:?}");
         assert!(table.width <= 900.0, "table background stretched: {table:?}");
         if width == 1600.0 { assert!(table.height < 650.0, "table background stretched downward: {table:?}"); }
@@ -808,6 +810,11 @@ fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
         label.height = 1000.0;
         label.desk.desk.cells.retain(|cell| cell.corpus.starts_with("owc"));
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, label.height), gallery::main_frame(&label, &backdrop));
+        let area = ui.find(iced::widget::Id::new("desk-label-area")).unwrap().bounds();
+        let panel = ui.find(iced::widget::Id::new("desk-empty-batches")).unwrap().bounds();
+        assert!((area.center_x() - panel.center_x()).abs() < 1.0);
+        assert!((area.center_y() - panel.center_y()).abs() < 1.0);
+        assert!(panel.width >= 580.0 && panel.height >= 250.0, "empty panel should be roomy: {panel:?}");
         assert!(ui.find(label.words.t("desk-label-empty")).is_ok());
         assert!(ui.find(label.words.t("desk-add-tournament")).is_ok());
         assert!(ui.find("OWC 2025").is_err());

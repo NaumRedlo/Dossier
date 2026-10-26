@@ -1370,6 +1370,11 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main
         }),
         ("main-community-balance-label".to_owned(), tabbed(Tab::Label)),
+        ("main-community-balance-empty-batches".to_owned(), {
+            let mut main = tabbed(Tab::Label);
+            main.desk.desk.cells.retain(|cell| cell.corpus != "own-v1");
+            main
+        }),
         ("main-community-balance-relabel".to_owned(), {
             let mut main = tabbed(Tab::Label);
             let cell = main.desk.desk.cells.iter().find(|cell| cell.corpus == "own-v1" && cell.maps.iter().any(|map| map.verified)).unwrap().clone();

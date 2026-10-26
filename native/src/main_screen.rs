@@ -1909,14 +1909,14 @@ impl Main {
                     Task::batch([
                         ui::in_thread(move || D::Roles(crate::duels::roles(&permissions).map_err(|why| why.to_string()))).map(wrap),
                         ui::in_thread(move || {
-                            let found = (|| Ok::<Snapshot, crate::duels::Failure>(Snapshot { me: crate::duels::me(&account)?, live: crate::duels::live(&account)?, mine: crate::duels::mine(&account)?, notices: crate::duels::notices(&account).unwrap_or_default() }))();
+                            let found = (|| { let mine = crate::duels::mine(&account)?; Ok::<Snapshot, crate::duels::Failure>(Snapshot { queue: mine.queue, me: crate::duels::me(&account)?, live: crate::duels::live(&account)?, mine: mine.duels, notices: crate::duels::notices(&account).unwrap_or_default() }) })();
                             D::Loaded(found.map_err(|why| why.to_string()))
                         }).map(wrap),
                     ])
                 },
                 Effect::Queue(enter) => ui::in_thread(move || {
-                    let said = if offline { Err("offline".to_owned()) } else { crate::duels::queue(&account, enter, &crate::duels::key()).map(|_| ()).map_err(|why| why.to_string()) };
-                    D::Queued(enter, said)
+                    let said = if offline { Err("offline".to_owned()) } else { crate::duels::queue(&account, enter, &crate::duels::key()).map(|state| state.queue).map_err(|why| why.to_string()) };
+                    D::Queued(said)
                 }).map(wrap),
                 Effect::Answer(duel, version, accept) => ui::in_thread(move || {
                     let said = if offline { Err("offline".to_owned()) } else {

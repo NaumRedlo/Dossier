@@ -1057,7 +1057,7 @@ fn tabs<'a>(w: &Words, state: &State, roles: &[String], k: f32) -> Element<'a, M
         let made = button(container(inside).center_y(40.0 * k)).padding([0.0, 14.0 * k]).on_press(Message::Tab(tab)).style(workspace::choice(on));
         line = line.push(made);
     }
-    line.wrap().vertical_spacing(6).into()
+    container(container(line.wrap().vertical_spacing(6)).id(iced::widget::Id::new("desk-tabs"))).center_x(Length::Fill).into()
 }
 
 fn reason_colour(task: &Task) -> Color {
@@ -1332,9 +1332,14 @@ fn label_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
     let tournaments = state.tournaments();
     let at = state.tournament.unwrap_or(0);
     let Some(tournament) = tournaments.get(at) else {
-        return container(column![heading_k(k, w.t("desk-batches")), words(w.t(if state.loading { "desk-loading" } else { "desk-label-empty" }), 14.0 * k, MUTED),
-            container(line_button_k(w.t("desk-add-tournament"), Some(Message::Adding(true)), k)).width(220.0 * k)].spacing(16))
-            .padding(workspace::INSET).max_width(520.0).style(workspace::surface).into();
+        let content = column![strong(w.t("desk-batches"), 22.0 * k, INK),
+            container(words(w.t(if state.loading { "desk-loading" } else { "desk-label-empty" }), 16.0 * k, MUTED)).center_x(Length::Fill),
+            container(line_button_k(w.t("desk-add-tournament"), Some(Message::Adding(true)), k)).width(280.0 * k)]
+            .spacing(24).align_x(Alignment::Center);
+        let panel = container(content).padding(32).width(600.0 * k).center_y(260.0 * k)
+            .id(iced::widget::Id::new("desk-empty-batches")).style(workspace::surface);
+        return container(panel).center_x(Length::Fill).center_y(Length::Fill)
+            .id(iced::widget::Id::new("desk-label-area")).into();
     };
     let held = state.held_by(tournament);
     let done = held.iter().filter(|(_, map)| map.verified || state.skipped.contains(&map.beatmap_id)).count();
@@ -1348,6 +1353,7 @@ fn label_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
             let mapper = pick(&map.mapper, about.map(|found| &found.mapper));
             let listen = row![container(listen_button(w, state, map.beatmap_id, theme::CONTROL_HEIGHT)).width(Length::Shrink), link_button(map.beatmap_id, theme::CONTROL_HEIGHT)].spacing(8);
             let mut facts = row![].spacing(10).align_y(Alignment::Center);
+            if desk::SLOTS.contains(&map.label.as_str()) || RESERVE.contains(&map.label.as_str()) { facts = facts.push(tag(&map.label, k)); }
             if let Some(found) = about {
                 facts = facts.push(stars_of(found.stars, 13.0 * k));
                 if let Some(bpm) = found.bpm {
@@ -1411,10 +1417,10 @@ fn label_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
         for (cell, map) in held.iter().filter(|(_, map)| map.verified) {
             let title = map.title.clone().unwrap_or_else(|| map.beatmap_id.to_string());
             let on = state.revisiting.as_ref().is_some_and(|(target, id)| *id == map.beatmap_id && target.stage == cell.stage && target.slot == cell.slot);
-            let inside = row![one_line(title, 14.0 * k, INK, theme::SANS), strong(map.label.clone(), 14.0 * k, INK)].spacing(10).align_y(Alignment::Center);
+            let inside = row![one_line(title, 14.0 * k, INK, theme::SANS), tag(&map.label, k)].spacing(10).align_y(Alignment::Center);
             saved = saved.push(button(container(inside).padding(8).width(Length::Fill)).padding(0).style(quiet(on, theme::CONTROL_RADIUS)).on_press_maybe((!state.posting).then(|| Message::Revisit((*cell).clone(), map.beatmap_id))));
         }
-        aside = aside.push(scrollable(saved).height(Length::Fill).style(ui::thin_scroll));
+        aside = aside.push(scrollable(saved).direction(ui::hidden_bar()).height(Length::Fill));
     }
     let aside = container(aside).padding(18).width(260.0 * k).style(theme::slab);
     container(row![container(scrollable(main).direction(ui::hidden_bar())).width(Length::Fill).height(Length::Fill), aside].spacing(14).height(Length::Fill)).max_width(1180.0).height(Length::Fill).into()
@@ -1527,7 +1533,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
     ]
     .spacing(18);
     let table = container(column![heading_k(k, w.t("desk-catalog-title")), legend.wrap(),
-        container(scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::default(), horizontal: scrollable::Scrollbar::default() }).height(if stacked { Length::Fill } else { Length::Shrink })).max_height(540.0 * k)].spacing(12))
+        container(scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::hidden(), horizontal: scrollable::Scrollbar::default() }).height(if stacked { Length::Fill } else { Length::Shrink })).max_height(540.0 * k)].spacing(12))
         .padding(workspace::INSET).width(Length::Fill).max_width(850.0 * k).id(iced::widget::Id::new("desk-catalog-table")).height(if stacked { Length::Fill } else { Length::Shrink }).style(workspace::surface);
     let aside: Element<'a, Message> = match &state.band {
         Some((slot, band)) => {
@@ -1540,7 +1546,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
                     row![cover(state, map.beatmapset_id, 72.0 * k, 44.0 * k, 7.0),
                         column![titled_map(map.title.as_deref(), map.beatmap_id, 14.0 * k), one_line(map.version.clone().unwrap_or_default(), 12.0 * k, MUTED, theme::SANS), strong(w.t(&format!("desk-level-{}", map.level)), 12.0 * k, colour)].spacing(2).width(Length::Fill)
                     ].spacing(10).align_y(Alignment::Center),
-                    row![stars_of(Some(map.stars), 12.0 * k), Space::new().width(Length::Fill),
+                    row![tag(slot, k), stars_of(Some(map.stars), 12.0 * k), Space::new().width(Length::Fill),
                         container(listen_button(w, state, map.beatmap_id, 32.0 * k)).width(130.0 * k),
                         link_button(map.beatmap_id, 32.0 * k)
                     ].spacing(8).align_y(Alignment::Center),

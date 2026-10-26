@@ -1760,3 +1760,17 @@ fn a_closed_pool_panel_keeps_the_frames_coming_until_it_has_faded_and_then_it_is
     assert!(!main.pools_marks.animating(after + std::time::Duration::from_secs(4)), "and the frames stop");
     let _ = std::fs::remove_dir_all(&main.pools.dir);
 }
+
+#[test]
+fn duel_clock_updates_without_fetching_or_user_activity() {
+    use super::{unix_now, Message};
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+    main.now_unix = 1;
+    main.duels.searching = Some(unix_now() - 30);
+    assert!(main.duels.clock_running());
+    assert!(main.duels.update(crate::duels_screen::Message::Clock, unix_now()).is_empty());
+    let _ = main.update(Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Clock)));
+    assert!(main.now_unix >= main.duels.searching.unwrap() + 30);
+    main.duels.searching = None;
+    assert!(!main.duels.clock_running());
+}

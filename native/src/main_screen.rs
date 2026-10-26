@@ -1428,17 +1428,17 @@ impl Main {
         if crate::mapper_faces::waiting() && self.overlay == Overlay::Community {
             parts.push(iced::time::every(Duration::from_millis(300)).map(|_| Message::FacesArrived));
         }
-        if self.desk.training.is_some() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance {
-            parts.push(iced::time::every(Duration::from_secs(15)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Again))));
-        }
         if !self.gallery && !self.hidden && !self.minimized && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance && !self.duels.roles.is_empty() {
-            parts.push(iced::time::every(Duration::from_secs(5)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::PresenceTick))));
+            parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::PresenceTick))));
             if self.desk.posting || self.desk.loading || self.desk.inspecting.is_some() {
                 parts.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::BusyFrame))));
             }
         }
         if self.desk.hearing.is_some() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance {
             parts.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Heard))));
+        }
+        if !self.gallery && !self.hidden && !self.minimized && self.duels.clock_running() {
+            parts.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Clock))));
         }
         let moving = self.duels.lively() || self.duels.animating();
         if (self.duels.watching.is_some() || moving) && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels {
@@ -1837,6 +1837,13 @@ impl Main {
                     let roles = roles.clone();
                     ui::in_thread(move || K::Loaded(crate::desk::load(&account, &roles).map_err(|why| why.to_string()))).map(wrap)
                 }
+                Effect::Refresh(_) if offline => Task::none(),
+                Effect::Refresh(serial) => {
+                    let roles = roles.clone();
+                    ui::in_thread(move || K::Refreshed(serial, crate::desk::load(&account, &roles).map_err(|why| why.to_string()))).map(wrap)
+                }
+                Effect::RefreshMap(..) if offline => Task::none(),
+                Effect::RefreshMap(serial, beatmap) => ui::in_thread(move || K::RefreshedMap(serial, beatmap, crate::desk::inspect(&account, beatmap).map_err(|why| why.to_string()))).map(wrap),
                 Effect::Cover(_) if self.gallery => Task::none(),
                 Effect::Cover(set) => ui::in_thread(move || {
                     let url = format!("https://assets.ppy.sh/beatmaps/{set}/covers/cover@2x.jpg");
@@ -1848,7 +1855,7 @@ impl Main {
                     Task::none()
                 }
                 Effect::Cell(..) if offline => Task::none(),
-                Effect::Cell(slot, band) => ui::in_thread(move || K::Held(crate::desk::cell(&account, &slot, band).map_err(|why| why.to_string()))).map(wrap),
+                Effect::Cell(slot, band) => ui::in_thread(move || { let result = crate::desk::cell(&account, &slot, band).map_err(|why| why.to_string()); K::Held(slot, band, result) }).map(wrap),
                 Effect::Inspect(_) if offline => Task::none(),
                 Effect::Inspect(beatmap) => ui::in_thread(move || K::Inspected(beatmap, crate::desk::inspect(&account, beatmap).map_err(|why| why.to_string()))).map(wrap),
                 Effect::Open(url) => {
@@ -3345,7 +3352,8 @@ impl Main {
                             self.desk.hearing = None;
                             effects.extend(self.duels.update(crate::duels_screen::Message::PreviewEnded, unix_now()));
                         }
-                        effects.extend(self.duels.update(inner, unix_now()));
+                        self.now_unix = unix_now();
+                        effects.extend(self.duels.update(inner, self.now_unix));
                         return self.duels_work(effects);
                     }
                     C::Desk(inner) => {

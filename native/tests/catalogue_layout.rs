@@ -777,3 +777,39 @@ fn a_batch_in_flight_shows_progress_and_cannot_be_submitted_twice() {
     }
     assert!(!ui.into_messages().any(|message| matches!(message, dossier_native::Message::Main(dossier_native::main_screen::Message::Community(dossier_native::community_screen::Message::Desk(dossier_native::desk_screen::Message::AddTournament))))));
 }
+
+
+#[test]
+fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
+    let backdrop = dossier_native::ui::backdrop_handle();
+    for width in [980.0, 1600.0] {
+        let states = gallery::main_states(Lang::Ru);
+        let (_, mut batch) = states.iter().find(|(name, _)| name == "main-community-balance-tournament").unwrap().clone();
+        batch.width = width;
+        batch.height = 1000.0;
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, batch.height), gallery::main_frame(&batch, &backdrop));
+        let back = ui.find(iced::widget::Id::new("desk-batch-back")).unwrap().bounds();
+        assert!(back.width < 140.0 && back.height < 60.0, "back button stretched: {back:?}");
+        drop(ui);
+        let (_, mut catalog) = states.iter().find(|(name, _)| name == "main-community-balance-catalog").unwrap().clone();
+        catalog.width = width;
+        catalog.height = 1000.0;
+        catalog.desk.band = None;
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, catalog.height), gallery::main_frame(&catalog, &backdrop));
+        let table = ui.find(iced::widget::Id::new("desk-catalog-table")).unwrap().bounds();
+        let area = ui.find(iced::widget::Id::new("desk-work-area")).unwrap().bounds();
+        let work = ui.find(iced::widget::Id::new("desk-workspace")).unwrap().bounds();
+        assert!((area.center_x() - work.center_x()).abs() < 1.0, "workspace must be centered: {area:?}, {work:?}");
+        assert!(table.width <= 900.0, "table background stretched: {table:?}");
+        if width == 1600.0 { assert!(table.height < 650.0, "table background stretched downward: {table:?}"); }
+        drop(ui);
+        let (_, mut label) = states.iter().find(|(name, _)| name == "main-community-balance-label").unwrap().clone();
+        label.width = width;
+        label.height = 1000.0;
+        label.desk.desk.cells.retain(|cell| cell.corpus.starts_with("owc"));
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, label.height), gallery::main_frame(&label, &backdrop));
+        assert!(ui.find(label.words.t("desk-label-empty")).is_ok());
+        assert!(ui.find(label.words.t("desk-add-tournament")).is_ok());
+        assert!(ui.find("OWC 2025").is_err());
+    }
+}

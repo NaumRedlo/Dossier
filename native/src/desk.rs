@@ -25,11 +25,15 @@ pub struct Presence {
     pub mine: bool,
 }
 
-pub fn presence(account: &Account, section: Option<&str>, beatmap: Option<i64>) -> Result<Vec<Presence>, Failure> {
-    #[derive(Deserialize)]
-    struct Reply { people: Vec<Presence> }
-    let found: Reply = call(account, reqwest::Method::POST, "/render/admin/duels/presence", Some(json!({"section": section, "beatmap": beatmap})), None)?;
-    Ok(found.people)
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct PresenceUpdate {
+    pub people: Vec<Presence>,
+    pub revision: Option<String>,
+}
+
+pub fn presence(account: &Account, section: Option<&str>, beatmap: Option<i64>) -> Result<PresenceUpdate, Failure> {
+    call(account, reqwest::Method::POST, "/render/admin/duels/presence", Some(json!({"section": section, "beatmap": beatmap})), None)
 }
 
 pub fn inspect(account: &Account, beatmap: i64) -> Result<Task, Failure> {

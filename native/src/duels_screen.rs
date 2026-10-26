@@ -113,6 +113,7 @@ pub enum Message {
     Challenge(i64),
     Unwatch,
     Frame,
+    Clock,
     Profile(i64),
     Tempo(i64, Option<f32>),
     PreviewEnded,
@@ -245,6 +246,7 @@ impl State {
 
     fn step(&mut self, message: Message, now: i64) -> Vec<Effect> {
         match message {
+            Message::Clock => Vec::new(),
             Message::Roles(Ok(roles)) => {
                 self.roles = roles;
                 self.roles_failed = None;
@@ -633,6 +635,10 @@ impl State {
 
     pub fn lively(&self) -> bool {
         self.hovered.is_some() || self.hearing.is_some()
+    }
+
+    pub fn clock_running(&self) -> bool {
+        self.searching.is_some() || self.shown().or_else(|| self.current()).is_some_and(|duel| phase_of(&duel.state) != Phase::Result && !duel.deadlines.is_empty())
     }
 
     pub fn polling(&self) -> bool {
@@ -1037,6 +1043,13 @@ mod tests {
     fn clocks_counts_and_sides_read_right() {
         let at = chrono::DateTime::parse_from_rfc3339("2026-10-23T12:00:00Z").unwrap().timestamp();
         assert_eq!(seconds_left(&duel("MATCH_OFFERED", &[]), at), Some(30));
+        assert_eq!(seconds_left(&duel("MATCH_OFFERED", &[]), at + 5), Some(25));
+        assert_eq!(seconds_left(&duel("MATCH_OFFERED", &[]), at + 40), Some(0));
+        let mut state = State { mine: vec![duel("MATCH_OFFERED", &["accept"])], ..Default::default() };
+        assert!(state.clock_running());
+        assert!(state.update(Message::Clock, at + 5).is_empty());
+        state.mine[0].state = "EXPIRED".into();
+        assert!(!state.clock_running());
         assert_eq!(clock(107), "1:47");
         assert_eq!((side_colour(Some("A")), side_colour(Some("B"))), (SIDE_A, SIDE_B));
     }

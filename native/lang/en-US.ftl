@@ -1589,7 +1589,7 @@ desk-feature-tap-windows-10s-p90 = Long tapping sections
 desk-feature-tap-windows-30s-loaded-share = Tapping stamina
 desk-owc-year = OWC { $year }
 desk-add-tournament = Add a map batch
-desk-label-empty = No tournaments to label yet
+desk-label-empty = Add a map batch to start labelling
 desk-listen = Listen
 desk-no-preview = No preview
 desk-fits-none = Fits none of them
@@ -1742,3 +1742,6 @@ desk-search = Search
 
 desk-batch-added = Batch added. Ready to label.
 desk-batch-unsupported = The server did not accept the entire batch. Update and restart the bot; your input has been kept.
+
+desk-refresh-failed = Could not refresh data. Retrying…
+desk-batches = Map batches

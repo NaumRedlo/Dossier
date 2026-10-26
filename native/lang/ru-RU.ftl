@@ -1631,7 +1631,7 @@ desk-feature-tap-windows-10s-p90 = Долгие отрезки на тап
 desk-feature-tap-windows-30s-loaded-share = Выносливость на тап
 desk-owc-year = OWC { $year }
 desk-add-tournament = Добавить набор карт
-desk-label-empty = Турниров для разметки пока нет
+desk-label-empty = Добавьте набор карт, чтобы начать разметку
 desk-listen = Слушать
 desk-no-preview = Нет записи
 desk-fits-none = Не подходит ни к одному
@@ -1786,3 +1786,6 @@ desk-search = Искать
 
 desk-batch-added = Набор добавлен. Можно приступать к разметке.
 desk-batch-unsupported = Сервер не принял весь набор. Обновите и перезапустите бота; введённые карты сохранены.
+
+desk-refresh-failed = Не удалось обновить данные. Повторяем подключение…
+desk-batches = Наборы карт

@@ -1406,6 +1406,20 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
                 crate::desk::Held { beatmap_id: 5687673, beatmapset_id: Some(2612145), stars: 5.71, level: "human".into(), mapper: Some("Nevo".into()), title: Some("HOT LIMIT".into()), version: Some("Extreme".into()) },
                 crate::desk::Held { beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()), version: Some("Insane".into()) },
             ];
+            main.desk.added = Some(5379506);
+            main
+        }),
+        ("main-community-balance-catalog-gaps".to_owned(), tabbed(Tab::Catalog)),
+        ("main-community-balance-catalog-add".to_owned(), {
+            let mut main = tabbed(Tab::Catalog);
+            main.desk.band = Some(("NM3".into(), 3));
+            main.desk.adding_map = true;
+            main.desk.map_link = "https://osu.ppy.sh/beatmapsets/2612145#osu/5687673".into();
+            main.desk.map_slot = None;
+            main.desk.abouts.insert(5687673, crate::desk::About {
+                set: Some(2612145), title: "HOT LIMIT".into(), artist: "T.M.Revolution".into(), version: "Extreme".into(), mapper: "Nevo".into(),
+                stars: Some(5.71), bpm: Some(138.0), seconds: Some(216), status: "graveyard".into(), standard: true,
+            });
             main
         }),
         ("main-community-balance-model".to_owned(), tabbed(Tab::Model)),
@@ -1537,7 +1551,7 @@ fn staged_desk() -> crate::desk_screen::State {
             covers.insert(set, handle);
         }
     }
-    let about = |set: i64, title: &str, version: &str, mapper: &str, stars: f32, bpm: f32, seconds: u32| crate::desk::About { set: Some(set), title: title.into(), artist: "Artist".into(), version: version.into(), mapper: mapper.into(), stars: Some(stars), bpm: Some(bpm), seconds: Some(seconds) };
+    let about = |set: i64, title: &str, version: &str, mapper: &str, stars: f32, bpm: f32, seconds: u32| crate::desk::About { set: Some(set), title: title.into(), artist: "Artist".into(), version: version.into(), mapper: mapper.into(), stars: Some(stars), bpm: Some(bpm), seconds: Some(seconds), status: "ranked".into(), standard: true };
     let abouts = [
         (2612145, about(2612145, "HOT LIMIT", "Extreme", "Nevo", 5.71, 137.0, 216)),
         (1222416, about(571525, "The Big Black", "WHO'S AFRAID", "Blue Dragon", 6.10, 360.0, 119)),

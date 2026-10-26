@@ -804,6 +804,16 @@ fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
         assert!((area.center_x() - work.center_x()).abs() < 1.0, "workspace must be centered: {area:?}, {work:?}");
         assert!(table.width <= 900.0, "table background stretched: {table:?}");
         if width == 1600.0 { assert!(table.height < 650.0, "table background stretched downward: {table:?}"); }
+        assert!(ui.find(catalog.words.t("desk-gaps-title")).is_ok(), "without a cell the side panel points at the gaps");
+        drop(ui);
+        let (_, mut adding) = states.iter().find(|(name, _)| name == "main-community-balance-catalog-add").unwrap().clone();
+        adding.width = width;
+        adding.height = 1000.0;
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, adding.height), gallery::main_frame(&adding, &backdrop));
+        let table = ui.find(iced::widget::Id::new("desk-catalog-table")).unwrap().bounds();
+        assert!(table.width <= 900.0, "the add panel must not widen the table: {table:?}");
+        assert!(ui.find(adding.words.t("desk-add-map-model")).is_ok());
+        assert!(ui.find(adding.words.t("desk-map-unranked-note")).is_ok(), "a graveyard map warns while Kamerton would decide");
         drop(ui);
         let (_, mut label) = states.iter().find(|(name, _)| name == "main-community-balance-label").unwrap().clone();
         label.width = width;

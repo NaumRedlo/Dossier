@@ -16,6 +16,10 @@ const HEARTBEAT: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(100);
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 const LONGEST_RETRY: Duration = Duration::from_secs(30);
+const BUSY_RETRY: Duration = Duration::from_secs(3);
+const CONNECT_PATIENCE: Duration = Duration::from_secs(5);
+const WRITE_PATIENCE: Duration = Duration::from_secs(5);
+const SILENCE: Duration = if cfg!(test) { Duration::from_secs(1) } else { Duration::from_secs(15) };
 
 #[derive(Debug, Clone)]
 pub struct Account {
@@ -467,6 +471,7 @@ pub enum Heard {
     Frames { duel: String, player: i64, round: Option<u32>, frames: Vec<(i32, f32, f32, u32)> },
     Witness { duel: String, player: i64, state: Value },
     Refused { duel: String, code: String },
+    Clock(i64),
 }
 
 pub fn heard_of(text: &str) -> Option<Heard> {
@@ -490,6 +495,7 @@ pub fn heard_of(text: &str) -> Option<Heard> {
         }),
         "witness" => Some(Heard::Witness { duel, player, state: said.get("state").cloned().unwrap_or(Value::Null) }),
         "error" => Some(Heard::Refused { duel, code: said.get("error").and_then(Value::as_str).unwrap_or_default().to_owned() }),
+        "heartbeat" => said.get("server_time").and_then(Value::as_str).and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok()).map(|at| Heard::Clock(at.timestamp_millis())),
         _ => None,
     }
 }
@@ -534,12 +540,29 @@ impl Drop for Link {
 
 type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
 
+fn reach(host: &str, port: u16) -> Result<TcpStream, String> {
+    let mut why = format!("{host}:{port} has no address");
+    for address in std::net::ToSocketAddrs::to_socket_addrs(&(host, port)).map_err(|why| why.to_string())? {
+        match TcpStream::connect_timeout(&address, CONNECT_PATIENCE) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => why = error.to_string(),
+        }
+    }
+    Err(why)
+}
+
 fn open(account: &Account) -> Result<Socket, String> {
     let mut request = socket_address(&account.server).into_client_request().map_err(|why| why.to_string())?;
     let headers = request.headers_mut();
     headers.insert("Authorization", format!("Bearer {}", account.token).parse().map_err(|_| "bad token".to_owned())?);
     headers.insert("X-Render-Worker", crate::bot::worker(&account.device).parse().map_err(|_| "bad device name".to_owned())?);
-    let (socket, _) = tungstenite::connect(request).map_err(|why| why.to_string())?;
+    let host = request.uri().host().ok_or("no host")?.trim_matches(['[', ']']).to_owned();
+    let port = request.uri().port_u16().unwrap_or(if request.uri().scheme_str() == Some("wss") { 443 } else { 80 });
+    let stream = reach(&host, port)?;
+    stream.set_read_timeout(Some(CONNECT_PATIENCE)).map_err(|why| why.to_string())?;
+    stream.set_write_timeout(Some(WRITE_PATIENCE)).map_err(|why| why.to_string())?;
+    let _ = stream.set_nodelay(true);
+    let (socket, _) = tungstenite::client_tls_with_config(request, stream, None, None).map_err(|why| why.to_string())?;
     let stream = match socket.get_ref() {
         MaybeTlsStream::Plain(stream) => Some(stream),
         MaybeTlsStream::Rustls(stream) => Some(stream.get_ref()),
@@ -573,6 +596,7 @@ fn session(account: &Account, held: &mut Held, orders: &Receiver<Order>, cursor:
         say(&mut socket, json!({ "type": "watch", "duel": duel }))?;
     }
     let mut beat = Instant::now() - HEARTBEAT;
+    let mut last_heard = Instant::now();
     loop {
         loop {
             match orders.try_recv() {
@@ -605,7 +629,14 @@ fn session(account: &Account, held: &mut Held, orders: &Receiver<Order>, cursor:
             say(&mut socket, json!({ "type": "heartbeat" }))?;
             beat = Instant::now();
         }
-        match socket.read() {
+        if last_heard.elapsed() > SILENCE {
+            return Err("the server went silent".into());
+        }
+        let read = socket.read();
+        if read.is_ok() {
+            last_heard = Instant::now();
+        }
+        match read {
             Ok(Message::Text(text)) => {
                 if let Some(said) = heard_of(text.as_str()) {
                     if !heard(said) {
@@ -641,6 +672,9 @@ pub fn connect(account: Account, cursor: Option<Receiver<Cursor>>, mut heard: im
             if started.elapsed() > Duration::from_secs(60) {
                 pause = FIRST_RETRY;
             }
+            if held.playing.is_some() || !held.watched.is_empty() {
+                pause = pause.min(BUSY_RETRY);
+            }
             match inbox.recv_timeout(pause) {
                 Ok(Order::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                 Ok(Order::Watch(duel)) => {
@@ -652,7 +686,8 @@ pub fn connect(account: Account, cursor: Option<Receiver<Cursor>>, mut heard: im
                 Ok(Order::Playing(now)) => held.playing = now,
                 Ok(_) | Err(RecvTimeoutError::Timeout) => {}
             }
-            pause = (pause * 2).min(LONGEST_RETRY);
+            let busy = held.playing.is_some() || !held.watched.is_empty();
+            pause = (pause * 2).min(if busy { BUSY_RETRY } else { LONGEST_RETRY });
         }
     });
     Link { orders }
@@ -774,8 +809,34 @@ mod tests {
             Some(Heard::Event { sequence, event, payload, version, .. }) => assert_eq!((sequence, event.as_str(), payload["to"].as_str(), version), (4, "state", Some("PLAYING"), 9)),
             other => panic!("{other:?}"),
         }
+        assert_eq!(heard_of(r#"{"type":"heartbeat","server_time":"2026-10-27T10:00:05.250000Z"}"#), Some(Heard::Clock(1_793_095_205_250)));
+        assert_eq!(heard_of(r#"{"type":"heartbeat"}"#), None);
         assert_eq!(heard_of("not json"), None);
         assert_eq!(heard_of(r#"{"type":"frames","duel":"d1","frames":"bad"}"#), None);
+    }
+
+    #[test]
+    fn a_silent_server_is_left_and_called_again() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let mut kept = Vec::new();
+            for _ in 0..2 {
+                let (stream, _) = listener.accept().unwrap();
+                kept.push(tungstenite::accept(stream).unwrap());
+            }
+            kept.len()
+        });
+        let (tell, heard) = std::sync::mpsc::channel();
+        let link = connect(Account { server: format!("http://127.0.0.1:{port}"), token: "secret".into(), device: "box".into() }, None, move |said| tell.send(said).is_ok());
+        assert_eq!(heard.recv_timeout(Duration::from_secs(5)).unwrap(), Heard::Connected);
+        match heard.recv_timeout(Duration::from_secs(5)).unwrap() {
+            Heard::Lost(why) => assert!(why.contains("silent"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(heard.recv_timeout(Duration::from_secs(5)).unwrap(), Heard::Connected, "the link calls again after the silence");
+        drop(link);
+        assert_eq!(server.join().unwrap(), 2);
     }
 
     #[test]

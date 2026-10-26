@@ -1027,6 +1027,7 @@ pub fn turn_label(w: &Words, state: &State, duel: &Duel) -> (String, Color, bool
 }
 
 pub fn away_strip<'a>(state: &State, w: &Words, now: i64) -> Option<Element<'a, Message>> {
+    let now = state.server_now(now);
     let duel = state.shown().filter(|duel| phase_of(&duel.state) != Phase::Result)?;
     let (label, colour, yours) = turn_label(w, state, duel);
     let a = seat(duel, "A").and_then(|person| person.name.clone()).unwrap_or_default();

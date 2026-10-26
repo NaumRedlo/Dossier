@@ -1878,7 +1878,7 @@ impl Main {
                 Effect::Post(_) if offline => Task::done(wrap(K::Posted(Err("offline".to_owned())))),
                 Effect::Post(post) => ui::in_thread(move || {
                     let said = match post {
-                        Post::Review { beatmap, decision, slot, reason } => crate::desk::review(&account, beatmap, decision, slot.as_deref(), &reason),
+                        Post::Review { beatmap, decision, slot, secondary, reason } => crate::desk::review(&account, beatmap, decision, slot.as_deref(), secondary.as_ref().map(Option::as_deref), &reason),
                         Post::Label { cell, beatmap, label, reason } => crate::desk::label(&account, &cell, beatmap, &label, &reason),
                         Post::Tournament { name, year, pool, reason } => crate::desk::tournament(&account, &name, year, &pool, &reason),
                         Post::Publish { version, reason } => crate::desk::publish(&account, &version, &reason),

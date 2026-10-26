@@ -154,7 +154,7 @@ impl std::fmt::Debug for Pool {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Post {
-    Review { beatmap: i64, decision: &'static str, slot: Option<String>, reason: String },
+    Review { beatmap: i64, decision: &'static str, slot: Option<String>, secondary: Option<Option<String>>, reason: String },
     Label { cell: Cell, beatmap: Option<i64>, label: String, reason: String },
     Tournament { name: String, year: i32, pool: String, reason: String },
     Publish { version: String, reason: String },
@@ -255,6 +255,7 @@ pub enum Message {
     RenameBatch,
     DeleteBatch(Option<i64>),
     ExcludeBatch(Option<i64>, bool),
+    Secondary(Option<String>),
     Discover,
     Open(i64),
     AddingMap(bool),
@@ -345,6 +346,7 @@ pub struct State {
     pub batch_name: String,
     pub batch_year: String,
     pub batch_sure: Option<Option<i64>>,
+    pub secondary: Option<(i64, Option<String>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -520,6 +522,13 @@ impl State {
     pub fn batch_shown(&self) -> Option<&desk::Batch> {
         let held = self.batch.as_ref();
         self.desk.batches.iter().find(|batch| held.is_some_and(|(name, year)| batch.name == *name && batch.year == *year)).or_else(|| self.desk.batches.first())
+    }
+
+    pub fn secondary_for(&self, task: &Task) -> Option<String> {
+        match &self.secondary {
+            Some((beatmap, pick)) if *beatmap == task.map.beatmap_id => pick.clone(),
+            _ => task.secondary.clone(),
+        }
     }
 
     fn hold_batch(&mut self) {
@@ -783,6 +792,11 @@ impl State {
                 self.batch_sure = None;
                 Vec::new()
             }
+            Message::Secondary(pick) => {
+                let Some(beatmap) = self.task().map(|task| task.map.beatmap_id) else { return Vec::new() };
+                self.secondary = Some((beatmap, pick));
+                Vec::new()
+            }
             Message::BatchName(said) => {
                 self.hold_batch();
                 self.batch_name = said;
@@ -893,7 +907,8 @@ impl State {
             }
             Message::Decide(decision, slot) => {
                 let Some(task) = self.task() else { return Vec::new() };
-                let post = Post::Review { beatmap: task.map.beatmap_id, decision, slot, reason: self.reason.trim().to_owned() };
+                let secondary = matches!(decision, "APPROVE" | "MOVE").then(|| self.secondary_for(task)).map(|pick| pick.filter(|pick| Some(pick) != slot.as_ref().or(task.slot.as_ref())));
+                let post = Post::Review { beatmap: task.map.beatmap_id, decision, slot, secondary, reason: self.reason.trim().to_owned() };
                 self.post(post)
             }
             Message::Posted(said) => {
@@ -1554,7 +1569,7 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
         facts = facts.push(fact(w.t("desk-length"), format!("{}:{:02}", seconds / 60, seconds % 60), k));
     }
     let reason = column![words(w.t("desk-reason"), 13.0 * k, MUTED), field_k(String::new(), &state.reason, Message::Reason, k)].spacing(6);
-    let decision = column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(column![answers, busy(w, state, k)]).padding(Padding { top: 6.0 * k, bottom: 10.0 * k, ..Padding::ZERO }), reason]
+    let decision = column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(column![answers, busy(w, state, k)]).padding(Padding { top: 6.0 * k, bottom: 10.0 * k, ..Padding::ZERO }), secondary_row(w, state, task, k), reason]
         .spacing(8)
         .width(Length::Fill);
     let played: Element<'a, Message> = match (map.mods.is_empty(), map.plain_stars) {
@@ -1609,6 +1624,31 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
     let info: Element<'a, Message> = if wide >= 1300.0 { row![container(model_side).width(Length::FillPortion(2)), container(players).width(Length::Fill)].spacing(14).into() } else { column![model_side, players].spacing(14).into() };
     container(scrollable(column![difficulties.wrap(), top, info].spacing(18.0 * k)).direction(ui::hidden_bar()))
         .padding(workspace::INSET).width(Length::Fill).style(workspace::surface).into()
+}
+
+fn secondary_row<'a>(w: &Words, state: &State, task: &Task, k: f32) -> Element<'a, Message> {
+    let primary = task.slot.clone().or_else(|| task.map.model.as_ref().and_then(|guess| guess.slot.clone()));
+    let chosen = state.secondary_for(task);
+    let hint = task.map.model.as_ref().and_then(|guess| {
+        guess.top.iter().filter(|odds| odds.slot != desk::OTHER && Some(&odds.slot) != primary.as_ref())
+            .max_by(|a, b| a.probability.total_cmp(&b.probability)).filter(|odds| odds.probability >= 0.2).cloned()
+    });
+    let mut chips = row![].spacing(6).align_y(Alignment::Center);
+    for slot in desk::SLOTS.iter().map(|slot| (*slot).to_owned()).chain(state.reserve()) {
+        if Some(&slot) == primary.as_ref() {
+            continue;
+        }
+        let on = chosen.as_ref() == Some(&slot);
+        let suggested = hint.as_ref().is_some_and(|odds| odds.slot == slot);
+        let made = button(container(tag(&slot, k)).center_y(30.0 * k)).padding([0.0, 5.0 * k]).style(quiet(on || suggested, 9.0));
+        chips = chips.push(if state.posting { made } else { made.on_press(Message::Secondary(Some(slot))) });
+    }
+    chips = chips.push(chip_k(w.t("desk-secondary-none"), chosen.is_none(), Message::Secondary(None), k));
+    let mut body = column![words(w.t("desk-secondary"), 13.0 * k, FAINT), chips.wrap().vertical_spacing(6)].spacing(6);
+    if let Some(odds) = hint {
+        body = body.push(words(w.with("desk-secondary-hint", &[("slot", odds.slot.clone()), ("share", format!("{:.0}", odds.probability * 100.0))]), 12.0 * k, UNSURE));
+    }
+    container(body).padding(Padding { bottom: 6.0 * k, ..Padding::ZERO }).into()
 }
 
 fn spare_slots<'a>(w: &Words, state: &State, decision: &'static str, ready: bool, k: f32) -> Element<'a, Message> {
@@ -2123,7 +2163,13 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
             let (fill, ink) = tone(count);
             let picked = chosen == Some((slot, band));
             let crossed = !picked && (on_row || chosen.is_some_and(|(_, at)| at == band));
-            let made = button(container(bold(count.to_string(), 15.0 * k, ink)).center_x(cell_wide).center_y(cell_high))
+            let more = coverage.secondary.get(slot).and_then(|counts| counts.get(band)).copied().unwrap_or_default();
+            let shown: Element<'a, Message> = if more > 0 {
+                row![bold(count.to_string(), 15.0 * k, ink), words(format!("+{more}"), 11.0 * k, ink)].spacing(2).align_y(Alignment::Center).into()
+            } else {
+                bold(count.to_string(), 15.0 * k, ink)
+            };
+            let made = button(container(shown).center_x(cell_wide).center_y(cell_high))
                 .padding(0)
                 .style(cell_style(fill, ink, picked, crossed))
                 .on_press(Message::Band(slot.to_owned(), band));
@@ -2142,6 +2188,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
         swatch(tone(ENOUGH).0, None, w.t("desk-legend-enough"), k),
         swatch(tone(2).0, None, w.t("desk-legend-few"), k),
         swatch(tone(0).0, None, w.t("desk-legend-none"), k),
+        if coverage.secondary.values().flatten().any(|count| *count > 0) { words(w.t("desk-catalog-secondary"), 13.0 * k, FAINT) } else { Space::new().into() },
         words(w.with("desk-catalog-gaps", &[("empty", empty.to_string()), ("few", few.to_string())]), 13.0 * k, if empty > 0 { BAD } else { MUTED }),
     ]
     .spacing(18)
@@ -2937,13 +2984,13 @@ mod tests {
         state.desk.tasks = vec![Task { kind: "review".into(), reason: "uncertain_revealed".into(), slot: Some("NM3".into()), map: desk::Map { beatmap_id: 7, ..desk::Map::default() }, ..Task::default() }];
         assert!(state.update(Message::NotThis(true), &w).is_empty() && state.moving);
         let effects = state.update(Message::Decide("MOVE", Some("NM2".into())), &w);
-        assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "MOVE", slot: Some("NM2".into()), reason: String::new() })]);
+        assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "MOVE", slot: Some("NM2".into()), secondary: Some(None), reason: String::new() })]);
         assert!(state.update(Message::Decide("REJECT", None), &w).is_empty());
         assert_eq!(state.update(Message::Posted(Ok(())), &w), [Effect::Load]);
         assert!(!state.posting && !state.moving);
         let _ = state.update(Message::Reason("короткие группы".into()), &w);
         let effects = state.update(Message::Decide("APPROVE", None), &w);
-        assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "APPROVE", slot: None, reason: "короткие группы".into() })]);
+        assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "APPROVE", slot: None, secondary: Some(None), reason: "короткие группы".into() })]);
     }
 
     #[test]
@@ -3144,6 +3191,30 @@ mod tests {
         assert!(state.update(Message::About(42, None), &w).is_empty(), "a failed lookup waits before trying again");
         state.missed_at.insert(42, std::time::Instant::now() - ABOUT_RETRY - std::time::Duration::from_secs(1));
         assert_eq!(state.update(Message::PresenceTick, &w), vec![Effect::About(42)], "and is tried again after a minute");
+    }
+
+    #[test]
+    fn a_secondary_slot_is_kept_unless_the_reviewer_changes_it_and_never_sent_when_removing_a_map() {
+        let w = Words::new(crate::lang::Lang::En);
+        let task = |id: i64, secondary: Option<&str>| Task { kind: "review".into(), reason: "manual".into(), slot: Some("NM1".into()),
+            secondary: secondary.map(Into::into), map: desk::Map { beatmap_id: id, ..Default::default() }, ..Default::default() };
+        let mut state = State::default();
+        state.desk.tasks = vec![task(7, Some("HR1")), task(8, None)];
+        let effects = state.update(Message::Decide("APPROVE", None), &w);
+        assert!(matches!(&effects[0], Effect::Post(Post::Review { beatmap: 7, secondary: Some(Some(slot)), .. }) if slot == "HR1"), "an untouched choice keeps the map's own");
+        state.posting = false;
+        state.update(Message::Secondary(None), &w);
+        let effects = state.update(Message::Decide("APPROVE", None), &w);
+        assert!(matches!(&effects[0], Effect::Post(Post::Review { secondary: Some(None), .. })));
+        state.posting = false;
+        state.update(Message::Pick(8), &w);
+        assert_eq!(state.secondary_for(state.task().unwrap()), None, "a choice belongs to its own map");
+        state.update(Message::Secondary(Some("HD2".into())), &w);
+        let effects = state.update(Message::Decide("MOVE", Some("HD2".into())), &w);
+        assert!(matches!(&effects[0], Effect::Post(Post::Review { secondary: Some(None), .. })), "a secondary equal to the new primary is dropped");
+        state.posting = false;
+        let effects = state.update(Message::Decide("REJECT", None), &w);
+        assert!(matches!(&effects[0], Effect::Post(Post::Review { decision: "REJECT", secondary: None, .. })));
     }
 
     #[test]

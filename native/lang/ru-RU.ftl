@@ -1945,3 +1945,7 @@ desk-did-batch-rename = Переименовал { $target } в { $name }
 desk-did-batch-delete = Удалил { $target }
 desk-did-batch-exclude = Исключил из обучения { $target }
 desk-did-batch-include = Вернул в обучение { $target }
+desk-secondary = Подходит ещё под
+desk-secondary-none = Только основной
+desk-secondary-hint = Kamerton видит и { $slot } ({ $share }%) — можно отметить дополнительным.
+desk-catalog-secondary = +N — карты, для которых этот слот дополнительный

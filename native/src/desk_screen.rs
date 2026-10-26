@@ -305,7 +305,7 @@ impl State {
     fn matching_tasks(&self, filter: Filter) -> Vec<&Task> {
         self.inspected.iter().chain(self.desk.tasks.iter().filter(|task| self.inspected.as_ref().is_none_or(|held| held.map.beatmap_id != task.map.beatmap_id)))
             .filter(|task| filter.holds(task) && self.stars.is_none_or(|band| task.map.stars.is_some_and(|stars| {
-                stars >= desk::BANDS[band] && (band + 1 == desk::BANDS.len() || stars < desk::BANDS[band + 1])
+                stars >= desk::BANDS[band] && stars < desk::BANDS.get(band + 1).copied().unwrap_or(f32::INFINITY) && stars <= desk::TOP
             }))).collect()
     }
 
@@ -964,7 +964,7 @@ impl State {
 
 fn add_failure(w: &Words, why: &str) -> String {
     match why {
-        "MAP_NOT_FOUND" | "NOT_STANDARD" | "MAP_LENGTH" | "NO_FILE" | "PARSE_FAILED" | "REJECTED_STAYS" | "UNKNOWN_SLOT" | "SERVICE_RECOVERING" | "FORBIDDEN" => {
+        "MAP_NOT_FOUND" | "NOT_STANDARD" | "MAP_LENGTH" | "NO_FILE" | "PARSE_FAILED" | "REJECTED_STAYS" | "UNKNOWN_SLOT" | "SERVICE_RECOVERING" | "FORBIDDEN" | "STARS_RANGE" => {
             w.t(&format!("desk-add-map-{}", why.to_lowercase().replace('_', "-")))
         }
         "404" | "405" => w.t("desk-add-map-unsupported"),
@@ -1597,14 +1597,12 @@ fn tone(count: u32) -> (Color, Color) {
 
 fn band_name(w: &Words, band: usize) -> String {
     let edge = |value: f32| w.decimal(f64::from(value), 1);
-    match desk::BANDS.get(band + 1) {
-        Some(next) => format!("{}–{}", edge(desk::BANDS[band]), edge(*next)),
-        None => format!("{}+", edge(desk::BANDS[band])),
-    }
+    let next = desk::BANDS.get(band + 1).copied().unwrap_or(desk::TOP);
+    format!("{}–{}", edge(desk::BANDS[band]), if next == desk::TOP { w.decimal(f64::from(next), 0) } else { edge(next) })
 }
 
 fn band_pill<'a>(said: String, on: bool, k: f32) -> Element<'a, Message> {
-    container(strong(said, 13.0 * k, if on { INK } else { MUTED })).padding([4.0 * k, 9.0 * k]).style(move |_| container::Style {
+    container(strong(said, 12.0 * k, if on { INK } else { MUTED })).padding([4.0 * k, 6.0 * k]).style(move |_| container::Style {
         background: Some(Background::Color(if on { ui::mix(ACCENT, theme::GROUND, 0.7) } else { iced::color!(0x201319) })),
         border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default()
     }).into()
@@ -1672,14 +1670,14 @@ fn cell_view<'a>(w: &Words, state: &'a State, coverage: &desk::Coverage, slot: &
     if state.held.is_empty() {
         list = list.push(words(w.t(if count == 0 { "desk-cell-empty" } else { "desk-loading" }), 13.0 * k, FAINT));
     }
-    let range = format!("{}–{}★", w.decimal(desk::BANDS[band] as f64, 1), w.decimal((desk::BANDS[band] + 0.5) as f64, 1));
+    let range = format!("{}★", band_name(w, band));
     let search = button(container(if state.posting { busy(w, state, k) } else { row![glyph(Icon::Download, 16.0 * k, INK), strong(w.t("desk-search"), 14.0 * k, INK), meta_pill(range, k)].spacing(8).align_y(Alignment::Center).into() }).center_x(Length::Fill).center_y(40.0 * k))
         .padding(0)
         .style(theme::primary)
         .on_press_maybe((!state.posting).then_some(Message::Discover));
-    let more = row![
-        container(line_button_k(w.t("desk-add-map-here"), (!state.posting).then_some(Message::AddingMap(true)), k)).width(Length::Fill),
-        container(line_button_k(w.t("desk-label-waiting"), Some(Message::Tab(Tab::Queue)), k)).width(Length::Fill),
+    let more = column![
+        line_button_k(w.t("desk-add-map-here"), (!state.posting).then_some(Message::AddingMap(true)), k),
+        line_button_k(w.t("desk-label-waiting"), Some(Message::Tab(Tab::Queue)), k),
     ].spacing(8);
     column![
         row![tag(slot, k), container(heading_k(k, skill(w, slot))).width(Length::Fill), band_pill(band_name(w, band), true, k)].spacing(8).align_y(Alignment::Center),
@@ -1755,7 +1753,10 @@ fn add_map_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message>
     let about = beatmap.and_then(|beatmap| state.about(beatmap));
     let foreign = about.is_some_and(|found| !found.standard);
     let unranked = about.is_some_and(|found| !found.status.is_empty() && found.status != "ranked");
-    let ready = beatmap.is_some() && !foreign && !state.posting;
+    let nominal = about.and_then(|found| found.stars);
+    let too_hard = nominal.is_some_and(|stars| stars > desk::TOP);
+    let too_easy = nominal.is_some_and(|stars| stars < desk::BANDS[0]) && state.map_slot.as_deref().is_some_and(|slot| !slot.starts_with("DT"));
+    let ready = beatmap.is_some() && !foreign && !too_hard && !state.posting;
     let field = text_input(&w.t("desk-map-link-hint"), &state.map_link)
         .on_input(Message::MapLink)
         .on_submit(Message::LookMap)
@@ -1796,6 +1797,8 @@ fn add_map_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message>
     .spacing(14);
     if foreign {
         body = body.push(warning(w.t("desk-add-map-not-standard"), BAD));
+    } else if too_hard || too_easy {
+        body = body.push(warning(w.t("desk-map-stars-range"), if too_hard { BAD } else { UNSURE }));
     } else if unranked && state.map_slot.is_none() {
         body = body.push(warning(w.t("desk-map-unranked-note"), UNSURE));
     }
@@ -1825,7 +1828,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
     ]
     .spacing(10);
     let chosen = state.band.as_ref().map(|(slot, band)| (slot.as_str(), *band));
-    let (label_wide, cell_wide, cell_high, sum_wide) = (136.0 * k, 68.0 * k, 42.0 * k, 56.0 * k);
+    let (label_wide, cell_wide, cell_high, sum_wide) = (124.0 * k, 58.0 * k, 42.0 * k, 52.0 * k);
     let mut head = row![Space::new().width(label_wide)].spacing(5).align_y(Alignment::Center);
     for band in 0..desk::BANDS.len() {
         head = head.push(container(band_pill(band_name(w, band), chosen.is_some_and(|(_, at)| at == band), k)).center_x(cell_wide));
@@ -1875,7 +1878,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
         .on_press_maybe((!state.posting).then_some(Message::AddingMap(!state.adding_map)));
     let heading = row![container(heading_k(k, w.t("desk-catalog-title"))).width(Length::Fill), container(add).id(iced::widget::Id::new("desk-add-map"))].spacing(12).align_y(Alignment::Center);
     let table = container(column![heading, legend.wrap().vertical_spacing(6),
-        container(scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::hidden(), horizontal: scrollable::Scrollbar::default() }).height(if stacked { Length::Fill } else { Length::Shrink })).max_height(540.0 * k)].spacing(12))
+        container(scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::hidden(), horizontal: scrollable::Scrollbar::default().spacing(6.0) }).height(if stacked { Length::Fill } else { Length::Shrink })).max_height(540.0 * k)].spacing(12))
         .padding(workspace::INSET).width(Length::Fill).max_width(890.0 * k).id(iced::widget::Id::new("desk-catalog-table")).height(if stacked { Length::Fill } else { Length::Shrink }).style(workspace::surface);
     let (aside, tall): (Element<'a, Message>, bool) = if state.adding_map {
         (add_map_view(w, state, k), true)
@@ -1887,9 +1890,9 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
     };
     let aside: Element<'a, Message> = container(aside)
         .padding(18)
-        .width(if stacked { Length::Fill } else { Length::Fixed(340.0 * k) })
+        .width(if stacked { Length::Fill } else { Length::Fixed(320.0 * k) })
         .height(if tall { Length::Fill } else { Length::Shrink })
-        .max_height(620.0 * k)
+        .max_height(if state.adding_map { 760.0 } else { 620.0 } * k)
         .id(iced::widget::Id::new("desk-catalog-aside"))
         .style(workspace::surface)
         .into();
@@ -2329,7 +2332,7 @@ mod tests {
             state.desk.tasks.push(Task { map: desk::Map { beatmap_id: id, beatmapset_id: set, stars: Some(stars), ..Default::default() }, ..Default::default() });
         }
         assert_eq!(state.tasks().len(), 4);
-        state.stars = Some(2);
+        state.stars = Some(0);
         assert_eq!(state.tasks().iter().map(|task| task.map.beatmap_id).collect::<Vec<_>>(), [2, 3, 4, 5]);
         state.picked = Some(2);
         assert_eq!(state.task().unwrap().map.beatmap_id, 2);
@@ -2511,8 +2514,8 @@ mod tests {
         state.update(Message::AddMap, &w);
         let task = Task { slot: Some("NM3".into()), map: desk::Map { beatmap_id: 5687673, stars: Some(5.71), ..Default::default() }, ..Default::default() };
         let effects = state.update(Message::MapAdded(5687673, Ok(desk::Added { outcome: "unassigned".into(), status: None, task: Some(task) })), &w);
-        assert_eq!(effects, vec![Effect::Load, Effect::Cell("NM3".into(), 3)]);
-        assert_eq!((state.band.clone(), state.added, state.adding_map, state.tab), (Some(("NM3".into(), 3)), Some(5687673), false, Tab::Catalog));
+        assert_eq!(effects, vec![Effect::Load, Effect::Cell("NM3".into(), 1)]);
+        assert_eq!((state.band.clone(), state.added, state.adding_map, state.tab), (Some(("NM3".into(), 1)), Some(5687673), false, Tab::Catalog));
         assert!(state.map_link.is_empty() && state.reason.is_empty());
         state.loading = false;
         state.update(Message::AddingMap(true), &w);

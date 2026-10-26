@@ -1401,7 +1401,7 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
         }),
         ("main-community-balance-catalog".to_owned(), {
             let mut main = tabbed(Tab::Catalog);
-            main.desk.band = Some(("NM3".into(), 3));
+            main.desk.band = Some(("NM3".into(), 1));
             main.desk.held = vec![
                 crate::desk::Held { beatmap_id: 5687673, beatmapset_id: Some(2612145), stars: 5.71, level: "human".into(), mapper: Some("Nevo".into()), title: Some("HOT LIMIT".into()), version: Some("Extreme".into()) },
                 crate::desk::Held { beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()), version: Some("Insane".into()) },
@@ -1412,7 +1412,7 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
         ("main-community-balance-catalog-gaps".to_owned(), tabbed(Tab::Catalog)),
         ("main-community-balance-catalog-add".to_owned(), {
             let mut main = tabbed(Tab::Catalog);
-            main.desk.band = Some(("NM3".into(), 3));
+            main.desk.band = Some(("NM3".into(), 1));
             main.desk.adding_map = true;
             main.desk.map_link = "https://osu.ppy.sh/beatmapsets/2612145#osu/5687673".into();
             main.desk.map_slot = None;
@@ -1468,9 +1468,10 @@ fn staged_desk() -> crate::desk_screen::State {
         task("unassigned", "unassigned", None, map(1222416, 571525, "The Big Black", "WHO'S AFRAID OF THE BIG BLACK", "Blue Dragon", 6.10), 90_000),
         task("unassigned", "unassigned", None, map(5397135, 2448804, "Nihon-shiki Koukaku", "Ouka", "Mirash", 5.95), 95_000),
     ];
-    let counts: [(&str, [u32; 8]); 9] = [
-        ("NM1", [6, 9, 14, 12, 8, 5, 2, 0]), ("NM2", [5, 8, 11, 10, 6, 3, 1, 0]), ("NM3", [1, 2, 3, 2, 1, 0, 0, 0]), ("NM4", [3, 6, 9, 7, 5, 2, 1, 0]), ("HD2", [4, 6, 8, 9, 6, 3, 1, 0]),
-        ("HR2", [2, 4, 7, 6, 4, 2, 0, 0]), ("DT1", [7, 10, 12, 11, 8, 4, 2, 1]), ("DT2", [3, 5, 8, 8, 5, 2, 1, 0]), ("TB", [1, 2, 3, 3, 2, 1, 0, 0]),
+    let counts: [(&str, [u32; 10]); 9] = [
+        ("NM1", [14, 12, 8, 5, 2, 1, 0, 0, 0, 0]), ("NM2", [11, 10, 6, 3, 1, 1, 0, 0, 0, 0]), ("NM3", [3, 2, 1, 0, 0, 0, 0, 0, 0, 0]), ("NM4", [9, 7, 5, 2, 1, 0, 0, 0, 0, 0]),
+        ("HD2", [8, 9, 6, 3, 1, 0, 0, 0, 0, 0]), ("HR2", [7, 6, 4, 2, 0, 0, 0, 0, 0, 0]), ("DT1", [6, 9, 12, 11, 8, 4, 2, 1, 1, 0]), ("DT2", [3, 5, 8, 8, 5, 2, 1, 0, 0, 0]),
+        ("TB", [3, 3, 2, 1, 0, 0, 0, 0, 0, 0]),
     ];
     let coverage = Coverage {
         slots: counts.iter().map(|(slot, _)| (*slot).to_owned()).collect(),

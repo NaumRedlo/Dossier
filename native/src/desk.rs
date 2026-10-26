@@ -11,7 +11,8 @@ pub const PUBLISHER: &str = "MODEL_PUBLISHER";
 pub const OWNER: &str = "OWNER";
 pub const GRANTED: [&str; 3] = [REVIEWER, PUBLISHER, OPERATOR];
 pub const SLOTS: [&str; 9] = ["NM1", "NM2", "NM3", "NM4", "HD2", "HR2", "DT1", "DT2", "TB"];
-pub const BANDS: [f32; 8] = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5];
+pub const BANDS: [f32; 10] = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5];
+pub const TOP: f32 = 10.0;
 pub const EXCLUDED: &str = "NONE";
 pub const OTHER: &str = "OTHER";
 
@@ -488,7 +489,7 @@ mod tests {
         cell.label = Some("NM4".into());
         assert_eq!(cell.shown(), "NM4");
         assert!(cell.checked());
-        assert_eq!((band_of(3.2), band_of(5.6), band_of(9.0)), (0, 3, 7));
+        assert_eq!((band_of(3.2), band_of(5.6), band_of(9.0), band_of(10.0)), (0, 1, 8, 9));
         assert!(allows(&["OWNER".to_owned()], OPERATOR) && !allows(&[REVIEWER.to_owned()], OPERATOR));
     }
 }

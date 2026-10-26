@@ -1869,8 +1869,8 @@ impl Main {
                         let picked = rfd::AsyncFileDialog::new().add_filter("osu!", &["osz"]).pick_file().await?;
                         Some(picked.path().to_path_buf())
                     },
-                    |picked| picked.map_or_else(Vec::new, |path| crate::desk::archive_lines(&path)),
-                ).map(move |lines| wrap(K::Archived(lines))),
+                    |picked| picked.map_or_else(Vec::new, |path| crate::desk::archive_maps(&path)),
+                ).map(move |found| wrap(K::Archived(found))),
                 Effect::Older(_) if offline => Task::done(wrap(K::JournalOlder(Err("offline".to_owned())))),
                 Effect::Older(before) => ui::in_thread(move || K::JournalOlder(crate::desk::journal_before(&account, before).map_err(|why| why.to_string()))).map(wrap),
                 Effect::AddMap { beatmap, .. } if offline => Task::done(wrap(K::MapAdded(beatmap, Err("offline".to_owned())))),
@@ -1890,6 +1890,9 @@ impl Main {
                         Post::Discover { band, reason } => crate::desk::discover(&account, band, &reason),
                         Post::Train { reason } => crate::desk::train(&account, &reason),
                         Post::Delete { version, reason } => crate::desk::delete_model(&account, &version, &reason),
+                        Post::RenameBatch { name, year, new_name, new_year, reason } => crate::desk::rename_batch(&account, &name, year, &new_name, new_year, &reason),
+                        Post::DeleteBatch { name, year, beatmap, reason } => crate::desk::delete_batch(&account, &name, year, beatmap, &reason),
+                        Post::ExcludeBatch { name, year, beatmap, excluded, reason } => crate::desk::exclude_batch(&account, &name, year, beatmap, excluded, &reason),
                     };
                     K::Posted(said.map(|_| ()).map_err(|why| why.to_string()))
                 }).map(wrap),

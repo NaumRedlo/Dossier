@@ -2928,6 +2928,32 @@ fn categories_stand_one_under_another_and_their_tiles_in_centred_rows() {
 }
 
 #[test]
+fn editor_toolbar_keeps_search_and_delete_confirmation_apart_in_both_languages() {
+    let mut state = pool_with_maps("toolbar-reflow", &["a1", "b2"]);
+    state.update(Message::AskDelete(true), 1_790_000_100);
+    for lang in crate::lang::Lang::ALL {
+        let words = Words::new(lang);
+        for width in [640.0, 840.0, 1280.0] {
+            let editor = shown(&state);
+            let pool = state.editing().unwrap();
+            let mut screen = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(width, 220.0), editor_toolbar(&state, editor, pool, &words, width));
+            let keys = ["pool-back", "pool-find", "catalogue-publish", "pool-delete-yes", "pool-delete-no"];
+            let bounds: Vec<_> = keys.iter().map(|key| screen.find(words.t(key)).unwrap().visible_bounds().unwrap()).collect();
+            for (key, rect) in keys.iter().zip(&bounds) {
+                assert!(rect.x >= 0.0 && rect.x + rect.width <= width && rect.width > 20.0, "{} {width} {key}: {rect:?}", lang.tag());
+            }
+            for (at, rect) in bounds.iter().enumerate() {
+                for other in &bounds[at + 1..] {
+                    assert!(!rect.intersects(other), "{} {width}: {rect:?} overlaps {other:?}", lang.tag());
+                }
+            }
+            screen.click(words.t("pool-delete-no")).unwrap();
+            assert!(screen.into_messages().any(|message| matches!(message, Message::AskDelete(false))));
+        }
+    }
+}
+
+#[test]
 fn adding_a_map_in_a_small_window_keeps_the_source_buttons_visible() {
     let mut state = pool_with_maps("add-overlay-view", &["a1", "b2", "c3"]);
     state.update(Message::AddPanel(true), 1_790_000_100);

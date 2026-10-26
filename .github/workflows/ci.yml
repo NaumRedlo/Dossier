@@ -50,15 +50,12 @@ jobs:
       - run: ruff check .
 
   native:
-    name: native (${{ matrix.os }})
+    name: native compilation (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-    env:
-      ICED_TEST_BACKEND: tiny-skia
-      DOSSIER_GOLDEN_REVIEW: golden-review
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -67,13 +64,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
-      - run: cargo test --release --no-fail-fast
+      - run: cargo test --release --no-run
         working-directory: native
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: golden-review-${{ runner.os }}
-          path: native/golden-review/*.png
       - if: runner.os == 'Windows'
         name: the executable carries its icon
         shell: bash
@@ -87,3 +79,29 @@ jobs:
           assert 14 in kinds and 16 in kinds, kinds
           print("icon and version in", kinds)
           PY
+
+  native-gpu:
+    name: native tests (hardware GPU)
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, dossier-gpu]
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      ICED_TEST_BACKEND: wgpu
+      DOSSIER_GOLDEN_REVIEW: golden-review
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - run: cargo test --release --no-fail-fast -- --test-threads=1
+        working-directory: native
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-review-gpu-${{ runner.os }}
+          path: native/golden-review/*.png

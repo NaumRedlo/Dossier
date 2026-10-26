@@ -532,26 +532,14 @@ pub fn tile_bad(_: &Theme) -> container::Style {
     }
 }
 
-pub fn small(_: &Theme, status: button::Status) -> button::Style {
-    let background = match status {
-        button::Status::Hovered => color!(0x493137),
-        button::Status::Pressed => color!(0x251b1f),
-        button::Status::Disabled => color!(0x211c1e),
-        button::Status::Active => color!(0x30262a),
-    };
-    button::Style {
-        background: Some(Background::Color(background)),
-        text_color: if matches!(status, button::Status::Disabled) { FAINT } else { INK },
-        border: border(Color::TRANSPARENT, 7.0),
-        shadow: Shadow::default(),
-        snap: true,
-    }
+pub fn small(theme: &Theme, status: button::Status) -> button::Style {
+    workspace::choice(false)(theme, status)
 }
 
 pub fn glyph(_: &Theme, status: button::Status) -> button::Style {
     let background = match status {
-        button::Status::Hovered => Color::from_rgba(1.0, 1.0, 1.0, 0.1),
-        button::Status::Pressed => Color::from_rgba(1.0, 1.0, 1.0, 0.16),
+        button::Status::Hovered => workspace::HOVER,
+        button::Status::Pressed => GLASS_PICKED,
         _ => Color::TRANSPARENT,
     };
     button::Style {
@@ -628,8 +616,8 @@ pub fn pill(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
         let background = match (on, lit) {
             (true, true) => Color::from_rgba(0.886, 0.282, 0.282, 0.26),
             (true, false) => Color::from_rgba(0.886, 0.282, 0.282, 0.18),
-            (false, true) => Color::from_rgba(1.0, 1.0, 1.0, 0.1),
-            (false, false) => Color::from_rgba(1.0, 1.0, 1.0, 0.06),
+            (false, true) => workspace::HOVER,
+            (false, false) => workspace::ITEM,
         };
         button::Style {
             background: Some(Background::Color(background)),
@@ -647,7 +635,7 @@ pub fn side(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
         let (background, edge) = match (on, lit) {
             (true, true) => (Some(color!(0x4a1c20)), color!(0x8f3234)),
             (true, false) => (Some(color!(0x3b171a)), color!(0x6e2a2d)),
-            (false, true) => (Some(Color::from_rgba(1.0, 1.0, 1.0, 0.05)), Color::TRANSPARENT),
+            (false, true) => (Some(workspace::HOVER), Color::TRANSPARENT),
             (false, false) => (None, Color::TRANSPARENT),
         };
         button::Style {
@@ -661,22 +649,7 @@ pub fn side(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
 }
 
 pub fn filter_chip(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
-    move |_, status| {
-        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        let (background, edge) = match (on, lit) {
-            (true, true) => (Color::from_rgba(0.886, 0.282, 0.282, 0.3), Color::from_rgba(0.886, 0.282, 0.282, 0.7)),
-            (true, false) => (Color::from_rgba(0.886, 0.282, 0.282, 0.2), Color::from_rgba(0.886, 0.282, 0.282, 0.5)),
-            (false, true) => (Color { a: 0.82, ..GLASS }, GLASS_EDGE_LIT),
-            (false, false) => (Color { a: 0.6, ..GLASS }, GLASS_EDGE),
-        };
-        button::Style {
-            background: Some(Background::Color(background)),
-            text_color: INK,
-            border: border(edge, 12.0),
-            shadow: Shadow::default(),
-            snap: true,
-        }
-    }
+    workspace::choice(on)
 }
 
 pub fn small_hot(_: &Theme, status: button::Status) -> button::Style {

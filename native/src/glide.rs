@@ -451,7 +451,11 @@ pub fn ahead(viewport: f32, content: f32, under: f32) -> f32 {
     (content - viewport - under).max(0.0)
 }
 
-struct Scrolled(Option<(f32, f32, f32)>);
+struct Scrolled(Option<(f32, f32, f32)>, Option<Rectangle>);
+
+fn moves_page_header(page: Rectangle, scroll: Rectangle) -> bool {
+    scroll.width >= page.width * 0.8 && scroll.y <= page.y + 120.0
+}
 
 impl Operation for Scrolled {
     fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
@@ -459,6 +463,7 @@ impl Operation for Scrolled {
     }
 
     fn scrollable(&mut self, _: Option<&iced::widget::Id>, bounds: Rectangle, content: Rectangle, translation: Vector, _: &mut dyn operation::Scrollable) {
+        if self.1.is_some_and(|page| !moves_page_header(page, bounds)) { return; }
         let area = bounds.width * bounds.height;
         if self.0.is_none_or(|(kept, _, _)| area > kept) {
             self.0 = Some((area, translation.y, ahead(bounds.height, content.height, translation.y)));
@@ -508,7 +513,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Brim<'_, Message> {
     ) {
         self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
         if let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event {
-            let mut found = Scrolled(None);
+            let mut found = Scrolled(None, self.header.then_some(layout.bounds()));
             self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, &mut found);
             let (_, under, ahead) = found.0.unwrap_or((0.0, 0.0, 0.0));
             let state = tree.state.downcast_mut::<BrimState>();
@@ -563,6 +568,14 @@ impl<'a, Message: 'a> From<Brim<'a, Message>> for Element<'a, Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inner_columns_and_tables_do_not_dim_the_page_header() {
+        let page = Rectangle { x: 0.0, y: 0.0, width: 1000.0, height: 700.0 };
+        assert!(moves_page_header(page, Rectangle { x: 80.0, y: 80.0, width: 900.0, height: 600.0 }));
+        assert!(!moves_page_header(page, Rectangle { x: 400.0, y: 80.0, width: 580.0, height: 600.0 }));
+        assert!(!moves_page_header(page, Rectangle { x: 80.0, y: 200.0, width: 900.0, height: 450.0 }));
+    }
 
     #[test]
     fn the_top_edge_fades_only_once_something_has_scrolled_under_it() {

@@ -30,7 +30,7 @@ fn main() {
         }
     }
     let settings = dossier_native::settings();
-    let mut paint = iced_test::futures::futures::executor::block_on(iced_test::renderer::Renderer::new(settings.default_font, settings.default_text_size, Some(std::env::var("FRAME_COST_BACKEND").as_deref().unwrap_or("tiny-skia"))))
+    let mut paint = iced_test::futures::futures::executor::block_on(<iced_test::renderer::Renderer as Headless>::new(settings.default_font, settings.default_text_size, Some("wgpu")))
         .expect("a headless renderer");
     let theme = dossier_native::theme::theme();
     let style = renderer::Style { text_color: theme.base().text_color };
@@ -55,7 +55,7 @@ fn main() {
             ui.draw(&mut paint, &theme, &style, mouse::Cursor::Unavailable);
             let drawn = took.elapsed();
             let took = Instant::now();
-            let _ = paint.screenshot(iced::Size::new((width * 2.0) as u32, (height * 2.0) as u32), 2.0, iced::Color::BLACK);
+            let _ = Headless::screenshot(&mut paint, iced::Size::new((width * 2.0) as u32, (height * 2.0) as u32), 2.0, iced::Color::BLACK);
             let presented = took.elapsed();
             cache = ui.into_cache();
             let element = gallery::main_frame(&main, &backdrop);

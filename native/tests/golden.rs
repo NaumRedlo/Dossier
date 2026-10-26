@@ -5,9 +5,7 @@ use dossier_native::gallery;
 fn backend() {
     static READY: std::sync::Once = std::sync::Once::new();
     READY.call_once(|| {
-        if std::env::var_os("ICED_TEST_BACKEND").is_none() {
-            std::env::set_var("ICED_TEST_BACKEND", "tiny-skia");
-        }
+        std::env::set_var("ICED_TEST_BACKEND", "wgpu");
     });
 }
 
@@ -167,13 +165,17 @@ fn every_exported_pool_card_matches_its_approved_frame() {
     let review = std::env::var_os("DOSSIER_GOLDEN_REVIEW").map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join(format!("dossier-golden-pool-cards-{}", std::process::id())));
     std::fs::create_dir_all(&review).unwrap();
+    let mut wrong = Vec::new();
     for lang in dossier_native::lang::Lang::ALL {
         for (kind, pool) in ["duel", "stage", "free"].into_iter().zip(&pools) {
-            let name = format!("pool-card-{kind}-{}.png", lang.tag());
+            let name = format!("pool-card-{kind}-{}-wgpu.png", lang.tag());
             let bytes = dossier_native::pool_card::render(pool, &dossier_native::lang::Words::new(lang), &covers, None).unwrap();
             let actual = review.join(&name);
             std::fs::write(&actual, bytes).unwrap();
-            compare_files_within(&golden(&name), &actual, CARD_TOLERANCE).unwrap_or_else(|why| panic!("{name}: {why}; current frame: {}", actual.display()));
+            if let Err(why) = compare_files_within(&golden(&name), &actual, CARD_TOLERANCE) {
+                wrong.push(format!("{name}: {why}; current frame: {}", actual.display()));
+            }
         }
     }
+    assert!(wrong.is_empty(), "pool cards that no longer match their approved picture:\n{}", wrong.join("\n"));
 }

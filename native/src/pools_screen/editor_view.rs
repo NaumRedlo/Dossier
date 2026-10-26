@@ -2,17 +2,9 @@ use super::*;
 use iced::widget::column;
 
 pub(super) fn back_button<'a>(words: &Words, collection: bool) -> Element<'a, Message> {
-    button(container(text(words.t(if collection { "collection-back" } else { "pool-back" })).font(theme::SANS_SEMI).size(theme::BODY)).center_y(theme::CONTROL_HEIGHT - 2.0))
+    button(container(text(words.t(if collection { "collection-back" } else { "pool-back" })).font(theme::SANS_SEMI).size(theme::BODY)).center_y(theme::workspace::CONTROL))
         .padding([0, 12])
-        .style(ui::button_faded(|_, status| {
-            let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: Some(Background::Color(soft(if hot { 0.09 } else { 0.045 }, 1.0))),
-                text_color: INK,
-                border: Border { color: crate::theme::outline(soft(if hot { 0.2 } else { 0.08 }, 1.0)), width: 1.0, radius: 8.0.into() },
-                ..button::Style::default()
-            }
-        }))
+        .style(ui::button_faded(theme::workspace::choice(false)))
         .on_press(Message::Back)
         .into()
 }
@@ -24,7 +16,7 @@ pub(super) fn menu_line<'a>(label: String, hint: String, ink: Color, press: Opti
         .padding([0, 12])
         .width(Length::Fill)
         .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| button::Style {
-            background: if lit && free { Some(Background::Color(Color { a: 0.16, ..ACCENT })) } else { matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(soft(0.08, 1.0))) },
+            background: if lit && free { Some(Background::Color(Color { a: 0.16, ..ACCENT })) } else { matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(theme::workspace::HOVER)) },
             text_color: INK,
             border: Border { radius: 8.0.into(), ..Border::default() },
             shadow: iced::Shadow::default(),
@@ -185,8 +177,12 @@ pub(super) fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a
     } else {
         button(container(text(words.t(if pool.collection { "collection-delete" } else { "pool-delete" })).font(theme::SANS_SEMI).size(14.0)).center_y(CONTROL)).padding([0, 12]).style(ui::button_faded(theme::danger_words)).on_press(Message::AskDelete(true)).into()
     };
-    let buttons = row![publish, danger].spacing(8).align_y(iced::Center);
-    row![left.width(Length::Fill), buttons].spacing(12).align_y(iced::Center).into()
+    let buttons = row![publish, danger].spacing(8).align_y(iced::Center).wrap();
+    if width < 1000.0 {
+        column![left.wrap(), container(buttons).align_right(Length::Fill)].spacing(8).into()
+    } else {
+        row![left.width(Length::Fill), buttons].spacing(12).align_y(iced::Center).into()
+    }
 }
 
 pub(super) fn swatches<'a>(chosen: Option<[u8; 3]>, press: impl Fn([u8; 3]) -> Message + 'a) -> Element<'a, Message> {
@@ -262,16 +258,23 @@ pub(super) fn editor_tools<'a>(state: &'a State, editor: &'a Editor, pool: &'a P
     let missing = state.missing(pool).len();
     let versions = state.versions.iter().filter(|held| held.id == pool.id).count();
     let mut tools: Vec<Element<'a, Message>> = Vec::new();
+    let tool = |label: String, press: Option<Message>, selected: bool| -> Element<'a, Message> {
+        button(container(text(label).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None)).center_y(theme::workspace::CONTROL))
+            .padding([0, 12])
+            .style(ui::button_faded(theme::workspace::choice(selected)))
+            .on_press_maybe(press)
+            .into()
+    };
     if !pool.collection {
-        tools.push(outlined(words.t("pool-tool-categories"), Some(Message::Categories(!editor.categories))));
-        tools.push(outlined(words.t("pool-tool-backdrop"), filled.then_some(Message::BackdropPanel(!editor.backdrop))));
+        tools.push(tool(words.t("pool-tool-categories"), Some(Message::Categories(!editor.categories)), editor.categories));
+        tools.push(tool(words.t("pool-tool-backdrop"), filled.then_some(Message::BackdropPanel(!editor.backdrop)), editor.backdrop));
     }
-    tools.push(outlined(words.t("pool-command-share"), filled.then_some(Message::Share(true))));
+    tools.push(tool(words.t("pool-command-share"), filled.then_some(Message::Share(true)), editor.share));
     if missing > 0 {
-        tools.push(outlined(words.with("pool-tool-missing", &[("n", missing.to_string())]), Some(Message::FetchMissing)));
+        tools.push(tool(words.with("pool-tool-missing", &[("n", missing.to_string())]), Some(Message::FetchMissing), false));
     }
     if versions > 0 {
-        tools.push(outlined(words.t("pool-tool-history"), Some(Message::History(true))));
+        tools.push(tool(words.t("pool-tool-history"), Some(Message::History(true)), editor.history));
     }
     let line: Element<'a, Message> = row(tools).spacing(8).align_y(iced::Center).wrap().into();
     if editor.history {
@@ -357,7 +360,7 @@ pub(super) fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Wo
         .padding([0, 12])
         .style(ui::button_faded(move |_: &iced::Theme, status: button::Status| {
             let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style { background: hot.then_some(Background::Color(soft(0.08, 1.0))), text_color: INK, border: Border { color: crate::theme::outline(if own { ACCENT } else { soft(0.12, 1.0) }), width: if own { 2.0 } else { 1.0 }, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
+            button::Style { background: hot.then_some(Background::Color(theme::workspace::HOVER)), text_color: INK, border: Border { color: crate::theme::outline(if own { ACCENT } else { soft(0.12, 1.0) }), width: if own { 2.0 } else { 1.0 }, radius: 8.0.into() }, shadow: iced::Shadow::default(), snap: true }
         }))
         .on_press(Message::BackdropPick);
     let mut from = column![

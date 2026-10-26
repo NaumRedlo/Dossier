@@ -1018,6 +1018,12 @@ impl renderer::Headless for Renderer {
             .await
             .ok()?;
 
+        let info = adapter.get_info();
+        if matches!(info.device_type, wgpu::DeviceType::Cpu) {
+            log::error!("Dossier requires a hardware GPU for headless rendering; rejected {}", info.name);
+            return None;
+        }
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("iced_wgpu [headless]"),

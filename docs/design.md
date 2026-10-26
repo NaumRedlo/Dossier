@@ -1369,16 +1369,14 @@ Learned building the main screen, kept so nobody rediscovers it:
   made, and the frames are byte for byte what the stock renderer drew. A new
   iced means porting the patch, or dropping it if iced has fixed this itself.
 
-### Two renderers, one look
+### One GPU renderer
 
-The window draws with `wgpu`, which blends colours in linear light; the
-software fallback, `tiny-skia`, blends in sRGB. The translucent tokens above
-are written the way a stylesheet would write them — white 4.5 % — and read
-that way on the software renderer; the code carries their linear-light
-equivalents (white 0.77 %, black 48 %, and so on) so the window shows the same
-glass. The approved frames are always taken with the renderer the window
-uses on that machine, and a frame's file name says which; a machine without a
-GPU takes its own set rather than comparing against another renderer's.
+The window, interface tests, previews and pool-card exports use `wgpu` on a
+hardware GPU. The native build does not enable `tiny-skia`. Headless rendering
+rejects CPU adapters instead of silently switching to software Vulkan.
+Translucent colours blend in linear light, so use the shared theme tokens and
+review the result on GPU. Tests require their own reviewed `-wgpu.png` frames;
+renaming a software screenshot does not make it a GPU reference.
 
 ## What is checked by a machine
 
@@ -1386,19 +1384,17 @@ Every screen above is drawn as a pure function of its state, so every state of
 it can be drawn without a window and compared with a picture that was approved.
 
 - `tests/golden/<screen>-<state>-<size>.png` — approved frames. A frame is
-  approved once, by a person; after that any difference fails the build.
-  The default golden suite pins `tiny-skia`; `ICED_TEST_BACKEND=wgpu` selects
-  the separate GPU set when a headless GPU is available. Tests only read
+  reviewed before adoption; differences beyond the declared pixel tolerance fail.
+  The golden suite requires hardware `wgpu`. Tests only read
   references: missing or damaged PNGs fail instead of approving themselves.
   Current frames are exported separately, with their paths reported on failure.
   Gallery exports finish each PNG in a private staging directory before replacing
   its destination. See `native/tests/golden/README.md` for the review procedure.
 - States: empty, loading, ready, busy, failed, first run. Sizes: 980×720,
   1280×800, 1920×1080.
-- Invariants checked on every frame, with no picture needed: no text is
-  clipped by its box, nothing lies outside the window, every clickable thing
-  is at least 28 px tall, every text meets 4.5:1 against what it sits on, no
-  size is NaN.
+- Layout and interaction tests check selected controls for clipping, window
+  bounds and click routing. First-run frames also check the bottom edge.
+  These targeted checks do not replace visual review of all text and states.
 - `native --gallery <dir>` draws every screen in every state at every size to
   PNG, which is how the frames are reviewed before anyone runs the window.
 - Motion is checked the same way, without a window: a frame is drawn just
@@ -1408,11 +1404,12 @@ it can be drawn without a window and compared with a picture that was approved.
 
 ## The stack this assumes
 
-Rust throughout; `iced` on `wgpu`, with its software renderer as the fallback;
+Rust throughout; `iced` on hardware `wgpu`, with no software UI fallback;
 text through `cosmic-text`, which does the shaping and the fallback the
-application needs; `iced_test` for the frames above. The engine stays on the
-CPU and on `tiny-skia`, because a video for the farm must be identical on
-every machine and a GPU does not promise that. What Tauri used to provide —
+application needs; `iced_test` for the frames above. Logic and simulation tests
+remain independent of the UI renderer. The offline video engine still has CPU
+raster paths; these are not used as substitutes for UI previews or GPU tests.
+What Tauri used to provide —
 tray, dialogs, links, bundles — comes from `tray-icon`, `rfd`, `open` and
 `cargo-bundle`.
 

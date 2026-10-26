@@ -242,9 +242,6 @@ pub fn row_top(rows: &[Row], factors: &[f32], focus: Option<usize>) -> Option<f3
 
 impl Main {
     fn cover_frame(&self, hash: &str) -> Option<crate::film::Frame> {
-        if self.gallery && std::env::var("ICED_TEST_BACKEND").is_ok_and(|backend| backend != "wgpu") {
-            return None;
-        }
         if let Some(frame) = self.cover_frames.borrow().get(hash) {
             return Some(frame.clone());
         }
@@ -569,8 +566,8 @@ impl Main {
         ]
         .spacing(4);
         let segment = |label: String, on: bool, press: Message| -> Element<'_, Message> {
-            button(text(label).font(theme::SANS_SEMI).size(12.5).wrapping(text::Wrapping::None))
-                .padding([6, 12])
+            button(container(text(label).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None)).center_y(theme::workspace::CONTROL))
+                .padding([0, 12])
                 .style(ui::button_faded(theme::filter_chip(on)))
                 .on_press(press)
                 .into()
@@ -593,8 +590,8 @@ impl Main {
             column![caption("filter-group"), groups].spacing(8),
             column![caption("filter-only"), toggles].spacing(8),
             reset,
-        ].spacing(16))
-        .padding(18)
+        ].spacing(theme::workspace::GAP))
+        .padding(theme::workspace::INSET)
         .width(PANEL_WIDE.min(self.carousel_width() - 2.0 * PANEL_OUT)).id(iced::widget::Id::new("search-filters"))));
         let panel = ui::collapsing(panel, panel_k);
         container(column![line, container(panel).width(Length::Fill).align_x(iced::alignment::Horizontal::Right)].spacing(8.0 * panel_k)).padding(Padding { top: 0.0, right: PANEL_OUT, bottom: 0.0, left: PANEL_OUT }).width(Length::Fill).into()
@@ -1158,19 +1155,10 @@ fn option_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
 }
 
 fn toggle_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
-    move |_, status| {
-        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        let (fill, edge, ink) = if on {
-            (PICKED, Color { a: 0.7, ..ACCENT }, INK)
-        } else {
-            (if lit { CARD_LIT } else { CARD }, theme::GLASS_EDGE, MUTED)
-        };
-        button::Style {
-            background: Some(Background::Color(fill)),
-            text_color: ink,
-            border: Border { color: crate::theme::outline(edge), width: 1.0, radius: ((SEARCH_H - 10.0) / 2.0).into() },
-            ..button::Style::default()
-        }
+    move |theme, status| {
+        let mut style = theme::workspace::choice(on)(theme, status);
+        style.border.radius = ((SEARCH_H - 10.0) / 2.0).into();
+        style
     }
 }
 

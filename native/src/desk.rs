@@ -17,6 +17,27 @@ pub const OTHER: &str = "OTHER";
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
+pub struct Presence {
+    pub player: i64,
+    pub name: String,
+    pub section: String,
+    pub beatmap: Option<i64>,
+    pub mine: bool,
+}
+
+pub fn presence(account: &Account, section: Option<&str>, beatmap: Option<i64>) -> Result<Vec<Presence>, Failure> {
+    #[derive(Deserialize)]
+    struct Reply { people: Vec<Presence> }
+    let found: Reply = call(account, reqwest::Method::POST, "/render/admin/duels/presence", Some(json!({"section": section, "beatmap": beatmap})), None)?;
+    Ok(found.people)
+}
+
+pub fn inspect(account: &Account, beatmap: i64) -> Result<Task, Failure> {
+    call(account, reqwest::Method::GET, &format!("/render/admin/duels/maps/{beatmap}/inspect"), None, None)
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
 pub struct Odds {
     pub slot: String,
     pub probability: f32,
@@ -56,6 +77,7 @@ pub struct Map {
     pub settings: std::collections::BTreeMap<String, f32>,
     pub length: Option<f32>,
     pub plain_stars: Option<f32>,
+    pub bpm: Option<f32>,
     pub mods: Vec<String>,
 }
 
@@ -267,7 +289,7 @@ pub fn archive_lines(path: &std::path::Path) -> Vec<String> {
         }
         let field = |key: &str| raw.lines().find_map(|line| line.strip_prefix(key)).map(|value| value.trim().to_owned());
         if let Some(beatmap) = field("BeatmapID:").and_then(|value| value.parse::<i64>().ok()).filter(|id| *id > 0) {
-            found.push(format!("?? https://osu.ppy.sh/b/{beatmap} {}", field("Version:").unwrap_or_default()));
+            found.push(format!("https://osu.ppy.sh/b/{beatmap}"));
         }
     }
     found.sort();
@@ -319,8 +341,36 @@ pub fn label(account: &Account, cell: &Cell, beatmap: Option<i64>, label: &str, 
     call(account, reqwest::Method::POST, "/render/admin/duels/corpus/label", Some(body), None)
 }
 
+pub fn read_pool(text: &str) -> Vec<(String, i64)> {
+    let mut found = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for line in text.lines() {
+        let parts: Vec<_> = line.split_whitespace().collect();
+        let Some(first) = parts.first() else { continue };
+        let upper = first.to_uppercase();
+        let labelled = SLOTS.contains(&upper.as_str()) || ["NM5", "NM6", "HD1", "HD3", "HR1", "HR3", "DT3", "DT4", "FM1", "FM2", "FM3", "FM4"].contains(&upper.as_str());
+        let link = if labelled { parts.get(1).copied().unwrap_or_default() } else { first };
+        if link.contains("beatmapsets/") && !link.contains("#osu/") { continue; }
+        let tail = link.rsplit(['/', '#']).find(|part| !part.is_empty()).unwrap_or_default();
+        if let Ok(beatmap) = tail.parse::<i64>() {
+            if beatmap > 0 && seen.insert(beatmap) {
+                found.push((if labelled { upper } else { "PENDING".into() }, beatmap));
+            }
+        }
+    }
+    found
+}
+
 pub fn tournament(account: &Account, name: &str, year: i32, pool: &str, reason: &str) -> Result<Value, Failure> {
-    call(account, reqwest::Method::POST, "/render/admin/duels/corpus/tournaments", Some(json!({ "name": name, "year": year, "pool": pool, "reason": reason })), None)
+    let result: Value = call(account, reqwest::Method::POST, "/render/admin/duels/corpus/tournaments", Some(json!({ "name": name, "year": year, "pool": pool, "reason": reason })), None)?;
+    batch_reply(result, read_pool(pool).len())
+}
+
+fn batch_reply(result: Value, expected: usize) -> Result<Value, Failure> {
+    if expected == 0 || result.get("read").and_then(Value::as_u64) != Some(expected as u64) {
+        return Err(Failure::Refused { code: "BATCH_UNSUPPORTED".into(), message: String::new(), retryable: false, duel: None });
+    }
+    Ok(result)
 }
 
 pub fn publish(account: &Account, version: &str, reason: &str) -> Result<Value, Failure> {
@@ -362,6 +412,14 @@ pub fn revoke(account: &Account, player: i64, role: &str, reason: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_acknowledgement_must_account_for_every_input_map() {
+        assert!(batch_reply(json!({"read": 0, "added": 0}), 2).is_err());
+        assert!(batch_reply(json!({"read": 1, "added": 1}), 2).is_err());
+        assert!(batch_reply(json!({"read": 2, "added": 0}), 2).is_ok());
+        assert!(batch_reply(json!({"read": 2, "added": 2}), 2).is_ok());
+    }
 
     #[test]
     fn a_map_is_described_by_the_mirror_and_never_by_osu() {

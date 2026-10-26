@@ -1431,6 +1431,12 @@ impl Main {
         if self.desk.training.is_some() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance {
             parts.push(iced::time::every(Duration::from_secs(15)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Again))));
         }
+        if !self.gallery && !self.hidden && !self.minimized && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance && !self.duels.roles.is_empty() {
+            parts.push(iced::time::every(Duration::from_secs(5)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::PresenceTick))));
+            if self.desk.posting || self.desk.loading || self.desk.inspecting.is_some() {
+                parts.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::BusyFrame))));
+            }
+        }
         if self.desk.hearing.is_some() && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance {
             parts.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Heard))));
         }
@@ -1843,6 +1849,8 @@ impl Main {
                 }
                 Effect::Cell(..) if offline => Task::none(),
                 Effect::Cell(slot, band) => ui::in_thread(move || K::Held(crate::desk::cell(&account, &slot, band).map_err(|why| why.to_string()))).map(wrap),
+                Effect::Inspect(_) if offline => Task::none(),
+                Effect::Inspect(beatmap) => ui::in_thread(move || K::Inspected(beatmap, crate::desk::inspect(&account, beatmap).map_err(|why| why.to_string()))).map(wrap),
                 Effect::Open(url) => {
                     let _ = open::that(url);
                     Task::none()
@@ -3341,6 +3349,7 @@ impl Main {
                         return self.duels_work(effects);
                     }
                     C::Desk(inner) => {
+                        let poll = matches!(inner, crate::desk_screen::Message::PresenceTick);
                         if matches!(inner, crate::desk_screen::Message::Heard) {
                             if !self.duel_preview.as_ref().is_some_and(|preview| preview.ended()) {
                                 return Task::none();
@@ -3348,7 +3357,18 @@ impl Main {
                             self.desk.silent = self.duel_preview.take().filter(|preview| preview.silent()).map(|preview| preview.beatmap_id);
                         }
                         let effects = self.desk.update(inner, &self.words);
-                        return self.desk_work(effects);
+                        let work = self.desk_work(effects);
+                        let context = self.desk.presence_context();
+                        let active = !self.gallery && !self.hidden && !self.minimized && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance;
+                        if active && !self.settings.token.is_empty() && !self.duels.roles.is_empty() && !self.desk.presence_busy && (poll || self.desk.presence_sent.as_ref() != Some(&context)) {
+                            self.desk.presence_busy = true;
+                            self.desk.presence_sent = Some(context.clone());
+                            let account = crate::duels::Account { server: self.settings.server.clone(), token: self.settings.token.clone(), device: self.settings.device.clone() };
+                            let presence = ui::in_thread(move || crate::desk_screen::Message::Presence(crate::desk::presence(&account, Some(&context.0), context.1).map_err(|why| why.to_string())))
+                                .map(|message| Message::Community(C::Desk(message)));
+                            return Task::batch([work, presence]);
+                        }
+                        return work;
                     }
                     C::Pools(inner) => {
                         if let crate::pools_screen::Message::Saved(said) = &inner {

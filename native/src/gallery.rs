@@ -1370,25 +1370,28 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main
         }),
         ("main-community-balance-label".to_owned(), tabbed(Tab::Label)),
+        ("main-community-balance-relabel".to_owned(), {
+            let mut main = tabbed(Tab::Label);
+            let cell = main.desk.desk.cells.iter().find(|cell| cell.corpus == "own-v1" && cell.maps.iter().any(|map| map.verified)).unwrap().clone();
+            let map = cell.maps.iter().find(|map| map.verified).unwrap().beatmap_id;
+            main.desk.revisiting = Some((cell, map));
+            main
+        }),
+        ("main-community-balance-workers".to_owned(), {
+            let mut main = tabbed(Tab::Queue);
+            main.desk.presence = vec![
+                crate::desk::Presence { player: 1, name: "NaumRedlo".into(), section: "queue".into(), mine: true, ..Default::default() },
+                crate::desk::Presence { player: 2, name: "StarlightAlmi".into(), section: "label".into(), beatmap: Some(5687673), ..Default::default() },
+                crate::desk::Presence { player: 3, name: "Lopuhh".into(), section: "queue".into(), beatmap: Some(5687673), ..Default::default() },
+            ];
+            main
+        }),
         ("main-community-balance-tournament".to_owned(), {
             let mut main = tabbed(Tab::Label);
             main.desk.adding = true;
             main.desk.name = "Russian Cup 2024".into();
             main.desk.year_text = "2024".into();
             main.desk.pool = crate::desk_screen::Pool(iced::widget::text_editor::Content::with_text("NM1 https://osu.ppy.sh/b/1222416\nNM2 https://osu.ppy.sh/b/5379506\nNM3 https://osu.ppy.sh/b/5687673\nHD2 https://osu.ppy.sh/b/5824105\nDT1 https://osu.ppy.sh/b/5860624\nTB https://osu.ppy.sh/b/5397135"));
-            main
-        }),
-        ("main-community-balance-owc".to_owned(), {
-            let mut main = tabbed(Tab::Owc);
-            main.desk.cell = main.desk.desk.cells.iter().position(|cell| cell.stage == "finals" && cell.slot == "NM3");
-            main.desk.label = Some("NM2".into());
-            main.desk.reason = "В 2024 NM3 был стримами".into();
-            main
-        }),
-        ("main-community-balance-owc-reserve".to_owned(), {
-            let mut main = tabbed(Tab::Owc);
-            main.desk.cell = main.desk.desk.cells.iter().position(|cell| !crate::desk::SLOTS.contains(&cell.slot.as_str()) && cell.slot != "TB");
-            main.desk.label = main.desk.cell.and_then(|at| main.desk.desk.cells.get(at)).map(|cell| cell.slot.clone());
             main
         }),
         ("main-community-balance-catalog".to_owned(), {
@@ -1424,6 +1427,7 @@ fn staged_desk() -> crate::desk_screen::State {
     use crate::duels::{Seat, Wins};
     let stamp = |ago: i64| chrono::DateTime::from_timestamp(NOON - ago, 0).map(|at| at.to_rfc3339());
     let map = |id: i64, set: i64, title: &str, version: &str, mapper: &str, stars: f32| Map {
+        bpm: Some(180.0),
         beatmap_id: id, beatmapset_id: Some(set), title: Some(title.into()), artist: Some("Artist".into()), version: Some(version.into()), mapper: Some(mapper.into()), stars: Some(stars), model: None,
         settings: [("cs".to_owned(), 4.2), ("ar".to_owned(), 9.3), ("od".to_owned(), 8.8), ("hp".to_owned(), 5.5)].into_iter().collect(), length: Some(216.0), plain_stars: None, mods: Vec::new(),
     };

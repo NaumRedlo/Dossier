@@ -5646,7 +5646,7 @@ mod tests {
     #[test]
     fn sliding_highlight_retargets_from_the_visible_position_and_settles_after_resize() {
         use iced::advanced::{Widget, widget::Tree, layout::Limits, Layout, Shell, renderer::Headless};
-        let renderer = iced_test::futures::futures::executor::block_on(Renderer::new(theme::SANS, iced::Pixels(14.0), Some("tiny-skia"))).unwrap();
+        let renderer = iced_test::futures::futures::executor::block_on(<Renderer as Headless>::new(theme::SANS, iced::Pixels(14.0), Some("wgpu"))).unwrap();
         let make = |active| Slide::<()> {
             content: row![Space::new().width(80.0).height(30.0), Space::new().width(120.0).height(30.0), Space::new().width(60.0).height(30.0)].spacing(6).into(),
             active,
@@ -5682,7 +5682,7 @@ mod tests {
     #[test]
     fn a_card_whose_content_grows_takes_its_new_height_gradually() {
         use iced::advanced::{Widget, widget::Tree, layout::Limits, Layout, Shell, renderer::Headless};
-        let renderer = iced_test::futures::futures::executor::block_on(Renderer::new(theme::SANS, iced::Pixels(14.0), Some("tiny-skia"))).unwrap();
+        let renderer = iced_test::futures::futures::executor::block_on(<Renderer as Headless>::new(theme::SANS, iced::Pixels(14.0), Some("wgpu"))).unwrap();
         let of = |high: f32| Smooth::<()> { content: Space::new().width(200.0).height(high).into() };
         let mut card = of(80.0);
         let mut tree = Tree::new(&card as &dyn Widget<(), Theme, Renderer>);

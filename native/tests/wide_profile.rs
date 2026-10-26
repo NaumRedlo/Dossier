@@ -4,7 +4,7 @@ use iced_test::Simulator;
 
 #[test]
 fn profile_columns_keep_a_readable_width_on_large_displays() {
-    std::env::set_var("ICED_TEST_BACKEND", "tiny-skia");
+    std::env::set_var("ICED_TEST_BACKEND", "wgpu");
     let (_, mut main) = gallery::main_states(Lang::Ru).into_iter().find(|(name, _)| name == "main-community-profile").unwrap();
     main.width = 3024.0;
     main.height = 1600.0;
@@ -18,7 +18,7 @@ fn profile_columns_keep_a_readable_width_on_large_displays() {
 
 #[test]
 fn title_actions_only_appear_in_the_titles_tab() {
-    std::env::set_var("ICED_TEST_BACKEND", "tiny-skia");
+    std::env::set_var("ICED_TEST_BACKEND", "wgpu");
     let backdrop = dossier_native::ui::backdrop_handle();
     for section in [Section::People, Section::Boards] {
         let state = if section == Section::People { "main-community-people" } else { "main-community-boards" };
@@ -37,7 +37,7 @@ fn title_actions_only_appear_in_the_titles_tab() {
 fn a_top_play_and_a_title_in_the_profile_open_their_sheets_where_they_are() {
     use dossier_native::community_screen::{Message as C, Reading};
     use dossier_native::main_screen::Message as M;
-    std::env::set_var("ICED_TEST_BACKEND", "tiny-skia");
+    std::env::set_var("ICED_TEST_BACKEND", "wgpu");
     let (_, mut main) = gallery::main_states(Lang::Ru).into_iter().find(|(name, _)| name == "main-community-profile").unwrap();
     main.width = 1280.0;
     main.height = 1500.0;
@@ -68,7 +68,7 @@ fn a_top_play_and_a_title_in_the_profile_open_their_sheets_where_they_are() {
 fn a_sheet_opened_from_a_dossier_lies_over_it_and_another_dossier_closes_it() {
     use dossier_native::community_screen::{Message as C, Reading};
     use dossier_native::main_screen::Message as M;
-    std::env::set_var("ICED_TEST_BACKEND", "tiny-skia");
+    std::env::set_var("ICED_TEST_BACKEND", "wgpu");
     let backdrop = dossier_native::ui::backdrop_handle();
     let (_, mut main) = gallery::main_states(Lang::Ru).into_iter().find(|(name, _)| name == "main-community-person").unwrap();
     assert!(main.community_person.is_some() && !main.read_over_person);

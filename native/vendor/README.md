@@ -2,8 +2,8 @@
 
 ## iced_wgpu 0.14.0
 
-The renderer of iced 0.14, unchanged except for how it draws canvas geometry
-(meshes). It replaces the crates.io copy through `[patch.crates-io]` in
+The renderer of iced 0.14, patched for canvas geometry (meshes) and
+hardware-only headless rendering. It replaces the crates.io copy through `[patch.crates-io]` in
 `native/Cargo.toml`. The upstream licence is in `iced_wgpu/LICENSE`.
 
 ### Why
@@ -34,6 +34,8 @@ Only `src/lib.rs` (`render_meshes`, and the mesh branch of `render`),
   The frame's pass is never ended, so a layer still draws exactly where it
   did.
 - Without antialiasing the stock path is kept.
+- `Headless::new` rejects adapters with `DeviceType::Cpu`. GPU tests and card
+  exports fail if hardware is unavailable; they cannot pass via software Vulkan.
 
 Overlapping layers are in different groups, so nothing is ever copied twice
 and nothing leaks from one layer into another's pixels. A screen needs 2 to 4
@@ -45,8 +47,7 @@ groups, and the same screens cost 8 to 10 ms where they cost 17 to 25.
   after, are byte for byte the same.
 - `tests/layers.rs` stacks nine layers, canvases and translucent quads, in a
   fixed order and requires the canvases to land where quads of the same order
-  land. It fails with the grouping broken (a pixel 34 off), and passes on both
-  renderers. Run it with `ICED_TEST_BACKEND=wgpu` after touching this crate.
+  land. It fails with the grouping broken (a pixel 34 off), and now runs only on hardware `wgpu`. Run it after touching this crate.
 
 ### Upgrading iced
 

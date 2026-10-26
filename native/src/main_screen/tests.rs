@@ -1682,6 +1682,8 @@ fn nothing_of_the_pool_editor_is_shown_before_its_entrance_has_begun() {
         editor.panel = crate::pools_screen::Panel::Closed;
         editor.selected = None;
     }
+    main.scenes.clear();
+    main.scene_before = None;
     main.now = std::time::Instant::now();
     main.section_at = main.now;
     let hidden = seen(&main);
@@ -1699,6 +1701,8 @@ fn the_week_s_own_tile_comes_in_with_the_others_instead_of_standing_there_alread
     for person in main.community.as_mut().unwrap().people.iter_mut().filter(|person| person.you) {
         person.gained = Default::default();
     }
+    main.scenes.clear();
+    main.scene_before = None;
     main.now = std::time::Instant::now();
     main.section_at = main.now;
     main.shift_at = main.now;

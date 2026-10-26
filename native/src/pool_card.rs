@@ -91,7 +91,7 @@ pub fn view<'a>(pool: &'a Pool, words: &'a Words, covers: &'a HashMap<String, im
 pub fn render(pool: &Pool, words: &Words, covers: &HashMap<String, image::Handle>, backing: Option<&image::Handle>) -> Result<Vec<u8>, String> {
     let size = size(pool)?;
     let settings = crate::gallery::settings_once();
-    let mut renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(settings.default_font, settings.default_text_size, Some("tiny-skia"))).ok_or("Could not create image renderer")?;
+    let mut renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(settings.default_font, settings.default_text_size, Some("wgpu"))).ok_or("Could not create GPU image renderer")?;
     let mut element = crate::ui::fading(1.0, || view(pool, words, covers, backing));
     let mut tree = Tree::new(&element);
     let node = element.as_widget_mut().layout(&mut tree, &renderer, &layout::Limits::new(size, size));
@@ -99,7 +99,7 @@ pub fn render(pool: &Pool, words: &Words, covers: &HashMap<String, image::Handle
     renderer.reset(viewport);
     element.as_widget().draw(&tree, &mut renderer, &theme::theme(), &renderer::Style { text_color: INK }, Layout::new(&node), iced::mouse::Cursor::Unavailable, &viewport);
     let physical = Size::new((size.width * 2.0) as u32, (size.height * 2.0) as u32);
-    let pixels = renderer.screenshot(physical, 2.0, theme::GROUND);
+    let pixels = Headless::screenshot(&mut renderer, physical, 2.0, theme::GROUND);
     let mut bytes = Vec::new();
     {
         let mut encoder = png::Encoder::new(&mut bytes, physical.width, physical.height);

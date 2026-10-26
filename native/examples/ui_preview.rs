@@ -8,7 +8,12 @@ fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let name = args.next().unwrap_or_else(|| "main-prefs".to_owned());
     let out = args.next().map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir().join("dossier-gpu"));
-    let (_, mut main) = gallery::main_states(Lang::Ru).into_iter()
+    let lang = match std::env::var("DOSSIER_PREVIEW_LANG").as_deref() {
+        Ok("en-US") => Lang::En,
+        Ok("ru-RU") | Err(_) => Lang::Ru,
+        Ok(other) => return Err(format!("Unsupported preview language: {other}")),
+    };
+    let (_, mut main) = gallery::main_states(lang).into_iter()
         .find(|(candidate, _)| candidate == &name)
         .ok_or_else(|| format!("Unknown gallery frame: {name}"))?;
     let size = std::env::var("DOSSIER_PREVIEW_SIZE").ok().and_then(|said| {
@@ -64,7 +69,7 @@ fn main() -> Result<(), String> {
     } else {
         gallery::snapshot_main(&main, size).map_err(|error| format!("{error:?}"))?
     };
-    let file = gallery::write_snapshot(&shot, &out.join(format!("{name}-ru-RU-{}", size.width as u32)))?;
+    let file = gallery::write_snapshot(&shot, &out.join(format!("{name}-{}-{}", lang.tag(), size.width as u32)))?;
     println!("{}", file.display());
     Ok(())
 }

@@ -648,17 +648,20 @@ fn player_dossiers_dim_and_block_the_navigation_above_the_community() {
             std::fs::remove_file(file).unwrap();
         }
         let scale = images[0].width() as f32 / base.width;
-        let mut before = 0_u64;
-        let mut after = 0_u64;
+        let brightness = |pixel: &image::Rgba<u8>| {
+            let linear = iced::Color::from_rgb8(pixel[0], pixel[1], pixel[2]).into_linear();
+            f64::from(linear[0] + linear[1] + linear[2])
+        };
+        let mut before = 0.0;
+        let mut after = 0.0;
         for (x, y, pixel) in images[0].enumerate_pixels().filter(|(_, y, _)| *y < (60.0 * scale) as u32) {
             let bright = pixel[0] as u64 + pixel[1] as u64 + pixel[2] as u64;
             if bright > 450 {
-                before += bright;
-                let p = images[1].get_pixel(x, y);
-                after += p[0] as u64 + p[1] as u64 + p[2] as u64;
+                before += brightness(pixel);
+                after += brightness(images[1].get_pixel(x, y));
             }
         }
-        assert!(before > 0 && after * 3 < before, "logo and both navigation rows must be dimmed: {before} -> {after}");
+        assert!(before > 0.0 && after * 3.0 < before, "logo and both navigation rows must be dimmed: {before} -> {after}");
         std::fs::remove_dir(dir).unwrap();
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(base.width, base.height), gallery::main_frame(&base, &backdrop));
         ui.click(base.words.t("settings")).unwrap();
@@ -758,4 +761,19 @@ fn filters_align_with_the_right_edge_of_the_search() {
     let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
     let filters = ui.find(iced::widget::Id::new("search-filters")).unwrap().bounds();
     assert!(filters.x > 16.0, "panel aligns to the right, not the left");
+}
+
+#[test]
+fn a_batch_in_flight_shows_progress_and_cannot_be_submitted_twice() {
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let (_, mut main) = gallery::main_states(Lang::Ru).into_iter().find(|(name, _)| name == "main-community-balance-tournament").unwrap();
+    main.desk.posting = true;
+    main.desk.busy_frame = 8;
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+    assert!(ui.find(main.words.t("desk-loading")).is_ok());
+    ui.click(main.words.t("desk-loading")).unwrap();
+    if let Ok(dir) = std::env::var("DOSSIER_BATCH_REVIEW") {
+        gallery::write_snapshot(&ui.snapshot(&dossier_native::theme::theme()).unwrap(), &std::path::Path::new(&dir).join("batch-loading")).unwrap();
+    }
+    assert!(!ui.into_messages().any(|message| matches!(message, dossier_native::Message::Main(dossier_native::main_screen::Message::Community(dossier_native::community_screen::Message::Desk(dossier_native::desk_screen::Message::AddTournament))))));
 }

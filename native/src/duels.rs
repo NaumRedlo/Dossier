@@ -397,6 +397,8 @@ pub struct Seat {
     pub name: Option<String>,
     #[serde(default)]
     pub present: Option<bool>,
+    #[serde(default)]
+    pub osu_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

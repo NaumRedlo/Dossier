@@ -195,6 +195,7 @@ pub struct Entry {
     pub id: i64,
     pub actor: i64,
     pub name: Option<String>,
+    pub osu_id: Option<i64>,
     pub role: String,
     pub action: String,
     pub target: String,
@@ -209,6 +210,7 @@ pub struct Entry {
 pub struct Person {
     pub player: i64,
     pub name: Option<String>,
+    pub osu_id: Option<i64>,
     pub roles: Vec<String>,
 }
 
@@ -232,6 +234,7 @@ pub struct CorpusMap {
     pub verified: bool,
     pub file: bool,
     pub conflict: bool,
+    pub excluded: bool,
     pub title: Option<String>,
     pub artist: Option<String>,
     pub version: Option<String>,
@@ -275,6 +278,27 @@ pub struct Desk {
     pub people: Vec<Person>,
     pub versions: Vec<Version>,
     pub cells: Vec<Cell>,
+    pub batches: Vec<Batch>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Author {
+    pub player: i64,
+    pub name: Option<String>,
+    pub osu_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Batch {
+    pub name: String,
+    pub year: i32,
+    pub maps: u32,
+    pub labelled: u32,
+    pub excluded: u32,
+    pub author: Option<Author>,
+    pub added_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -291,12 +315,46 @@ pub struct About {
     pub standard: bool,
 }
 
+pub const MIRROR_AGENT: &str = concat!("Dossier/", env!("CARGO_PKG_VERSION"), " (+https://github.com/NaumRedlo/Dossier)");
+
 pub fn about_address(beatmap: i64) -> String {
     format!("https://catboy.best/api/v2/b/{beatmap}")
 }
 
+pub fn spare_address(beatmap: i64) -> String {
+    format!("https://osu.direct/api/v2/b/{beatmap}")
+}
+
+pub fn spare_set_address(set: i64) -> String {
+    format!("https://osu.direct/api/v2/s/{set}")
+}
+
+pub fn looked_up(beatmap: i64) -> Option<Value> {
+    let client = crate::bot::client().ok()?;
+    let get = |address: String| -> Option<Value> {
+        let response = client.get(address).header("User-Agent", MIRROR_AGENT).send().ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        response.json::<Value>().ok()
+    };
+    let ours = |found: &Value| found.get("id").and_then(Value::as_i64) == Some(beatmap);
+    if let Some(found) = get(about_address(beatmap)).filter(ours) {
+        return Some(found);
+    }
+    let mut found = get(spare_address(beatmap)).filter(ours)?;
+    if found.get("set").is_none() && found.get("beatmapset").is_none() {
+        if let Some(set) = found.get("beatmapset_id").and_then(Value::as_i64).and_then(|set| get(spare_set_address(set))) {
+            found["set"] = set;
+        }
+    }
+    Some(found)
+}
+
 pub fn read_about(found: &Value) -> Option<About> {
-    let set = found.get("set").or_else(|| found.get("beatmapset"))?;
+    found.get("id").or_else(|| found.get("set")).or_else(|| found.get("beatmapset"))?;
+    let none = Value::Object(serde_json::Map::new());
+    let set = found.get("set").or_else(|| found.get("beatmapset")).unwrap_or(&none);
     let text = |value: Option<&Value>| value.and_then(Value::as_str).unwrap_or_default().to_owned();
     let mapper = found.get("owners").and_then(Value::as_array).and_then(|owners| owners.first()).and_then(|owner| owner.get("username")).and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| text(set.get("creator")));
     Some(About {
@@ -314,18 +372,29 @@ pub fn read_about(found: &Value) -> Option<About> {
 }
 
 pub fn about(beatmap: i64) -> Option<About> {
-    let client = crate::bot::client().ok()?;
-    let response = client.get(about_address(beatmap)).header("User-Agent", "Dossier").send().ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    read_about(&response.json::<Value>().ok()?)
+    read_about(&looked_up(beatmap)?)
 }
 
-pub fn archive_lines(path: &std::path::Path) -> Vec<String> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Packed {
+    pub beatmap: i64,
+    pub version: String,
+    pub stars: Option<f32>,
+    pub standard: bool,
+}
+
+pub fn read_packed(raw: &str) -> Option<Packed> {
+    let field = |key: &str| raw.lines().find_map(|line| line.strip_prefix(key)).map(|value| value.trim().to_owned());
+    let beatmap = field("BeatmapID:").and_then(|value| value.parse::<i64>().ok()).filter(|id| *id > 0)?;
+    let standard = field("Mode:").is_none_or(|mode| mode == "0");
+    let stars = standard.then(|| crate::pools::measure_text(raw, crate::pools::Mod::Nm).ok()).flatten().map(|measure| measure.stars as f32);
+    Some(Packed { beatmap, version: field("Version:").unwrap_or_default(), stars, standard })
+}
+
+pub fn archive_maps(path: &std::path::Path) -> Vec<Packed> {
     let Ok(file) = std::fs::File::open(path) else { return Vec::new() };
     let Ok(mut bundle) = zip::ZipArchive::new(file) else { return Vec::new() };
-    let mut found = Vec::new();
+    let mut found: Vec<Packed> = Vec::new();
     for at in 0..bundle.len() {
         let Ok(mut entry) = bundle.by_index(at) else { continue };
         if !entry.name().to_lowercase().ends_with(".osu") || entry.size() > 8 * 1024 * 1024 {
@@ -335,12 +404,11 @@ pub fn archive_lines(path: &std::path::Path) -> Vec<String> {
         if std::io::Read::read_to_string(&mut entry, &mut raw).is_err() {
             continue;
         }
-        let field = |key: &str| raw.lines().find_map(|line| line.strip_prefix(key)).map(|value| value.trim().to_owned());
-        if let Some(beatmap) = field("BeatmapID:").and_then(|value| value.parse::<i64>().ok()).filter(|id| *id > 0) {
-            found.push(format!("https://osu.ppy.sh/b/{beatmap}"));
+        if let Some(packed) = read_packed(&raw).filter(|packed| found.iter().all(|held| held.beatmap != packed.beatmap)) {
+            found.push(packed);
         }
     }
-    found.sort();
+    found.sort_by(|a, b| b.standard.cmp(&a.standard).then(b.stars.unwrap_or(-1.0).total_cmp(&a.stars.unwrap_or(-1.0))));
     found
 }
 
@@ -370,6 +438,9 @@ pub fn load(account: &Account, roles: &[String]) -> Result<Desk, Failure> {
     }
     if allows(roles, OPERATOR) {
         desk.stuck = listed(account, "/render/admin/duels/stuck", "duels")?;
+    }
+    if allows(roles, OWNER) {
+        desk.batches = listed(account, "/render/admin/duels/corpus/batches", "batches").unwrap_or_default();
     }
     desk.journal = listed(account, "/render/admin/duels/journal", "entries")?;
     desk.people = listed(account, "/render/admin/duels/people", "people")?;
@@ -448,6 +519,21 @@ pub fn add_map(account: &Account, beatmap: i64, slot: Option<&str>, reason: &str
     crate::duels::call_within(account, reqwest::Method::POST, "/render/admin/duels/catalog/maps", Some(body), None, Some(ADD_PATIENCE))
 }
 
+pub fn rename_batch(account: &Account, name: &str, year: i32, new_name: &str, new_year: i32, reason: &str) -> Result<Value, Failure> {
+    let body = json!({ "name": name, "year": year, "new_name": new_name, "new_year": new_year, "reason": reason });
+    call(account, reqwest::Method::POST, "/render/admin/duels/corpus/batches/rename", Some(body), None)
+}
+
+pub fn delete_batch(account: &Account, name: &str, year: i32, beatmap: Option<i64>, reason: &str) -> Result<Value, Failure> {
+    let body = json!({ "name": name, "year": year, "beatmap_id": beatmap, "reason": reason });
+    call(account, reqwest::Method::POST, "/render/admin/duels/corpus/batches/delete", Some(body), None)
+}
+
+pub fn exclude_batch(account: &Account, name: &str, year: i32, beatmap: Option<i64>, excluded: bool, reason: &str) -> Result<Value, Failure> {
+    let body = json!({ "name": name, "year": year, "beatmap_id": beatmap, "excluded": excluded, "reason": reason });
+    call(account, reqwest::Method::POST, "/render/admin/duels/corpus/batches/exclude", Some(body), None)
+}
+
 pub fn tournament(account: &Account, name: &str, year: i32, pool: &str, reason: &str) -> Result<Value, Failure> {
     let result: Value = call(account, reqwest::Method::POST, "/render/admin/duels/corpus/tournaments", Some(json!({ "name": name, "year": year, "pool": pool, "reason": reason })), None)?;
     batch_reply(result, read_pool(pool).len())
@@ -519,6 +605,25 @@ mod tests {
         assert_eq!(read_about(&loved).map(|about| (about.status, about.standard)), Some(("loved".to_owned(), true)));
         let mania = serde_json::json!({ "mode": "mania", "set": { "title": "Keys", "status": "graveyard" } });
         assert_eq!(read_about(&mania).map(|about| (about.status, about.standard)), Some(("graveyard".to_owned(), false)));
+    }
+
+    #[test]
+    #[ignore = "asks the real mirrors"]
+    fn a_real_map_is_described_by_whichever_mirror_answers() {
+        let about = about(5687673).expect("one of the mirrors answers");
+        assert_eq!((about.title.as_str(), about.set), ("HOT LIMIT", Some(2300330)));
+        assert!(crate::mapper_faces::owner(&looked_up(5687673).unwrap()).is_some());
+    }
+
+    #[test]
+    fn a_difficulty_in_an_archive_is_read_with_its_mode_and_stars() {
+        let standard = "osu file format v14\n\n[General]\nMode: 0\n\n[Metadata]\nVersion:Extra\nBeatmapID:77\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:8\nApproachRate:9\nSliderMultiplier:1.4\nSliderTickRate:1\n\n[TimingPoints]\n0,250,4,2,0,60,1,0\n\n[HitObjects]\n100,100,1000,1,0,0:0:0:0:\n300,200,1250,1,0,0:0:0:0:\n100,300,1500,1,0,0:0:0:0:\n";
+        let packed = read_packed(standard).expect("a difficulty");
+        assert_eq!((packed.beatmap, packed.version.as_str(), packed.standard), (77, "Extra", true));
+        assert!(packed.stars.is_some_and(|stars| stars > 0.0));
+        let mania = read_packed(&standard.replace("Mode: 0", "Mode: 3")).expect("a difficulty");
+        assert_eq!((mania.standard, mania.stars), (false, None));
+        assert_eq!(read_packed(&standard.replace("BeatmapID:77", "BeatmapID:0")), None);
     }
 
     #[test]

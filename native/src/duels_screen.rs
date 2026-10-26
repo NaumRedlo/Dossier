@@ -706,6 +706,13 @@ pub(crate) fn person<'a, M: 'a>(name: &str, side: f32) -> Element<'a, M> {
     face(name, side, 2.0)
 }
 
+pub(crate) fn player_face<'a, M: 'a>(name: &str, osu_id: Option<i64>, side: f32) -> Element<'a, M> {
+    match osu_id.and_then(crate::mapper_faces::of_player) {
+        Some(handle) => iced::widget::image(handle).content_fit(iced::ContentFit::Cover).width(side).height(side).border_radius(side / 2.0).opacity(ui::fade()).into(),
+        None => person(name, side),
+    }
+}
+
 pub(crate) fn mapper_face<'a, M: 'a>(name: &str, beatmap: i64, side: f32) -> Element<'a, M> {
     match crate::mapper_faces::of(beatmap) {
         Some(handle) => iced::widget::image(handle).content_fit(iced::ContentFit::Cover).width(side).height(side).border_radius(side / 2.0).opacity(ui::fade()).into(),

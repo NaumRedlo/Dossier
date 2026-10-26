@@ -1631,7 +1631,7 @@ fn secondary_row<'a>(w: &Words, state: &State, task: &Task, k: f32) -> Element<'
     let chosen = state.secondary_for(task);
     let hint = task.map.model.as_ref().and_then(|guess| {
         guess.top.iter().filter(|odds| odds.slot != desk::OTHER && Some(&odds.slot) != primary.as_ref())
-            .max_by(|a, b| a.probability.total_cmp(&b.probability)).filter(|odds| odds.probability >= 0.2).cloned()
+            .max_by(|a, b| a.probability.total_cmp(&b.probability)).filter(|odds| odds.probability >= 0.25).cloned()
     });
     let mut chips = row![].spacing(6).align_y(Alignment::Center);
     for slot in desk::SLOTS.iter().map(|slot| (*slot).to_owned()).chain(state.reserve()) {

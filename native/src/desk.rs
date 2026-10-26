@@ -141,6 +141,40 @@ pub struct Held {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
+pub struct StuckRoom {
+    pub match_id: Option<i64>,
+    pub name: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct StuckRound {
+    pub ordinal: u32,
+    pub slot: String,
+    pub state: String,
+    pub beatmap_id: Option<i64>,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Happened {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub reason: Option<String>,
+    pub at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Due {
+    pub kind: String,
+    pub at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
 pub struct Stuck {
     pub id: String,
     pub state: String,
@@ -149,6 +183,10 @@ pub struct Stuck {
     pub wins: Wins,
     pub mode: String,
     pub players: Vec<Seat>,
+    pub room: Option<StuckRoom>,
+    pub round: Option<StuckRound>,
+    pub events: Vec<Happened>,
+    pub deadline: Option<Due>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -162,6 +200,7 @@ pub struct Entry {
     pub target: String,
     pub reason: String,
     pub at: Option<String>,
+    pub before: Value,
     pub after: Value,
 }
 
@@ -335,6 +374,17 @@ pub fn load(account: &Account, roles: &[String]) -> Result<Desk, Failure> {
     desk.journal = listed(account, "/render/admin/duels/journal", "entries")?;
     desk.people = listed(account, "/render/admin/duels/people", "people")?;
     Ok(desk)
+}
+
+pub fn match_of(said: &str) -> Option<i64> {
+    let said = said.trim().trim_end_matches('/');
+    let tail = said.rsplit('/').next()?;
+    let known = said.contains("osu.ppy.sh/community/matches/") || said.contains("osu.ppy.sh/mp/") || said == tail;
+    tail.parse::<i64>().ok().filter(|found| known && *found > 0)
+}
+
+pub fn journal_before(account: &Account, before: i64) -> Result<Vec<Entry>, Failure> {
+    listed(account, &format!("/render/admin/duels/journal?before={before}"), "entries")
 }
 
 pub fn cell(account: &Account, slot: &str, band: usize) -> Result<Vec<Held>, Failure> {

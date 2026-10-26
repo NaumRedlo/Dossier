@@ -395,6 +395,8 @@ pub struct Seat {
     pub side: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub present: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

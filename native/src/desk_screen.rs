@@ -87,6 +87,48 @@ impl Filter {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Kind {
+    #[default]
+    All,
+    Maps,
+    Labels,
+    Model,
+    Duels,
+    People,
+}
+
+impl Kind {
+    const ALL: [Kind; 6] = [Kind::All, Kind::Maps, Kind::Labels, Kind::Model, Kind::Duels, Kind::People];
+
+    fn of(action: &str) -> Kind {
+        match action {
+            "discover" => Kind::Maps,
+            "corpus_label" | "add_tournament" => Kind::Labels,
+            "publish_model" | "rollback_model" | "train_model" | "delete_model" => Kind::Model,
+            "cancel" | "manual_finalize" => Kind::Duels,
+            "grant" | "revoke" => Kind::People,
+            other if other.starts_with("map_") => Kind::Maps,
+            _ => Kind::All,
+        }
+    }
+
+    fn holds(self, action: &str) -> bool {
+        self == Kind::All || Kind::of(action) == self
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Kind::All => "desk-kind-all",
+            Kind::Maps => "desk-kind-maps",
+            Kind::Labels => "desk-kind-labels",
+            Kind::Model => "desk-kind-model",
+            Kind::Duels => "desk-kind-duels",
+            Kind::People => "desk-kind-people",
+        }
+    }
+}
+
 pub struct Pool(pub text_editor::Content);
 
 impl Default for Pool {
@@ -137,6 +179,7 @@ pub enum Effect {
     Open(String),
     Inspect(i64),
     AddMap { beatmap: i64, slot: Option<String>, reason: String },
+    Older(i64),
 }
 
 #[derive(Debug, Clone)]
@@ -203,6 +246,11 @@ pub enum Message {
     MapSlot(Option<String>),
     AddMap,
     MapAdded(i64, Result<desk::Added, String>),
+    JournalKind(Kind),
+    JournalPerson(Option<i64>),
+    JournalMore,
+    JournalOlder(Result<Vec<desk::Entry>, String>),
+    OpenMatch(i64),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -268,6 +316,11 @@ pub struct State {
     pub map_failed: Option<String>,
     pub missing: HashSet<i64>,
     pub added: Option<i64>,
+    pub journal_kind: Kind,
+    pub journal_person: Option<i64>,
+    pub journal_more: bool,
+    pub journal_end: bool,
+    pub finalize_sure: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -371,6 +424,25 @@ impl State {
             }
         }
         effects
+    }
+
+    fn take_desk(&mut self, mut desk: Desk) {
+        if let Some(least) = desk.journal.iter().map(|entry| entry.id).min() {
+            desk.journal.extend(self.desk.journal.iter().filter(|entry| entry.id < least).cloned());
+        }
+        self.desk = desk;
+    }
+
+    fn prefill_match(&mut self) {
+        if self.match_id.is_empty() {
+            if let Some(found) = self.stuck_shown().and_then(|duel| duel.room.as_ref()).and_then(|room| room.match_id) {
+                self.match_id = found.to_string();
+            }
+        }
+    }
+
+    fn journal_shown(&self) -> Vec<&desk::Entry> {
+        self.desk.journal.iter().filter(|entry| self.journal_kind.holds(&entry.action) && self.journal_person.is_none_or(|player| entry.actor == player)).collect()
     }
 
     fn post(&mut self, post: Post) -> Vec<Effect> {
@@ -481,7 +553,7 @@ impl State {
                 let label_map = self.next_map().map(|(_, map)| map.beatmap_id);
                 let selected = self.task().map(|task| task.map.beatmap_id);
                 let batch = self.tournaments().get(self.tournament.unwrap_or(0)).cloned();
-                self.desk = desk;
+                self.take_desk(desk);
                 if let Some(batch) = batch {
                     self.tournament = self.tournaments().iter().position(|held| *held == batch);
                 }
@@ -630,7 +702,8 @@ impl State {
                             self.training = None;
                         }
                         self.refresh_failed = false;
-                        self.desk = desk;
+                        self.take_desk(desk);
+                        self.prefill_match();
                         if let Some((name, year)) = self.pending_batch.take() {
                             self.tournament = self.tournaments().iter().position(|batch| batch.corpus == "own-v1" && batch.year == year && batch.stage.as_deref() == Some(&name));
                             self.revisiting = None;
@@ -652,6 +725,9 @@ impl State {
                     self.adding = false;
                 }
                 self.tab = tab;
+                if tab == Tab::Duels {
+                    self.prefill_match();
+                }
                 self.picking = false;
                 self.failed = None;
                 let sets: Vec<Option<i64>> = match tab {
@@ -711,6 +787,7 @@ impl State {
                         self.reason.clear();
                         self.moving = false;
                         self.confirming = false;
+                        self.finalize_sure = false;
                         self.picked = None;
                         self.label = None;
                         self.match_id.clear();
@@ -831,24 +908,61 @@ impl State {
             }
             Message::Stuck(duel) => {
                 self.confirming = false;
+                self.finalize_sure = false;
                 self.stuck = Some(duel);
                 self.match_id.clear();
                 self.game_id.clear();
+                self.prefill_match();
                 Vec::new()
             }
             Message::MatchId(said) => {
-                self.match_id = said.chars().filter(char::is_ascii_digit).collect();
+                self.match_id = crate::desk::match_of(&said).map(|found| found.to_string()).unwrap_or_else(|| said.chars().filter(char::is_ascii_digit).collect());
+                self.finalize_sure = false;
                 Vec::new()
             }
             Message::GameId(said) => {
                 self.game_id = said.chars().filter(char::is_ascii_digit).collect();
+                self.finalize_sure = false;
                 Vec::new()
             }
             Message::Finalize => {
                 let Some(duel) = self.stuck_shown().map(|found| found.id.clone()) else { return Vec::new() };
                 let (Ok(match_id), Ok(game_id)) = (self.match_id.parse::<i64>(), self.game_id.parse::<i64>()) else { return Vec::new() };
+                if !self.finalize_sure {
+                    self.finalize_sure = true;
+                    return Vec::new();
+                }
+                self.finalize_sure = false;
                 let reason = self.reason.trim().to_owned();
                 self.post(Post::Finalize { duel, match_id, game_id, reason })
+            }
+            Message::OpenMatch(match_id) => vec![Effect::Open(format!("https://osu.ppy.sh/community/matches/{match_id}"))],
+            Message::JournalKind(kind) => {
+                self.journal_kind = kind;
+                Vec::new()
+            }
+            Message::JournalPerson(player) => {
+                self.journal_person = player;
+                Vec::new()
+            }
+            Message::JournalMore => {
+                let Some(least) = self.desk.journal.iter().map(|entry| entry.id).min() else { return Vec::new() };
+                if self.journal_more || self.journal_end { return Vec::new(); }
+                self.journal_more = true;
+                vec![Effect::Older(least)]
+            }
+            Message::JournalOlder(found) => {
+                self.journal_more = false;
+                match found {
+                    Ok(older) => {
+                        let least = self.desk.journal.iter().map(|entry| entry.id).min().unwrap_or(i64::MAX);
+                        let fresh: Vec<_> = older.into_iter().filter(|entry| entry.id < least).collect();
+                        self.journal_end = fresh.is_empty();
+                        self.desk.journal.extend(fresh);
+                    }
+                    Err(why) => self.failed = Some(why),
+                }
+                Vec::new()
             }
             Message::CancelDuel => {
                 let Some(duel) = self.stuck_shown().map(|found| found.id.clone()) else { return Vec::new() };
@@ -1370,6 +1484,11 @@ fn spare_slots<'a>(w: &Words, state: &State, decision: &'static str, ready: bool
         chips = chips.push(if ready { made.on_press(Message::Decide(decision, Some(slot))) } else { made });
     }
     column![words(w.t("desk-reserve"), 13.0 * k, FAINT), chips.wrap().vertical_spacing(6)].spacing(6).into()
+}
+
+fn first_upper(said: &str) -> String {
+    let mut letters = said.chars();
+    letters.next().map(|first| first.to_uppercase().chain(letters).collect()).unwrap_or_default()
 }
 
 fn first_lower(said: &str) -> String {
@@ -2033,57 +2152,6 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
     row![aside, panel(page.into())].spacing(14).height(Length::Fill).into()
 }
 
-fn duels_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a, Message> {
-    let shown = state.stuck_shown().map(|found| found.id.clone());
-    let mut list = column![heading_k(k, w.t("desk-stuck"))].spacing(8);
-    for duel in &state.desk.stuck {
-        let on = Some(&duel.id) == shown.as_ref();
-        let names: Vec<String> = duel.players.iter().map(|seat| seat.name.clone().unwrap_or_default()).collect();
-        let a = names.first().cloned().unwrap_or_default();
-        let b = names.get(1).cloned().unwrap_or_default();
-        let faces = stack![row![person(&a, 32.0 * k)], row![Space::new().width(24.0 * k), person(&b, 32.0 * k)]].width(56.0 * k).height(32);
-        let inside = row![
-            faces,
-            column![strong(w.with("desk-pair", &[("a", a), ("b", b)]), 15.0 * k, INK), strong(w.with(&format!("desk-stuck-{}", duel.reason.replace('_', "-")), &[("waited", ago(w, duel.since.as_deref(), now))]), 13.0 * k, if duel.reason == "verifying" { UNSURE } else { BAD })].spacing(2).width(Length::Fill),
-            bold(format!("{} : {}", duel.wins.a, duel.wins.b), 15.0 * k, INK),
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center);
-        let fill = if on { LIT } else { ROW };
-        list = list.push(tile(fill, on.then_some((PICKED, 1.5)), inside.into(), Some(Message::Stuck(duel.id.clone()))));
-    }
-    if state.desk.stuck.is_empty() {
-        list = list.push(words(w.t(if state.loading { "desk-loading" } else { "desk-stuck-none" }), 14.0 * k, FAINT));
-    }
-    let aside = container(scrollable(list).direction(ui::hidden_bar())).padding(18).width(300.0 * k).height(Length::Fill).style(theme::slab);
-    let Some(duel) = state.stuck_shown() else { return row![aside, panel(Space::new().into())].spacing(14).height(Length::Fill).into() };
-    let a = duel.players.first().and_then(|seat| seat.name.clone()).unwrap_or_default();
-    let b = duel.players.get(1).and_then(|seat| seat.name.clone()).unwrap_or_default();
-    let head = container(row![
-        container(row![person(&a, 42.0 * k), strong(a.clone(), 18.0 * k, crate::duels_screen::SIDE_A)].spacing(14).align_y(Alignment::Center)).width(Length::Fill),
-        column![bold(format!("{} : {}", duel.wins.a, duel.wins.b), 34.0 * k, INK), words(w.with("desk-round", &[("round", (duel.wins.a + duel.wins.b + 1).to_string())]), 13.0 * k, FAINT)].spacing(2).align_x(Alignment::Center),
-        container(row![strong(b.clone(), 18.0 * k, crate::duels_screen::SIDE_B), person(&b, 42.0 * k)].spacing(14).align_y(Alignment::Center)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right),
-    ].align_y(Alignment::Center))
-    .padding([12, 20])
-    .width(Length::Fill)
-    .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 16.0.into(), ..Border::default() }, ..container::Style::default() });
-    let warning = container(row![glyph(Icon::Clock, 20.0 * k, UNSURE), words(w.with(&format!("desk-stuck-{}-note", duel.reason.replace('_', "-")), &[("round", (duel.wins.a + duel.wins.b + 1).to_string()), ("waited", ago(w, duel.since.as_deref(), now))]), 15.0 * k, MUTED)].spacing(12).align_y(Alignment::Center))
-        .padding([12, 16])
-        .width(Length::Fill)
-        .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default() });
-    let ready = !state.posting;
-    let numbers = !state.match_id.is_empty() && !state.game_id.is_empty();
-    let detail = panel(column![
-        head,
-        warning,
-        row![labelled_k(k, w.t("desk-match"), field_kk(k, String::new(), &state.match_id, Message::MatchId)), labelled_k(k, w.t("desk-game"), field_kk(k, String::new(), &state.game_id, Message::GameId))].spacing(10),
-        labelled_k(k, w.t("desk-reason"), field_kk(k, w.t("desk-reason-hint"), &state.reason, Message::Reason)),
-        Space::new().height(Length::Fill),
-        row![container(main_button_kk(k, w.t("desk-finalize"), (ready && numbers).then_some(Message::Finalize))).width(Length::Shrink), container(line_button_k(w.t(if state.confirming { "desk-cancel-sure" } else { "desk-cancel-duel" }), ready.then_some(Message::CancelDuel), k)).width(Length::Shrink)].spacing(10),
-    ].spacing(16).into());
-    row![aside, detail].spacing(14).height(Length::Fill).into()
-}
-
 fn role_name(w: &Words, role: &str) -> String {
     w.t(&format!("desk-role-{}", role.to_lowercase().replace('_', "-")))
 }
@@ -2134,27 +2202,255 @@ fn did(w: &Words, state: &State, entry: &desk::Entry) -> String {
     w.with(&key, &[("target", target)])
 }
 
-fn journal_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a, Message> {
-    let mut log = column![container(heading_k(k, w.t("desk-journal"))).padding(Padding { bottom: 8.0, ..Padding::ZERO })].spacing(0);
-    for entry in &state.desk.journal {
-        let name = entry.name.clone().unwrap_or_else(|| entry.actor.to_string());
-        let what = did(w, state, entry);
-        let line = row![
-            row![person(&name, 28.0 * k), strong(name.clone(), 14.0 * k, INK)].spacing(8).width(150.0 * k).align_y(Alignment::Center),
-            container(words(role_name(w, &entry.role), 13.0 * k, FAINT)).width(110.0 * k),
-            column![strong(what, 14.0 * k, INK), words(entry.reason.clone(), 13.0 * k, FAINT)].spacing(2).width(Length::Fill),
-            container(words(ago(w, entry.at.as_deref(), now), 13.0 * k, FAINT)).width(80.0 * k).align_x(iced::alignment::Horizontal::Right),
+fn spoken(w: &Words, key: &str, fallback: &str) -> String {
+    let said = w.t(key);
+    if said == format!("[{key}]") { fallback.to_owned() } else { said }
+}
+
+fn unix_of(stamp: Option<&str>) -> Option<i64> {
+    stamp.and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok()).map(|at| at.timestamp())
+}
+
+fn mark_of(action: &str) -> (Icon, Color) {
+    match action {
+        "map_approve" => (Icon::Check, GOOD),
+        "map_move" => (Icon::Right, UNSURE),
+        "map_reject" => (Icon::Ban, BAD),
+        "map_quarantine" => (Icon::Warn, UNSURE),
+        "map_add" => (Icon::Plus, GOOD),
+        "discover" => (Icon::Search, MUTED),
+        "corpus_label" | "add_tournament" => (Icon::Shapes, MUTED),
+        "publish_model" | "rollback_model" | "train_model" | "delete_model" => (Icon::Chart, INK),
+        "cancel" | "manual_finalize" => (Icon::Swords, BAD),
+        "grant" | "revoke" => (Icon::People, MUTED),
+        _ => (Icon::Circle, FAINT),
+    }
+}
+
+fn badge<'a>(icon: Icon, colour: Color, k: f32) -> Element<'a, Message> {
+    container(glyph(icon, 16.0 * k, colour)).center_x(34.0 * k).center_y(34.0 * k).style(move |_| container::Style {
+        background: Some(Background::Color(ui::mix(colour, theme::GROUND, 0.82))),
+        border: Border { radius: (17.0 * k).into(), ..Border::default() },
+        ..container::Style::default()
+    }).into()
+}
+
+fn journal_row<'a>(w: &Words, state: &'a State, entry: &desk::Entry, open: bool, k: f32) -> Element<'a, Message> {
+    let (icon, colour) = mark_of(&entry.action);
+    let mut meta = vec![entry.name.clone().unwrap_or_else(|| entry.actor.to_string()), role_name(w, &entry.role)];
+    if let Some(at) = unix_of(entry.at.as_deref()) {
+        meta.push(w.clock(at));
+    }
+    let beatmap = entry.action.starts_with("map_").then(|| entry.target.parse::<i64>().ok()).flatten();
+    let about = beatmap.and_then(|id| state.about(id));
+    let headline: Element<'a, Message> = match beatmap {
+        Some(id) => {
+            let slot_of = |value: &serde_json::Value| value.get("slot").and_then(serde_json::Value::as_str).map(str::to_owned);
+            let mut line = row![strong(spoken(w, &format!("desk-verb-{}", entry.action.replace('_', "-")), &entry.action), 14.0 * k, INK)].spacing(8).align_y(Alignment::Center);
+            match (slot_of(&entry.before), slot_of(&entry.after)) {
+                (Some(from), Some(to)) if from != to => line = line.push(tag(&from, k)).push(glyph(Icon::Right, 14.0 * k, FAINT)).push(tag(&to, k)),
+                (_, Some(to)) => line = line.push(tag(&to, k)),
+                _ => {}
+            }
+            let title = about.map(|found| found.title.clone()).filter(|title| !title.is_empty()).unwrap_or_else(|| format!("#{id}"));
+            let named = match about.map(|found| found.version.clone()).filter(|version| !version.is_empty()) {
+                Some(version) => format!("{title} [{version}]"),
+                None => title,
+            };
+            line.push(one_line(named, 14.0 * k, INK, theme::SANS)).into()
+        }
+        None => strong(did(w, state, entry), 14.0 * k, INK),
+    };
+    let mut text = column![headline, words(meta.join(" · "), 12.0 * k, FAINT)].spacing(3).width(Length::Fill);
+    if !entry.reason.trim().is_empty() {
+        text = text.push(words(w.with("desk-quoted", &[("text", entry.reason.trim().to_owned())]), 13.0 * k, MUTED));
+    }
+    let mut line = row![badge(icon, colour, k), text].spacing(12).align_y(Alignment::Center);
+    if let Some(set) = about.and_then(|found| found.set) {
+        line = line.push(cover(state, Some(set), 64.0 * k, 38.0 * k, 7.0));
+    }
+    let made = container(line).padding([10.0 * k, 12.0 * k]).width(Length::Fill);
+    match beatmap.filter(|_| open && !state.posting) {
+        Some(id) => button(made).padding(0).style(|_, status| button::Style {
+            background: matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(workspace::HOVER)),
+            text_color: INK,
+            border: Border { radius: theme::CONTROL_RADIUS.into(), ..Border::default() },
+            ..button::Style::default()
+        }).on_press(Message::Inspect(id)).into(),
+        None => made.into(),
+    }
+}
+
+fn journal_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f32) -> Element<'a, Message> {
+    let open = desk::allows(roles, desk::REVIEWER);
+    let mut chips = row![].spacing(6);
+    for kind in Kind::ALL {
+        let count = state.desk.journal.iter().filter(|entry| kind.holds(&entry.action) && state.journal_person.is_none_or(|player| entry.actor == player)).count();
+        chips = chips.push(chip_k(format!("{} {count}", w.t(kind.key())), state.journal_kind == kind, Message::JournalKind(kind), k));
+    }
+    if let Some(player) = state.journal_person {
+        let name = state.desk.people.iter().find(|person| person.player == player).and_then(|person| person.name.clone())
+            .or_else(|| state.desk.journal.iter().find(|entry| entry.actor == player).and_then(|entry| entry.name.clone()))
+            .unwrap_or_else(|| player.to_string());
+        let inside = row![words(name, 13.0 * k, INK), glyph(Icon::Close, 12.0 * k, MUTED)].spacing(6).align_y(Alignment::Center);
+        chips = chips.push(button(container(inside).center_y(30.0 * k)).padding([0.0, 12.0 * k]).style(workspace::choice(true)).on_press(Message::JournalPerson(None)));
+    }
+    let shown = state.journal_shown();
+    let mut log = column![].spacing(2);
+    let mut day: Option<String> = None;
+    for entry in &shown {
+        let label = unix_of(entry.at.as_deref()).map(|at| first_upper(&if w.days_back(at, now) == 1 { w.t("desk-yesterday") } else { w.day(at, now) }));
+        if label != day {
+            if let Some(said) = &label {
+                log = log.push(container(strong(said.clone(), 13.0 * k, MUTED)).padding(Padding { top: 14.0 * k, bottom: 4.0 * k, left: 12.0 * k, right: 0.0 }));
+            }
+            day = label;
+        }
+        log = log.push(journal_row(w, state, entry, open, k));
+    }
+    if shown.is_empty() {
+        let said = if state.loading { "desk-loading" } else if state.desk.journal.is_empty() { "desk-journal-empty" } else { "desk-journal-none-here" };
+        log = log.push(container(words(w.t(said), 14.0 * k, FAINT)).padding(12));
+    }
+    if !state.desk.journal.is_empty() && !state.journal_end {
+        let more = line_button_k(w.t(if state.journal_more { "desk-loading" } else { "desk-journal-more" }), (!state.journal_more).then_some(Message::JournalMore), k);
+        log = log.push(container(container(more).width(240.0 * k)).center_x(Length::Fill).padding([12, 0]));
+    }
+    let main = panel(column![heading_k(k, w.t("desk-journal")), chips.wrap().vertical_spacing(6), scrollable(log).direction(ui::hidden_bar()).height(Length::Fill)].spacing(12).into());
+    let mut people = column![heading_k(k, w.t("desk-journal-who")), words(w.t("desk-journal-who-hint"), 12.0 * k, FAINT)].spacing(8);
+    for held in &state.desk.people {
+        let name = held.name.clone().unwrap_or_else(|| held.player.to_string());
+        let count = state.desk.journal.iter().filter(|entry| entry.actor == held.player).count();
+        let on = state.journal_person == Some(held.player);
+        let roles = held.roles.iter().map(|role| role_name(w, role)).collect::<Vec<_>>().join(", ");
+        let inside = row![person(&name, 30.0 * k), column![strong(name.clone(), 14.0 * k, INK), words(roles, 12.0 * k, FAINT)].spacing(1).width(Length::Fill), meta_pill(count.to_string(), k)]
+            .spacing(10)
+            .align_y(Alignment::Center);
+        people = people.push(button(container(inside).padding(8).width(Length::Fill)).padding(0).style(quiet(on, theme::CONTROL_RADIUS)).on_press(Message::JournalPerson(if on { None } else { Some(held.player) })));
+    }
+    people = people.push(Space::new().height(4)).push(line_button_k(w.t("desk-grant"), Some(Message::Tab(Tab::People)), k));
+    let aside = container(people).padding(18).width(320.0 * k).style(theme::slab);
+    row![main, column![aside].height(Length::Fill)].spacing(14).height(Length::Fill).into()
+}
+
+fn happened(w: &Words, event: &desk::Happened) -> String {
+    let reason = event.reason.clone().unwrap_or_default();
+    if event.kind == "state" {
+        return spoken(w, &format!("desk-state-{}", reason.to_lowercase().replace('_', "-")), &reason);
+    }
+    spoken(w, &format!("desk-event-{}", event.kind.replace('_', "-")), &event.kind)
+}
+
+fn due_text(w: &Words, due: &desk::Due, now: i64) -> String {
+    let what = spoken(w, &format!("desk-due-{}", due.kind.replace('_', "-")), &due.kind);
+    match unix_of(due.at.as_deref()) {
+        Some(at) if at > now => w.with("desk-due-in", &[("what", what), ("minutes", ((at - now + 59) / 60).to_string())]),
+        Some(_) => w.with("desk-due-passed", &[("what", what)]),
+        None => what,
+    }
+}
+
+fn presence_line<'a>(w: &Words, seat: Option<&crate::duels::Seat>, k: f32) -> Element<'a, Message> {
+    let Some(on) = seat.and_then(|seat| seat.present) else { return Space::new().into() };
+    let colour = if on { GOOD } else { BAD };
+    let dot = container(Space::new()).width(8.0 * k).height(8.0 * k).style(move |_| container::Style {
+        background: Some(Background::Color(colour)), border: Border { radius: 4.0.into(), ..Border::default() }, ..container::Style::default()
+    });
+    row![dot, words(w.t(if on { "desk-present" } else { "desk-absent" }), 12.0 * k, MUTED)].spacing(6).align_y(Alignment::Center).into()
+}
+
+fn duels_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a, Message> {
+    let shown = state.stuck_shown().map(|found| found.id.clone());
+    let mut list = column![heading_k(k, w.t("desk-stuck"))].spacing(8);
+    for duel in &state.desk.stuck {
+        let on = Some(&duel.id) == shown.as_ref();
+        let names: Vec<String> = duel.players.iter().map(|seat| seat.name.clone().unwrap_or_default()).collect();
+        let a = names.first().cloned().unwrap_or_default();
+        let b = names.get(1).cloned().unwrap_or_default();
+        let faces = stack![row![person(&a, 32.0 * k)], row![Space::new().width(24.0 * k), person(&b, 32.0 * k)]].width(56.0 * k).height(32);
+        let inside = row![
+            faces,
+            column![strong(w.with("desk-pair", &[("a", a), ("b", b)]), 15.0 * k, INK), strong(w.with(&format!("desk-stuck-{}", duel.reason.replace('_', "-")), &[("waited", ago(w, duel.since.as_deref(), now))]), 13.0 * k, if duel.reason == "verifying" { UNSURE } else { BAD })].spacing(2).width(Length::Fill),
+            bold(format!("{} : {}", duel.wins.a, duel.wins.b), 15.0 * k, INK),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
-        log = log.push(container(Space::new()).width(Length::Fill).height(1).style(|_| container::Style { background: Some(Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.06))), ..container::Style::default() }));
-        log = log.push(container(line).padding([10, 0]));
+        let fill = if on { LIT } else { ROW };
+        list = list.push(tile(fill, on.then_some((PICKED, 1.5)), inside.into(), Some(Message::Stuck(duel.id.clone()))));
     }
-    if state.desk.journal.is_empty() {
-        log = log.push(words(w.t(if state.loading { "desk-loading" } else { "desk-journal-empty" }), 14.0 * k, FAINT));
+    if state.desk.stuck.is_empty() {
+        list = list.push(words(w.t(if state.loading { "desk-loading" } else { "desk-stuck-none" }), 14.0 * k, FAINT));
     }
-    let aside = container(column![heading_k(k, w.t("desk-people")), people_list(w, state, false, k), Space::new().height(Length::Fill), main_button_kk(k, w.t("desk-grant"), Some(Message::Tab(Tab::People)))].spacing(8)).padding(18).width(360.0 * k).height(Length::Fill).style(theme::slab);
-    row![panel(scrollable(log).direction(ui::hidden_bar()).into()), aside].spacing(14).height(Length::Fill).into()
+    let aside = container(scrollable(list).direction(ui::hidden_bar())).padding(18).width(300.0 * k).height(Length::Fill).style(theme::slab);
+    let Some(duel) = state.stuck_shown() else { return row![aside, panel(Space::new().into())].spacing(14).height(Length::Fill).into() };
+    let seat_a = duel.players.first();
+    let seat_b = duel.players.get(1);
+    let a = seat_a.and_then(|seat| seat.name.clone()).unwrap_or_default();
+    let b = seat_b.and_then(|seat| seat.name.clone()).unwrap_or_default();
+    let ordinal = duel.round.as_ref().map_or(duel.wins.a + duel.wins.b + 1, |round| round.ordinal);
+    let mut playing = row![words(w.with("desk-round", &[("round", ordinal.to_string())]), 13.0 * k, FAINT)].spacing(6).align_y(Alignment::Center);
+    if let Some(round) = &duel.round {
+        playing = playing.push(tag(&round.slot, k));
+        if let Some(title) = &round.title {
+            playing = playing.push(words(title.clone(), 13.0 * k, MUTED));
+        }
+    }
+    let head = container(row![
+        container(row![person(&a, 42.0 * k), column![strong(a.clone(), 18.0 * k, crate::duels_screen::SIDE_A), presence_line(w, seat_a, k)].spacing(3)].spacing(14).align_y(Alignment::Center)).width(Length::Fill),
+        column![bold(format!("{} : {}", duel.wins.a, duel.wins.b), 34.0 * k, INK), playing].spacing(2).align_x(Alignment::Center),
+        container(row![column![strong(b.clone(), 18.0 * k, crate::duels_screen::SIDE_B), presence_line(w, seat_b, k)].spacing(3).align_x(Alignment::End), person(&b, 42.0 * k)].spacing(14).align_y(Alignment::Center)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right),
+    ].align_y(Alignment::Center))
+    .padding([12, 20])
+    .width(Length::Fill)
+    .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 16.0.into(), ..Border::default() }, ..container::Style::default() });
+    let mut about = column![words(w.with(&format!("desk-stuck-{}-note", duel.reason.replace('_', "-")), &[("round", ordinal.to_string()), ("waited", ago(w, duel.since.as_deref(), now))]), 15.0 * k, MUTED)].spacing(4);
+    if let Some(due) = &duel.deadline {
+        about = about.push(words(due_text(w, due, now), 13.0 * k, UNSURE));
+    }
+    let warning = container(row![glyph(Icon::Clock, 20.0 * k, UNSURE), about.width(Length::Fill)].spacing(12).align_y(Alignment::Center))
+        .padding([12, 16])
+        .width(Length::Fill)
+        .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default() });
+    let mut story = column![].spacing(6);
+    for event in &duel.events {
+        let at = unix_of(event.at.as_deref()).map(|at| w.clock(at)).unwrap_or_default();
+        story = story.push(row![container(words(at, 13.0 * k, FAINT)).width(52.0 * k), words(happened(w, event), 14.0 * k, INK)].spacing(10).align_y(Alignment::Center));
+    }
+    if duel.events.is_empty() {
+        story = story.push(words(w.t("desk-happened-none"), 13.0 * k, FAINT));
+    }
+    let ready = !state.posting;
+    let mut body = column![head, warning, block(strong(w.t("desk-happened"), 16.0 * k, INK), story.into(), k),
+        labelled_k(k, w.t("desk-reason"), field_kk(k, w.t("desk-reason-hint"), &state.reason, Message::Reason))].spacing(16);
+    let room_match = duel.room.as_ref().and_then(|room| room.match_id);
+    if room_match.is_some() || matches!(duel.reason.as_str(), "verifying" | "absent" | "disconnect" | "aborting") {
+        let numbers = !state.match_id.is_empty() && !state.game_id.is_empty();
+        let mut matched = row![container(labelled_k(k, w.t("desk-match"), field_kk(k, String::new(), &state.match_id, Message::MatchId))).width(Length::Fill)].spacing(8).align_y(Alignment::End);
+        if let Ok(found) = state.match_id.parse::<i64>() {
+            let open = button(container(row![glyph(Icon::External, 16.0 * k, INK), words(w.t("desk-open-match"), 14.0 * k, INK)].spacing(8).align_y(Alignment::Center)).center_y((theme::CONTROL_HEIGHT + 12.0) * k))
+                .padding([0.0, 12.0 * k])
+                .style(quiet(false, theme::CONTROL_RADIUS))
+                .on_press(Message::OpenMatch(found));
+            matched = matched.push(open);
+        }
+        let label = if state.finalize_sure { w.with("desk-finalize-sure", &[("round", ordinal.to_string())]) } else { w.t("desk-finalize") };
+        let count = column![
+            words(w.t("desk-finalize-about"), 13.0 * k, FAINT),
+            matched,
+            labelled_k(k, w.t("desk-game"), field_kk(k, w.t("desk-game-hint"), &state.game_id, Message::GameId)),
+            container(main_button_kk(k, label, (ready && numbers).then_some(Message::Finalize))).width(Length::Shrink),
+        ]
+        .spacing(10);
+        body = body.push(block(strong(w.t("desk-finalize-title"), 16.0 * k, INK), count.into(), k));
+    }
+    let stop = column![
+        words(w.t("desk-cancel-about"), 13.0 * k, FAINT),
+        container(line_button_k(w.t(if state.confirming { "desk-cancel-sure" } else { "desk-cancel-duel" }), ready.then_some(Message::CancelDuel), k)).width(Length::Shrink),
+    ]
+    .spacing(10);
+    body = body.push(block(strong(w.t("desk-cancel-title"), 16.0 * k, INK), stop.into(), k)).push(busy(w, state, k));
+    let detail = container(scrollable(body).direction(ui::hidden_bar())).padding(workspace::INSET).width(Length::Fill).height(Length::Fill).style(workspace::surface);
+    row![aside, detail].spacing(14).height(Length::Fill).into()
 }
 
 fn people_view<'a>(w: &Words, state: &'a State, roles: &[String], k: f32) -> Element<'a, Message> {
@@ -2226,7 +2522,7 @@ pub fn view<'a>(state: &'a State, roles: &[String], w: &Words, now: i64, wide: f
         Tab::Catalog => catalog_view(w, state, wide, k),
         Tab::Model => model_view(w, state, roles, now, k),
         Tab::Duels => duels_view(w, state, now, k),
-        Tab::Journal => journal_view(w, state, now, k),
+        Tab::Journal => journal_view(w, state, roles, now, k),
         Tab::People => people_view(w, state, roles, k),
     };
     let mut page = column![tabs(w, state, roles, k), workers(w, state, k)].spacing(14).width(Length::Fill).height(Length::Fill);
@@ -2489,6 +2785,45 @@ mod tests {
         assert!(!state.presence_busy && !state.presence_failed && state.presence.len() == 1);
         state.update(Message::Presence(Err("offline".into())), &w);
         assert!(state.presence_failed && state.presence.is_empty());
+    }
+
+    #[test]
+    fn the_journal_filters_by_kind_and_person_and_keeps_older_pages_through_refreshes() {
+        let w = Words::new(crate::lang::Lang::En);
+        let entry = |id: i64, actor: i64, action: &str| desk::Entry { id, actor, action: action.into(), ..Default::default() };
+        let mut state = State { tab: Tab::Journal, ..State::default() };
+        state.update(Message::Loaded(Ok(Desk { journal: vec![entry(12, 1, "map_move"), entry(11, 2, "grant"), entry(10, 1, "publish_model")], ..Desk::default() })), &w);
+        state.update(Message::JournalKind(Kind::Maps), &w);
+        assert_eq!(state.journal_shown().iter().map(|entry| entry.id).collect::<Vec<_>>(), [12]);
+        state.update(Message::JournalKind(Kind::All), &w);
+        state.update(Message::JournalPerson(Some(1)), &w);
+        assert_eq!(state.journal_shown().iter().map(|entry| entry.id).collect::<Vec<_>>(), [12, 10]);
+        assert_eq!(state.update(Message::JournalMore, &w), vec![Effect::Older(10)]);
+        assert!(state.update(Message::JournalMore, &w).is_empty(), "one page at a time");
+        state.update(Message::JournalOlder(Ok(vec![entry(9, 1, "map_add"), entry(8, 2, "discover")])), &w);
+        state.update(Message::Loaded(Ok(Desk { journal: vec![entry(13, 2, "map_approve"), entry(12, 1, "map_move")], ..Desk::default() })), &w);
+        assert_eq!(state.desk.journal.iter().map(|entry| entry.id).collect::<Vec<_>>(), [13, 12, 11, 10, 9, 8], "older pages survive a refresh");
+        state.update(Message::JournalMore, &w);
+        state.update(Message::JournalOlder(Ok(Vec::new())), &w);
+        assert!(state.journal_end && state.update(Message::JournalMore, &w).is_empty());
+        assert_eq!((Kind::of("corpus_label"), Kind::of("manual_finalize"), Kind::of("map_quarantine")), (Kind::Labels, Kind::Duels, Kind::Maps));
+    }
+
+    #[test]
+    fn an_operator_gets_the_room_match_and_confirms_before_counting_a_round() {
+        let w = Words::new(crate::lang::Lang::En);
+        let stuck = desk::Stuck { id: "s1".into(), room: Some(desk::StuckRoom { match_id: Some(114_482_093), ..Default::default() }), ..Default::default() };
+        let mut state = State { tab: Tab::Duels, ..State::default() };
+        state.update(Message::Loaded(Ok(Desk { stuck: vec![stuck], ..Desk::default() })), &w);
+        assert_eq!(state.match_id, "114482093");
+        state.update(Message::MatchId("https://osu.ppy.sh/community/matches/120000001".into()), &w);
+        assert_eq!(state.match_id, "120000001", "a pasted link keeps only the match id");
+        state.update(Message::GameId("602118554".into()), &w);
+        assert!(state.update(Message::Finalize, &w).is_empty() && state.finalize_sure, "the first press only asks");
+        let effects = state.update(Message::Finalize, &w);
+        assert!(matches!(&effects[0], Effect::Post(Post::Finalize { match_id: 120_000_001, game_id: 602_118_554, .. })));
+        assert_eq!(state.update(Message::OpenMatch(5), &w), vec![Effect::Open("https://osu.ppy.sh/community/matches/5".into())]);
+        assert_eq!((desk::match_of("https://osu.ppy.sh/mp/77/"), desk::match_of("77"), desk::match_of("https://example.com/77")), (Some(77), Some(77), None));
     }
 
     #[test]

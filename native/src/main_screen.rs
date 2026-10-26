@@ -1871,6 +1871,8 @@ impl Main {
                     },
                     |picked| picked.map_or_else(Vec::new, |path| crate::desk::archive_lines(&path)),
                 ).map(move |lines| wrap(K::Archived(lines))),
+                Effect::Older(_) if offline => Task::done(wrap(K::JournalOlder(Err("offline".to_owned())))),
+                Effect::Older(before) => ui::in_thread(move || K::JournalOlder(crate::desk::journal_before(&account, before).map_err(|why| why.to_string()))).map(wrap),
                 Effect::AddMap { beatmap, .. } if offline => Task::done(wrap(K::MapAdded(beatmap, Err("offline".to_owned())))),
                 Effect::AddMap { beatmap, slot, reason } => ui::in_thread(move || K::MapAdded(beatmap, crate::desk::add_map(&account, beatmap, slot.as_deref(), &reason).map_err(|why| why.to_string()))).map(wrap),
                 Effect::Post(_) if offline => Task::done(wrap(K::Posted(Err("offline".to_owned())))),

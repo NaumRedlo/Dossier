@@ -11,7 +11,8 @@ pub const PUBLISHER: &str = "MODEL_PUBLISHER";
 pub const OWNER: &str = "OWNER";
 pub const GRANTED: [&str; 3] = [REVIEWER, PUBLISHER, OPERATOR];
 pub const SLOTS: [&str; 9] = ["NM1", "NM2", "NM3", "NM4", "HD2", "HR2", "DT1", "DT2", "TB"];
-pub const BANDS: [f32; 8] = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5];
+pub const BANDS: [f32; 10] = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5];
+pub const TOP: f32 = 10.0;
 pub const EXCLUDED: &str = "NONE";
 pub const OTHER: &str = "OTHER";
 
@@ -140,6 +141,40 @@ pub struct Held {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
+pub struct StuckRoom {
+    pub match_id: Option<i64>,
+    pub name: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct StuckRound {
+    pub ordinal: u32,
+    pub slot: String,
+    pub state: String,
+    pub beatmap_id: Option<i64>,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Happened {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub reason: Option<String>,
+    pub at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Due {
+    pub kind: String,
+    pub at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
 pub struct Stuck {
     pub id: String,
     pub state: String,
@@ -148,6 +183,10 @@ pub struct Stuck {
     pub wins: Wins,
     pub mode: String,
     pub players: Vec<Seat>,
+    pub room: Option<StuckRoom>,
+    pub round: Option<StuckRound>,
+    pub events: Vec<Happened>,
+    pub deadline: Option<Due>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -161,6 +200,7 @@ pub struct Entry {
     pub target: String,
     pub reason: String,
     pub at: Option<String>,
+    pub before: Value,
     pub after: Value,
 }
 
@@ -336,6 +376,17 @@ pub fn load(account: &Account, roles: &[String]) -> Result<Desk, Failure> {
     Ok(desk)
 }
 
+pub fn match_of(said: &str) -> Option<i64> {
+    let said = said.trim().trim_end_matches('/');
+    let tail = said.rsplit('/').next()?;
+    let known = said.contains("osu.ppy.sh/community/matches/") || said.contains("osu.ppy.sh/mp/") || said == tail;
+    tail.parse::<i64>().ok().filter(|found| known && *found > 0)
+}
+
+pub fn journal_before(account: &Account, before: i64) -> Result<Vec<Entry>, Failure> {
+    listed(account, &format!("/render/admin/duels/journal?before={before}"), "entries")
+}
+
 pub fn cell(account: &Account, slot: &str, band: usize) -> Result<Vec<Held>, Failure> {
     listed(account, &format!("/render/admin/duels/catalog/{slot}/{band}"), "maps")
 }
@@ -488,7 +539,7 @@ mod tests {
         cell.label = Some("NM4".into());
         assert_eq!(cell.shown(), "NM4");
         assert!(cell.checked());
-        assert_eq!((band_of(3.2), band_of(5.6), band_of(9.0)), (0, 3, 7));
+        assert_eq!((band_of(3.2), band_of(5.6), band_of(9.0), band_of(10.0)), (0, 1, 8, 9));
         assert!(allows(&["OWNER".to_owned()], OPERATOR) && !allows(&[REVIEWER.to_owned()], OPERATOR));
     }
 }

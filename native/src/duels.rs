@@ -281,6 +281,10 @@ fn refused(code: u16, body: &str) -> Failure {
 }
 
 pub(crate) fn call<T: serde::de::DeserializeOwned>(account: &Account, method: reqwest::Method, path: &str, body: Option<Value>, operation: Option<&str>) -> Result<T, Failure> {
+    call_within(account, method, path, body, operation, None)
+}
+
+pub(crate) fn call_within<T: serde::de::DeserializeOwned>(account: &Account, method: reqwest::Method, path: &str, body: Option<Value>, operation: Option<&str>, patience: Option<std::time::Duration>) -> Result<T, Failure> {
     let client = crate::bot::client().map_err(|why| Failure::Network(why.to_string()))?;
     let mut request = client
         .request(method, format!("{}{path}", account.server))
@@ -288,6 +292,9 @@ pub(crate) fn call<T: serde::de::DeserializeOwned>(account: &Account, method: re
         .header("X-Render-Worker", crate::bot::worker(&account.device));
     if let Some(operation) = operation {
         request = request.header("Idempotency-Key", operation);
+    }
+    if let Some(patience) = patience {
+        request = request.timeout(patience);
     }
     if let Some(body) = body {
         request = request.json(&body);

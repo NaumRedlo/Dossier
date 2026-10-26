@@ -247,6 +247,8 @@ pub struct About {
     pub stars: Option<f32>,
     pub bpm: Option<f32>,
     pub seconds: Option<u32>,
+    pub status: String,
+    pub standard: bool,
 }
 
 pub fn about_address(beatmap: i64) -> String {
@@ -266,6 +268,8 @@ pub fn read_about(found: &Value) -> Option<About> {
         stars: found.get("difficulty_rating").and_then(Value::as_f64).map(|value| value as f32),
         bpm: found.get("bpm").and_then(Value::as_f64).map(|value| value as f32),
         seconds: found.get("total_length").and_then(Value::as_u64).map(|value| value as u32),
+        status: found.get("status").and_then(Value::as_str).or_else(|| set.get("status").and_then(Value::as_str)).unwrap_or_default().to_owned(),
+        standard: found.get("mode").is_none_or(|mode| mode == "osu" || mode == 0) && found.get("convert").and_then(Value::as_bool) != Some(true),
     })
 }
 
@@ -365,6 +369,34 @@ pub fn read_pool(text: &str) -> Vec<(String, i64)> {
     found
 }
 
+pub fn read_map(text: &str) -> Option<i64> {
+    let said = text.trim();
+    let (path, part) = said.split_once('#').unwrap_or((said, ""));
+    let path = path.split('?').next().unwrap_or_default().trim_end_matches('/');
+    let found = if part.is_empty() {
+        if path.contains("beatmapsets/") { return None; }
+        path.rsplit('/').next()?
+    } else {
+        part.strip_prefix("osu/")?
+    };
+    found.parse::<i64>().ok().filter(|beatmap| *beatmap > 0)
+}
+
+const ADD_PATIENCE: std::time::Duration = std::time::Duration::from_secs(75);
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Added {
+    pub outcome: String,
+    pub status: Option<String>,
+    pub task: Option<Task>,
+}
+
+pub fn add_map(account: &Account, beatmap: i64, slot: Option<&str>, reason: &str) -> Result<Added, Failure> {
+    let body = json!({ "beatmap_id": beatmap, "slot": slot, "reason": reason });
+    crate::duels::call_within(account, reqwest::Method::POST, "/render/admin/duels/catalog/maps", Some(body), None, Some(ADD_PATIENCE))
+}
+
 pub fn tournament(account: &Account, name: &str, year: i32, pool: &str, reason: &str) -> Result<Value, Failure> {
     let result: Value = call(account, reqwest::Method::POST, "/render/admin/duels/corpus/tournaments", Some(json!({ "name": name, "year": year, "pool": pool, "reason": reason })), None)?;
     batch_reply(result, read_pool(pool).len())
@@ -431,6 +463,20 @@ mod tests {
         let found = serde_json::json!({ "beatmapset_id": 2300330, "difficulty_rating": 5.86, "bpm": 137.8, "total_length": 216, "version": "YO SAY!", "owners": [{ "username": "Pata-Mon" }], "set": { "title": "HOT LIMIT", "artist": "T.M.Revolution", "creator": "Wanpachi" } });
         let about = read_about(&found).expect("an about");
         assert_eq!((about.set, about.title.as_str(), about.mapper.as_str(), about.seconds), (Some(2300330), "HOT LIMIT", "Pata-Mon", Some(216)));
+        assert!(about.standard && about.status.is_empty());
+        let loved = serde_json::json!({ "mode": "osu", "status": "loved", "set": { "title": "Old" } });
+        assert_eq!(read_about(&loved).map(|about| (about.status, about.standard)), Some(("loved".to_owned(), true)));
+        let mania = serde_json::json!({ "mode": "mania", "set": { "title": "Keys", "status": "graveyard" } });
+        assert_eq!(read_about(&mania).map(|about| (about.status, about.standard)), Some(("graveyard".to_owned(), false)));
+    }
+
+    #[test]
+    fn one_map_is_read_from_a_link_or_a_number_and_never_from_a_whole_set() {
+        for (said, beatmap) in [("5687673", Some(5687673)), (" https://osu.ppy.sh/b/5687673 ", Some(5687673)), ("https://osu.ppy.sh/beatmaps/5687673?mode=osu", Some(5687673)),
+            ("https://osu.ppy.sh/beatmapsets/2612145#osu/5687673", Some(5687673)), ("osu.ppy.sh/beatmaps/75/", Some(75)),
+            ("https://osu.ppy.sh/beatmapsets/2612145", None), ("https://osu.ppy.sh/beatmapsets/2612145#mania/5687673", None), ("hot limit", None), ("0", None), ("", None)] {
+            assert_eq!(read_map(said), beatmap, "{said}");
+        }
     }
 
     #[test]

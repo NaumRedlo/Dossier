@@ -1438,7 +1438,7 @@ impl Main {
             parts.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Heard))));
         }
         if !self.gallery && !self.hidden && !self.minimized && self.duels.clock_running() {
-            parts.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Clock))));
+            parts.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Clock))));
         }
         let moving = self.duels.lively() || self.duels.animating();
         if (self.duels.watching.is_some() || moving) && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels {

@@ -11,7 +11,8 @@ pub const PUBLISHER: &str = "MODEL_PUBLISHER";
 pub const OWNER: &str = "OWNER";
 pub const GRANTED: [&str; 3] = [REVIEWER, PUBLISHER, OPERATOR];
 pub const SLOTS: [&str; 9] = ["NM1", "NM2", "NM3", "NM4", "HD2", "HR2", "DT1", "DT2", "TB"];
-pub const BANDS: [f32; 8] = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5];
+pub const BANDS: [f32; 10] = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5];
+pub const TOP: f32 = 10.0;
 pub const EXCLUDED: &str = "NONE";
 pub const OTHER: &str = "OTHER";
 
@@ -103,6 +104,7 @@ pub struct Task {
     pub reason: String,
     pub since: Option<String>,
     pub slot: Option<String>,
+    pub secondary: Option<String>,
     pub state: Option<String>,
     pub map: Map,
     pub opinions: Option<Opinions>,
@@ -123,6 +125,7 @@ pub struct Totals {
 pub struct Coverage {
     pub slots: Vec<String>,
     pub grid: BTreeMap<String, Vec<u32>>,
+    pub secondary: BTreeMap<String, Vec<u32>>,
     pub totals: Totals,
 }
 
@@ -140,6 +143,40 @@ pub struct Held {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
+pub struct StuckRoom {
+    pub match_id: Option<i64>,
+    pub name: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct StuckRound {
+    pub ordinal: u32,
+    pub slot: String,
+    pub state: String,
+    pub beatmap_id: Option<i64>,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Happened {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub reason: Option<String>,
+    pub at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Due {
+    pub kind: String,
+    pub at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
 pub struct Stuck {
     pub id: String,
     pub state: String,
@@ -148,6 +185,10 @@ pub struct Stuck {
     pub wins: Wins,
     pub mode: String,
     pub players: Vec<Seat>,
+    pub room: Option<StuckRoom>,
+    pub round: Option<StuckRound>,
+    pub events: Vec<Happened>,
+    pub deadline: Option<Due>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -156,11 +197,13 @@ pub struct Entry {
     pub id: i64,
     pub actor: i64,
     pub name: Option<String>,
+    pub osu_id: Option<i64>,
     pub role: String,
     pub action: String,
     pub target: String,
     pub reason: String,
     pub at: Option<String>,
+    pub before: Value,
     pub after: Value,
 }
 
@@ -169,6 +212,7 @@ pub struct Entry {
 pub struct Person {
     pub player: i64,
     pub name: Option<String>,
+    pub osu_id: Option<i64>,
     pub roles: Vec<String>,
 }
 
@@ -192,6 +236,7 @@ pub struct CorpusMap {
     pub verified: bool,
     pub file: bool,
     pub conflict: bool,
+    pub excluded: bool,
     pub title: Option<String>,
     pub artist: Option<String>,
     pub version: Option<String>,
@@ -235,6 +280,27 @@ pub struct Desk {
     pub people: Vec<Person>,
     pub versions: Vec<Version>,
     pub cells: Vec<Cell>,
+    pub batches: Vec<Batch>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Author {
+    pub player: i64,
+    pub name: Option<String>,
+    pub osu_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Batch {
+    pub name: String,
+    pub year: i32,
+    pub maps: u32,
+    pub labelled: u32,
+    pub excluded: u32,
+    pub author: Option<Author>,
+    pub added_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -251,12 +317,46 @@ pub struct About {
     pub standard: bool,
 }
 
+pub const MIRROR_AGENT: &str = concat!("Dossier/", env!("CARGO_PKG_VERSION"), " (+https://github.com/NaumRedlo/Dossier)");
+
 pub fn about_address(beatmap: i64) -> String {
     format!("https://catboy.best/api/v2/b/{beatmap}")
 }
 
+pub fn spare_address(beatmap: i64) -> String {
+    format!("https://osu.direct/api/v2/b/{beatmap}")
+}
+
+pub fn spare_set_address(set: i64) -> String {
+    format!("https://osu.direct/api/v2/s/{set}")
+}
+
+pub fn looked_up(beatmap: i64) -> Option<Value> {
+    let client = crate::bot::client().ok()?;
+    let get = |address: String| -> Option<Value> {
+        let response = client.get(address).header("User-Agent", MIRROR_AGENT).send().ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        response.json::<Value>().ok()
+    };
+    let ours = |found: &Value| found.get("id").and_then(Value::as_i64) == Some(beatmap);
+    if let Some(found) = get(about_address(beatmap)).filter(ours) {
+        return Some(found);
+    }
+    let mut found = get(spare_address(beatmap)).filter(ours)?;
+    if found.get("set").is_none() && found.get("beatmapset").is_none() {
+        if let Some(set) = found.get("beatmapset_id").and_then(Value::as_i64).and_then(|set| get(spare_set_address(set))) {
+            found["set"] = set;
+        }
+    }
+    Some(found)
+}
+
 pub fn read_about(found: &Value) -> Option<About> {
-    let set = found.get("set").or_else(|| found.get("beatmapset"))?;
+    found.get("id").or_else(|| found.get("set")).or_else(|| found.get("beatmapset"))?;
+    let none = Value::Object(serde_json::Map::new());
+    let set = found.get("set").or_else(|| found.get("beatmapset")).unwrap_or(&none);
     let text = |value: Option<&Value>| value.and_then(Value::as_str).unwrap_or_default().to_owned();
     let mapper = found.get("owners").and_then(Value::as_array).and_then(|owners| owners.first()).and_then(|owner| owner.get("username")).and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| text(set.get("creator")));
     Some(About {
@@ -274,18 +374,29 @@ pub fn read_about(found: &Value) -> Option<About> {
 }
 
 pub fn about(beatmap: i64) -> Option<About> {
-    let client = crate::bot::client().ok()?;
-    let response = client.get(about_address(beatmap)).header("User-Agent", "Dossier").send().ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    read_about(&response.json::<Value>().ok()?)
+    read_about(&looked_up(beatmap)?)
 }
 
-pub fn archive_lines(path: &std::path::Path) -> Vec<String> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Packed {
+    pub beatmap: i64,
+    pub version: String,
+    pub stars: Option<f32>,
+    pub standard: bool,
+}
+
+pub fn read_packed(raw: &str) -> Option<Packed> {
+    let field = |key: &str| raw.lines().find_map(|line| line.strip_prefix(key)).map(|value| value.trim().to_owned());
+    let beatmap = field("BeatmapID:").and_then(|value| value.parse::<i64>().ok()).filter(|id| *id > 0)?;
+    let standard = field("Mode:").is_none_or(|mode| mode == "0");
+    let stars = standard.then(|| crate::pools::measure_text(raw, crate::pools::Mod::Nm).ok()).flatten().map(|measure| measure.stars as f32);
+    Some(Packed { beatmap, version: field("Version:").unwrap_or_default(), stars, standard })
+}
+
+pub fn archive_maps(path: &std::path::Path) -> Vec<Packed> {
     let Ok(file) = std::fs::File::open(path) else { return Vec::new() };
     let Ok(mut bundle) = zip::ZipArchive::new(file) else { return Vec::new() };
-    let mut found = Vec::new();
+    let mut found: Vec<Packed> = Vec::new();
     for at in 0..bundle.len() {
         let Ok(mut entry) = bundle.by_index(at) else { continue };
         if !entry.name().to_lowercase().ends_with(".osu") || entry.size() > 8 * 1024 * 1024 {
@@ -295,12 +406,11 @@ pub fn archive_lines(path: &std::path::Path) -> Vec<String> {
         if std::io::Read::read_to_string(&mut entry, &mut raw).is_err() {
             continue;
         }
-        let field = |key: &str| raw.lines().find_map(|line| line.strip_prefix(key)).map(|value| value.trim().to_owned());
-        if let Some(beatmap) = field("BeatmapID:").and_then(|value| value.parse::<i64>().ok()).filter(|id| *id > 0) {
-            found.push(format!("https://osu.ppy.sh/b/{beatmap}"));
+        if let Some(packed) = read_packed(&raw).filter(|packed| found.iter().all(|held| held.beatmap != packed.beatmap)) {
+            found.push(packed);
         }
     }
-    found.sort();
+    found.sort_by(|a, b| b.standard.cmp(&a.standard).then(b.stars.unwrap_or(-1.0).total_cmp(&a.stars.unwrap_or(-1.0))));
     found
 }
 
@@ -331,17 +441,35 @@ pub fn load(account: &Account, roles: &[String]) -> Result<Desk, Failure> {
     if allows(roles, OPERATOR) {
         desk.stuck = listed(account, "/render/admin/duels/stuck", "duels")?;
     }
+    if allows(roles, OWNER) {
+        desk.batches = listed(account, "/render/admin/duels/corpus/batches", "batches").unwrap_or_default();
+    }
     desk.journal = listed(account, "/render/admin/duels/journal", "entries")?;
     desk.people = listed(account, "/render/admin/duels/people", "people")?;
     Ok(desk)
+}
+
+pub fn match_of(said: &str) -> Option<i64> {
+    let said = said.trim().trim_end_matches('/');
+    let tail = said.rsplit('/').next()?;
+    let known = said.contains("osu.ppy.sh/community/matches/") || said.contains("osu.ppy.sh/mp/") || said == tail;
+    tail.parse::<i64>().ok().filter(|found| known && *found > 0)
+}
+
+pub fn journal_before(account: &Account, before: i64) -> Result<Vec<Entry>, Failure> {
+    listed(account, &format!("/render/admin/duels/journal?before={before}"), "entries")
 }
 
 pub fn cell(account: &Account, slot: &str, band: usize) -> Result<Vec<Held>, Failure> {
     listed(account, &format!("/render/admin/duels/catalog/{slot}/{band}"), "maps")
 }
 
-pub fn review(account: &Account, beatmap: i64, decision: &str, slot: Option<&str>, reason: &str) -> Result<Value, Failure> {
-    call(account, reqwest::Method::POST, &format!("/render/admin/duels/maps/{beatmap}/review"), Some(json!({ "decision": decision, "slot": slot, "reason": reason })), None)
+pub fn review(account: &Account, beatmap: i64, decision: &str, slot: Option<&str>, secondary: Option<Option<&str>>, reason: &str) -> Result<Value, Failure> {
+    let mut body = json!({ "decision": decision, "slot": slot, "reason": reason });
+    if let Some(secondary) = secondary {
+        body["secondary"] = json!(secondary);
+    }
+    call(account, reqwest::Method::POST, &format!("/render/admin/duels/maps/{beatmap}/review"), Some(body), None)
 }
 
 pub fn label(account: &Account, cell: &Cell, beatmap: Option<i64>, label: &str, reason: &str) -> Result<Value, Failure> {
@@ -395,6 +523,21 @@ pub struct Added {
 pub fn add_map(account: &Account, beatmap: i64, slot: Option<&str>, reason: &str) -> Result<Added, Failure> {
     let body = json!({ "beatmap_id": beatmap, "slot": slot, "reason": reason });
     crate::duels::call_within(account, reqwest::Method::POST, "/render/admin/duels/catalog/maps", Some(body), None, Some(ADD_PATIENCE))
+}
+
+pub fn rename_batch(account: &Account, name: &str, year: i32, new_name: &str, new_year: i32, reason: &str) -> Result<Value, Failure> {
+    let body = json!({ "name": name, "year": year, "new_name": new_name, "new_year": new_year, "reason": reason });
+    call(account, reqwest::Method::POST, "/render/admin/duels/corpus/batches/rename", Some(body), None)
+}
+
+pub fn delete_batch(account: &Account, name: &str, year: i32, beatmap: Option<i64>, reason: &str) -> Result<Value, Failure> {
+    let body = json!({ "name": name, "year": year, "beatmap_id": beatmap, "reason": reason });
+    call(account, reqwest::Method::POST, "/render/admin/duels/corpus/batches/delete", Some(body), None)
+}
+
+pub fn exclude_batch(account: &Account, name: &str, year: i32, beatmap: Option<i64>, excluded: bool, reason: &str) -> Result<Value, Failure> {
+    let body = json!({ "name": name, "year": year, "beatmap_id": beatmap, "excluded": excluded, "reason": reason });
+    call(account, reqwest::Method::POST, "/render/admin/duels/corpus/batches/exclude", Some(body), None)
 }
 
 pub fn tournament(account: &Account, name: &str, year: i32, pool: &str, reason: &str) -> Result<Value, Failure> {
@@ -471,6 +614,25 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "asks the real mirrors"]
+    fn a_real_map_is_described_by_whichever_mirror_answers() {
+        let about = about(5687673).expect("one of the mirrors answers");
+        assert_eq!((about.title.as_str(), about.set), ("HOT LIMIT", Some(2300330)));
+        assert!(crate::mapper_faces::owner(&looked_up(5687673).unwrap()).is_some());
+    }
+
+    #[test]
+    fn a_difficulty_in_an_archive_is_read_with_its_mode_and_stars() {
+        let standard = "osu file format v14\n\n[General]\nMode: 0\n\n[Metadata]\nVersion:Extra\nBeatmapID:77\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:8\nApproachRate:9\nSliderMultiplier:1.4\nSliderTickRate:1\n\n[TimingPoints]\n0,250,4,2,0,60,1,0\n\n[HitObjects]\n100,100,1000,1,0,0:0:0:0:\n300,200,1250,1,0,0:0:0:0:\n100,300,1500,1,0,0:0:0:0:\n";
+        let packed = read_packed(standard).expect("a difficulty");
+        assert_eq!((packed.beatmap, packed.version.as_str(), packed.standard), (77, "Extra", true));
+        assert!(packed.stars.is_some_and(|stars| stars > 0.0));
+        let mania = read_packed(&standard.replace("Mode: 0", "Mode: 3")).expect("a difficulty");
+        assert_eq!((mania.standard, mania.stars), (false, None));
+        assert_eq!(read_packed(&standard.replace("BeatmapID:77", "BeatmapID:0")), None);
+    }
+
+    #[test]
     fn one_map_is_read_from_a_link_or_a_number_and_never_from_a_whole_set() {
         for (said, beatmap) in [("5687673", Some(5687673)), (" https://osu.ppy.sh/b/5687673 ", Some(5687673)), ("https://osu.ppy.sh/beatmaps/5687673?mode=osu", Some(5687673)),
             ("https://osu.ppy.sh/beatmapsets/2612145#osu/5687673", Some(5687673)), ("osu.ppy.sh/beatmaps/75/", Some(75)),
@@ -488,7 +650,7 @@ mod tests {
         cell.label = Some("NM4".into());
         assert_eq!(cell.shown(), "NM4");
         assert!(cell.checked());
-        assert_eq!((band_of(3.2), band_of(5.6), band_of(9.0)), (0, 3, 7));
+        assert_eq!((band_of(3.2), band_of(5.6), band_of(9.0), band_of(10.0)), (0, 1, 8, 9));
         assert!(allows(&["OWNER".to_owned()], OPERATOR) && !allows(&[REVIEWER.to_owned()], OPERATOR));
     }
 }

@@ -1401,7 +1401,7 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
         }),
         ("main-community-balance-catalog".to_owned(), {
             let mut main = tabbed(Tab::Catalog);
-            main.desk.band = Some(("NM3".into(), 3));
+            main.desk.band = Some(("NM3".into(), 1));
             main.desk.held = vec![
                 crate::desk::Held { beatmap_id: 5687673, beatmapset_id: Some(2612145), stars: 5.71, level: "human".into(), mapper: Some("Nevo".into()), title: Some("HOT LIMIT".into()), version: Some("Extreme".into()) },
                 crate::desk::Held { beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()), version: Some("Insane".into()) },
@@ -1412,7 +1412,7 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
         ("main-community-balance-catalog-gaps".to_owned(), tabbed(Tab::Catalog)),
         ("main-community-balance-catalog-add".to_owned(), {
             let mut main = tabbed(Tab::Catalog);
-            main.desk.band = Some(("NM3".into(), 3));
+            main.desk.band = Some(("NM3".into(), 1));
             main.desk.adding_map = true;
             main.desk.map_link = "https://osu.ppy.sh/beatmapsets/2612145#osu/5687673".into();
             main.desk.map_slot = None;
@@ -1420,6 +1420,21 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
                 set: Some(2612145), title: "HOT LIMIT".into(), artist: "T.M.Revolution".into(), version: "Extreme".into(), mapper: "Nevo".into(),
                 stars: Some(5.71), bpm: Some(138.0), seconds: Some(216), status: "graveyard".into(), standard: true,
             });
+            main
+        }),
+        ("main-community-balance-batches".to_owned(), tabbed(Tab::Batches)),
+        ("main-community-balance-archive".to_owned(), {
+            let mut main = tabbed(Tab::Label);
+            main.desk.adding = true;
+            main.desk.name = "Russian Cup 2024".into();
+            main.desk.year_text = "2024".into();
+            main.desk.archive = vec![
+                crate::desk::Packed { beatmap: 5687673, version: "Pata-Mon's YO SAY!".into(), stars: Some(5.86), standard: true },
+                crate::desk::Packed { beatmap: 4936463, version: "Hard Collab".into(), stars: Some(3.41), standard: true },
+                crate::desk::Packed { beatmap: 4915662, version: "Insane".into(), stars: Some(4.62), standard: true },
+                crate::desk::Packed { beatmap: 4915700, version: "4K Hyper".into(), stars: None, standard: false },
+            ];
+            main.desk.archive_picked = [5687673].into_iter().collect();
             main
         }),
         ("main-community-balance-model".to_owned(), tabbed(Tab::Model)),
@@ -1456,7 +1471,7 @@ fn staged_desk() -> crate::desk_screen::State {
         reasons: vec![Reason { feature: "streams.lengths.3-5".into(), weight: 1.2, level: 1.4 }, Reason { feature: "angle_deg.p90".into(), weight: 0.8, level: 0.9 }, Reason { feature: "streams.lengths.16-31".into(), weight: -0.6, level: 0.2 }],
         outside: false, version: "kamerton-3".into(),
     };
-    let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };
+    let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { secondary: None, kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };
     let mut first = task("review", "uncertain_revealed", Some("NM3"), map(5687673, 2612145, "HOT LIMIT", "Extreme", "Nevo", 5.71), 720);
     first.map.model = Some(guess);
     first.opinions = Some(Opinions { played: 5, fits: 3, off: 2, difficulty: [("fine".to_owned(), 4), ("hard".to_owned(), 1)].into_iter().collect(), comments: vec!["Альтернейта тут половина".into()] });
@@ -1468,16 +1483,18 @@ fn staged_desk() -> crate::desk_screen::State {
         task("unassigned", "unassigned", None, map(1222416, 571525, "The Big Black", "WHO'S AFRAID OF THE BIG BLACK", "Blue Dragon", 6.10), 90_000),
         task("unassigned", "unassigned", None, map(5397135, 2448804, "Nihon-shiki Koukaku", "Ouka", "Mirash", 5.95), 95_000),
     ];
-    let counts: [(&str, [u32; 8]); 9] = [
-        ("NM1", [6, 9, 14, 12, 8, 5, 2, 0]), ("NM2", [5, 8, 11, 10, 6, 3, 1, 0]), ("NM3", [1, 2, 3, 2, 1, 0, 0, 0]), ("NM4", [3, 6, 9, 7, 5, 2, 1, 0]), ("HD2", [4, 6, 8, 9, 6, 3, 1, 0]),
-        ("HR2", [2, 4, 7, 6, 4, 2, 0, 0]), ("DT1", [7, 10, 12, 11, 8, 4, 2, 1]), ("DT2", [3, 5, 8, 8, 5, 2, 1, 0]), ("TB", [1, 2, 3, 3, 2, 1, 0, 0]),
+    let counts: [(&str, [u32; 10]); 9] = [
+        ("NM1", [14, 12, 8, 5, 2, 1, 0, 0, 0, 0]), ("NM2", [11, 10, 6, 3, 1, 1, 0, 0, 0, 0]), ("NM3", [3, 2, 1, 0, 0, 0, 0, 0, 0, 0]), ("NM4", [9, 7, 5, 2, 1, 0, 0, 0, 0, 0]),
+        ("HD2", [8, 9, 6, 3, 1, 0, 0, 0, 0, 0]), ("HR2", [7, 6, 4, 2, 0, 0, 0, 0, 0, 0]), ("DT1", [6, 9, 12, 11, 8, 4, 2, 1, 1, 0]), ("DT2", [3, 5, 8, 8, 5, 2, 1, 0, 0, 0]),
+        ("TB", [3, 3, 2, 1, 0, 0, 0, 0, 0, 0]),
     ];
     let coverage = Coverage {
         slots: counts.iter().map(|(slot, _)| (*slot).to_owned()).collect(),
         grid: counts.iter().map(|(slot, row)| ((*slot).to_owned(), row.to_vec())).collect(),
+        secondary: [("HD2".to_owned(), vec![0, 2, 1, 0, 0, 0, 0, 0, 0, 0]), ("DT2".to_owned(), vec![0, 0, 1, 0, 0, 0, 0, 0, 0, 0])].into_iter().collect(),
         totals: Totals { playable: 412, human: 96, uncertain: 58, quarantined: 7, unassigned: 1204 },
     };
-    let corpus_map = |id: i64, label: &str, verified: bool, title: &str| CorpusMap { beatmap_id: id, beatmapset_id: None, label: label.into(), verified, file: true, conflict: false, title: Some(title.into()), artist: Some("Artist".into()), version: Some("Insane".into()), mapper: Some("Mapper".into()) };
+    let corpus_map = |id: i64, label: &str, verified: bool, title: &str| CorpusMap { beatmap_id: id, beatmapset_id: None, label: label.into(), verified, file: true, conflict: false, excluded: false, title: Some(title.into()), artist: Some("Artist".into()), version: Some("Insane".into()), mapper: Some("Mapper".into()) };
     let mut cells = Vec::new();
     let slots = ["NM1", "NM2", "NM3", "NM4", "NM5", "HD1", "HD2", "HD3", "HR1", "HR2", "HR3", "DT1", "DT2", "DT3", "DT4", "FM1", "TB"];
     let label_of = |slot: &str| match slot {
@@ -1506,7 +1523,7 @@ fn staged_desk() -> crate::desk_screen::State {
     for year in [2021, 2022, 2023, 2025] {
         cells.push(Cell { corpus: "owc-2021-2025-v1".into(), year, stage: "finals".into(), slot: "NM1".into(), label: None, maps: vec![corpus_map(8000 + i64::from(year), "NM1", false, "Map")] });
     }
-    let own = |id: i64, slot: &str, title: &str, version: &str, mapper: &str, verified: bool| CorpusMap { beatmap_id: id, beatmapset_id: Some(id), label: slot.into(), verified, file: true, conflict: false, title: Some(title.into()), artist: Some("t+pazolite".into()), version: Some(version.into()), mapper: Some(mapper.into()) };
+    let own = |id: i64, slot: &str, title: &str, version: &str, mapper: &str, verified: bool| CorpusMap { beatmap_id: id, beatmapset_id: Some(id), label: slot.into(), verified, file: true, conflict: false, excluded: false, title: Some(title.into()), artist: Some("t+pazolite".into()), version: Some(version.into()), mapper: Some(mapper.into()) };
     cells.push(Cell { corpus: "own-v1".into(), year: 2024, stage: "Russian Cup".into(), slot: "NM1".into(), label: None, maps: vec![own(571525, "NM1", "The Big Black", "WHO'S AFRAID", "Blue Dragon", true), own(2612145, "NM3", "HOT LIMIT", "Extreme", "Nevo", false), own(2440213, "NM2", "Harumodoki", "Insane", "Shmiklak", false)] });
     let version = |name: &str, state: &str, f1: f64, ago: i64| Version {
         version: name.into(), state: state.into(), labels: 214,
@@ -1518,31 +1535,51 @@ fn staged_desk() -> crate::desk_screen::State {
             "years": { "2021": { "macro_f1": f1 - 0.04 }, "2022": { "macro_f1": f1 + 0.03 }, "2023": { "macro_f1": f1 - 0.07 }, "2024": { "macro_f1": f1 + 0.05 }, "2025": { "macro_f1": f1 + 0.01 }, "queue": { "macro_f1": f1 + 0.12 } } }),
         created_at: stamp(ago), published_at: None,
     };
-    let seat = |player: i64, side: &str, name: &str| Seat { player, side: Some(side.into()), name: Some(name.into()) };
-    let stuck = |id: &str, reason: &str, a: Seat, b: Seat, wins: (u32, u32), ago: i64| Stuck { id: id.into(), state: "VERIFYING".into(), reason: reason.into(), since: stamp(ago), wins: Wins { a: wins.0, b: wins.1 }, mode: "rated".into(), players: vec![a, b] };
-    let entry = |id: i64, name: &str, role: &str, action: &str, target: &str, reason: &str, ago: i64, after: serde_json::Value| Entry { id, actor: id, name: Some(name.into()), role: role.into(), action: action.into(), target: target.into(), reason: reason.into(), at: stamp(ago), after };
+    let seat = |player: i64, side: &str, name: &str| Seat { player, side: Some(side.into()), name: Some(name.into()), present: None, osu_id: None };
+    let stuck = |id: &str, reason: &str, a: Seat, b: Seat, wins: (u32, u32), ago: i64| Stuck { id: id.into(), state: "VERIFYING".into(), reason: reason.into(), since: stamp(ago), wins: Wins { a: wins.0, b: wins.1 }, mode: "rated".into(), players: vec![a, b], ..Stuck::default() };
+    let entry = |id: i64, name: &str, role: &str, action: &str, target: &str, reason: &str, ago: i64, after: serde_json::Value| Entry { id, actor: id, name: Some(name.into()), osu_id: None, role: role.into(), action: action.into(), target: target.into(), reason: reason.into(), at: stamp(ago), before: serde_json::Value::Null, after };
     let desk = Desk {
         tasks,
         coverage: Some(coverage),
         stuck: vec![
-            stuck("s1", "verifying", seat(2, "A", "kotofey"), seat(6, "B", "Mirrorwave"), (1, 1), 480),
+            Stuck {
+                room: Some(crate::desk::StuckRoom { match_id: Some(114_482_093), name: "DSR: kotofey vs Mirrorwave".into(), status: "open".into() }),
+                round: Some(crate::desk::StuckRound { ordinal: 3, slot: "HR2".into(), state: "PLAYING".into(), beatmap_id: Some(5824105), title: Some("Ascension to Heaven".into()) }),
+                events: vec![
+                    crate::desk::Happened { kind: "state".into(), reason: Some("VERIFYING".into()), at: stamp(480) },
+                    crate::desk::Happened { kind: "state".into(), reason: Some("PLAYING".into()), at: stamp(700) },
+                    crate::desk::Happened { kind: "ready".into(), reason: None, at: stamp(760) },
+                    crate::desk::Happened { kind: "round".into(), reason: None, at: stamp(1_100) },
+                ],
+                deadline: Some(crate::desk::Due { kind: "evidence".into(), at: stamp(-120) }),
+                players: vec![Seat { present: Some(true), ..seat(2, "A", "kotofey") }, Seat { present: Some(false), ..seat(6, "B", "Mirrorwave") }],
+                ..stuck("s1", "verifying", seat(2, "A", "kotofey"), seat(6, "B", "Mirrorwave"), (1, 1), 480)
+            },
             stuck("s2", "absent", seat(4, "A", "d1ce"), seat(8, "B", "hmosha"), (2, 0), 900),
             stuck("s3", "room_setup", seat(5, "A", "aeris"), seat(7, "B", "mrekk"), (0, 0), 1500),
         ],
         journal: vec![
-            entry(1, "NaumRedlo", "OWNER", "publish_model", "kamerton-2", "Лучше на NM1 и HR2", 172_800, serde_json::Value::Null),
+            Entry { actor: 5, ..entry(9, "aeris", "BALANCE_REVIEWER", "map_add", "5860624", "", 1_200, serde_json::json!({ "slot": "DT2" })) },
+            Entry { actor: 5, before: serde_json::json!({ "slot": "NM2", "state": "AUTO_ASSIGNED" }), ..entry(8, "aeris", "BALANCE_REVIEWER", "map_move", "5824105", "Скорее чтение, чем стримы", 2_400, serde_json::json!({ "slot": "HD2", "state": "HUMAN_APPROVED" })) },
+            entry(7, "ssnowy", "BALANCE_REVIEWER", "discover", "6.5-7.0", "Мало альтернейта", 7_200, serde_json::Value::Null),
             entry(3, "ssnowy", "BALANCE_REVIEWER", "map_approve", "5687673", "Короткие группы, повороты", 10_800, serde_json::json!({ "slot": "NM3" })),
             entry(3, "ssnowy", "BALANCE_REVIEWER", "corpus_label", "2024:finals:NM3", "В 2024 NM3 был стримами", 14_400, serde_json::json!({ "label": "NM2" })),
             entry(4, "d1ce", "TECHNICAL_OPERATOR", "cancel", "a1b2", "Комната не создаётся", 18_000, serde_json::Value::Null),
             entry(3, "ssnowy", "BALANCE_REVIEWER", "map_quarantine", "5379506", "Карта обновлена маппером", 90_000, serde_json::json!({ "slot": "NM2" })),
+            entry(1, "NaumRedlo", "OWNER", "publish_model", "kamerton-2", "Лучше на NM1 и HR2", 172_800, serde_json::Value::Null),
+            entry(1, "NaumRedlo", "OWNER", "grant", "5:MODEL_PUBLISHER", "Будет публиковать Kamerton", 200_000, serde_json::Value::Null),
         ],
         people: vec![
-            Person { player: 3, name: Some("ssnowy".into()), roles: vec!["BALANCE_REVIEWER".into()] },
-            Person { player: 4, name: Some("d1ce".into()), roles: vec!["TECHNICAL_OPERATOR".into()] },
-            Person { player: 5, name: Some("aeris".into()), roles: vec!["BALANCE_REVIEWER".into(), "MODEL_PUBLISHER".into()] },
+            Person { player: 3, name: Some("ssnowy".into()), osu_id: None, roles: vec!["BALANCE_REVIEWER".into()] },
+            Person { player: 4, name: Some("d1ce".into()), osu_id: None, roles: vec!["TECHNICAL_OPERATOR".into()] },
+            Person { player: 5, name: Some("aeris".into()), osu_id: None, roles: vec!["BALANCE_REVIEWER".into(), "MODEL_PUBLISHER".into()] },
         ],
         versions: vec![version("kamerton-3", "shadow", 0.58, 3600), version("kamerton-2", "published", 0.55, 172_800), version("kamerton-1", "retired", 0.49, 777_600)],
         cells,
+        batches: vec![
+            crate::desk::Batch { name: "Russian Cup".into(), year: 2024, maps: 3, labelled: 1, excluded: 0, author: Some(crate::desk::Author { player: 3, name: Some("ssnowy".into()), osu_id: None }), added_at: stamp(259_200) },
+            crate::desk::Batch { name: "Training samples".into(), year: 0, maps: 12, labelled: 12, excluded: 12, author: Some(crate::desk::Author { player: 5, name: Some("aeris".into()), osu_id: None }), added_at: stamp(1_209_600) },
+        ],
     };
     let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main");
     let mut covers = std::collections::HashMap::new();
@@ -2371,7 +2408,7 @@ mod tests {
 
 fn staged_duels(offer: bool) -> crate::duels_screen::State {
     use crate::duels::{Deadline, Duel, Live, Me, Participant, Running, Seat, Standing, Wins};
-    let seat = |player: i64, side: &str, name: &str| Seat { player, side: Some(side.into()), name: Some(name.into()) };
+    let seat = |player: i64, side: &str, name: &str| Seat { player, side: Some(side.into()), name: Some(name.into()), present: None, osu_id: None };
     let running = |id: &str, a: Seat, b: Seat, wins: (u32, u32), title: Option<&str>, watching: u32| Running {
         id: id.into(), mode: "rated".into(), state: "PLAYING".into(), wins: Wins { a: wins.0, b: wins.1 }, players: vec![a, b], watching, title: title.map(Into::into), slot: title.map(|_| "DT1".into()), stars: title.map(|_| 5.95), song_seconds: title.map(|_| 216.0), ..Running::default()
     };

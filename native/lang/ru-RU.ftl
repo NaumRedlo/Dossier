@@ -1949,3 +1949,5 @@ desk-secondary = Подходит ещё под
 desk-secondary-none = Только основной
 desk-secondary-hint = Kamerton видит и { $slot } ({ $share }%) — можно отметить дополнительным.
 desk-catalog-secondary = +N — карты, для которых этот слот дополнительный
+desk-role-system = Автоматически
+desk-did-auto-discover = Искал карты для { $slot }, { $band }★: добавлено { $added }

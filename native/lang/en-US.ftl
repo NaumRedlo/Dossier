@@ -1905,3 +1905,5 @@ desk-secondary = Also fits
 desk-secondary-none = Primary only
 desk-secondary-hint = Kamerton also sees { $slot } ({ $share }%): it can be marked as the secondary slot.
 desk-catalog-secondary = +N are maps for which this slot is secondary
+desk-role-system = Automatic
+desk-did-auto-discover = Looked for { $slot } maps, { $band }★: { $added } added

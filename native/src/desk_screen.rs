@@ -106,7 +106,7 @@ impl Kind {
 
     fn of(action: &str) -> Kind {
         match action {
-            "discover" => Kind::Maps,
+            "discover" | "auto_discover" => Kind::Maps,
             "corpus_label" | "add_tournament" | "batch_rename" | "batch_delete" | "batch_exclude" | "batch_include" => Kind::Labels,
             "publish_model" | "rollback_model" | "train_model" | "delete_model" => Kind::Model,
             "cancel" | "manual_finalize" => Kind::Duels,
@@ -2395,6 +2395,12 @@ fn did(w: &Words, state: &State, entry: &desk::Entry) -> String {
         let label = if label == desk::EXCLUDED { w.t("desk-no-slot") } else { label };
         return w.with(&key, &[("year", year), ("stage", stage_name(w, stage).to_lowercase()), ("slot", slot), ("label", label)]);
     }
+    if entry.action == "auto_discover" {
+        let (slot, band) = entry.target.split_once(':').unwrap_or((entry.target.as_str(), ""));
+        let band = band.parse::<usize>().ok().filter(|band| *band < desk::BANDS.len()).map(|band| band_name(w, band)).unwrap_or_default();
+        let added = entry.after.get("added").and_then(serde_json::Value::as_u64).unwrap_or_default();
+        return w.with(&key, &[("slot", slot.to_owned()), ("band", band), ("added", added.to_string())]);
+    }
     if entry.action.starts_with("batch_") {
         let (year, rest) = entry.target.split_once(':').unwrap_or(("0", entry.target.as_str()));
         let (stage, beatmap) = match rest.rsplit_once(':') {
@@ -2536,6 +2542,7 @@ fn mark_of(action: &str) -> (Icon, Color) {
         "map_quarantine" => (Icon::Warn, UNSURE),
         "map_add" => (Icon::Plus, GOOD),
         "discover" => (Icon::Search, MUTED),
+        "auto_discover" => (Icon::Search, ACCENT),
         "corpus_label" | "add_tournament" | "batch_rename" => (Icon::Shapes, MUTED),
         "batch_delete" => (Icon::Ban, BAD),
         "batch_exclude" => (Icon::Warn, UNSURE),
@@ -2557,7 +2564,8 @@ fn badge<'a>(icon: Icon, colour: Color, k: f32) -> Element<'a, Message> {
 
 fn journal_row<'a>(w: &Words, state: &'a State, entry: &desk::Entry, open: bool, k: f32) -> Element<'a, Message> {
     let (icon, colour) = mark_of(&entry.action);
-    let mut meta = vec![entry.name.clone().unwrap_or_else(|| entry.actor.to_string()), role_name(w, &entry.role)];
+    let who = if entry.role == "SYSTEM" { "Kamerton".to_owned() } else { entry.name.clone().unwrap_or_else(|| entry.actor.to_string()) };
+    let mut meta = vec![who, role_name(w, &entry.role)];
     if let Some(at) = unix_of(entry.at.as_deref()) {
         meta.push(w.clock(at));
     }

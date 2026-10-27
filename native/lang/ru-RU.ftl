@@ -1667,7 +1667,6 @@ desk-total-unassigned = Ждут слота
 desk-legend-enough = Хватает, 5 и больше
 desk-legend-few = Мало, 1–4
 desk-legend-none = Нет ни одной
-desk-catalog-title = Сколько карт в игре по слотам и звёздам
 desk-level-human = Проверена людьми
 desk-level-confident = Уверенная
 desk-level-uncertain = Неуверенная

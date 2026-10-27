@@ -1438,7 +1438,7 @@ impl Main {
             parts.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Heard))));
         }
         if !self.gallery && !self.hidden && !self.minimized && self.duels.clock_running() {
-            parts.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Clock))));
+            parts.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Clock))));
         }
         let moving = self.duels.lively() || self.duels.animating();
         if (self.duels.watching.is_some() || moving) && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels {
@@ -1869,14 +1869,16 @@ impl Main {
                         let picked = rfd::AsyncFileDialog::new().add_filter("osu!", &["osz"]).pick_file().await?;
                         Some(picked.path().to_path_buf())
                     },
-                    |picked| picked.map_or_else(Vec::new, |path| crate::desk::archive_lines(&path)),
-                ).map(move |lines| wrap(K::Archived(lines))),
+                    |picked| picked.map_or_else(Vec::new, |path| crate::desk::archive_maps(&path)),
+                ).map(move |found| wrap(K::Archived(found))),
+                Effect::Older(_) if offline => Task::done(wrap(K::JournalOlder(Err("offline".to_owned())))),
+                Effect::Older(before) => ui::in_thread(move || K::JournalOlder(crate::desk::journal_before(&account, before).map_err(|why| why.to_string()))).map(wrap),
                 Effect::AddMap { beatmap, .. } if offline => Task::done(wrap(K::MapAdded(beatmap, Err("offline".to_owned())))),
                 Effect::AddMap { beatmap, slot, reason } => ui::in_thread(move || K::MapAdded(beatmap, crate::desk::add_map(&account, beatmap, slot.as_deref(), &reason).map_err(|why| why.to_string()))).map(wrap),
                 Effect::Post(_) if offline => Task::done(wrap(K::Posted(Err("offline".to_owned())))),
                 Effect::Post(post) => ui::in_thread(move || {
                     let said = match post {
-                        Post::Review { beatmap, decision, slot, reason } => crate::desk::review(&account, beatmap, decision, slot.as_deref(), &reason),
+                        Post::Review { beatmap, decision, slot, secondary, reason } => crate::desk::review(&account, beatmap, decision, slot.as_deref(), secondary.as_ref().map(Option::as_deref), &reason),
                         Post::Label { cell, beatmap, label, reason } => crate::desk::label(&account, &cell, beatmap, &label, &reason),
                         Post::Tournament { name, year, pool, reason } => crate::desk::tournament(&account, &name, year, &pool, &reason),
                         Post::Publish { version, reason } => crate::desk::publish(&account, &version, &reason),
@@ -1888,6 +1890,9 @@ impl Main {
                         Post::Discover { band, reason } => crate::desk::discover(&account, band, &reason),
                         Post::Train { reason } => crate::desk::train(&account, &reason),
                         Post::Delete { version, reason } => crate::desk::delete_model(&account, &version, &reason),
+                        Post::RenameBatch { name, year, new_name, new_year, reason } => crate::desk::rename_batch(&account, &name, year, &new_name, new_year, &reason),
+                        Post::DeleteBatch { name, year, beatmap, reason } => crate::desk::delete_batch(&account, &name, year, beatmap, &reason),
+                        Post::ExcludeBatch { name, year, beatmap, excluded, reason } => crate::desk::exclude_batch(&account, &name, year, beatmap, excluded, &reason),
                     };
                     K::Posted(said.map(|_| ()).map_err(|why| why.to_string()))
                 }).map(wrap),

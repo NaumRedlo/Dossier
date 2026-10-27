@@ -1625,7 +1625,6 @@ desk-total-unassigned = Waiting for a slot
 desk-legend-enough = Enough, 5 or more
 desk-legend-few = Few, 1–4
 desk-legend-none = None at all
-desk-catalog-title = Maps in play by slot and stars
 desk-level-human = Checked by people
 desk-level-confident = Confident
 desk-level-uncertain = Uncertain

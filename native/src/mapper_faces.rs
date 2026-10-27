@@ -2,17 +2,25 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use iced::widget::image;
 use serde_json::Value;
 
 const FACE_MOST: u64 = 2 * 1024 * 1024;
+const RETRY: Duration = Duration::from_secs(120);
 
 static QUIET: AtomicBool = AtomicBool::new(false);
 static WAITING: AtomicUsize = AtomicUsize::new(0);
 
-fn store() -> &'static Mutex<HashMap<i64, Option<image::Handle>>> {
-    static STORE: OnceLock<Mutex<HashMap<i64, Option<image::Handle>>>> = OnceLock::new();
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Face {
+    Mapper(i64),
+    Player(i64),
+}
+
+fn store() -> &'static Mutex<HashMap<Face, (Option<image::Handle>, Instant)>> {
+    static STORE: OnceLock<Mutex<HashMap<Face, (Option<image::Handle>, Instant)>>> = OnceLock::new();
     STORE.get_or_init(Mutex::default)
 }
 
@@ -25,21 +33,34 @@ pub fn waiting() -> bool {
 }
 
 pub fn of(beatmap: i64) -> Option<image::Handle> {
-    if beatmap <= 0 {
+    held(Face::Mapper(beatmap), beatmap)
+}
+
+pub fn of_player(osu_id: i64) -> Option<image::Handle> {
+    held(Face::Player(osu_id), osu_id)
+}
+
+fn held(face: Face, id: i64) -> Option<image::Handle> {
+    if id <= 0 {
         return None;
     }
     let mut held = store().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(found) = held.get(&beatmap) {
-        return found.clone();
+    if let Some((found, at)) = held.get(&face) {
+        if found.is_some() || at.elapsed() < RETRY {
+            return found.clone();
+        }
     }
-    held.insert(beatmap, None);
+    held.insert(face, (None, Instant::now()));
     if QUIET.load(Ordering::Relaxed) {
         return None;
     }
     WAITING.fetch_add(1, Ordering::Relaxed);
     std::thread::spawn(move || {
-        let found = fetched(beatmap);
-        store().lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(beatmap, found);
+        let found = match face {
+            Face::Mapper(beatmap) => crate::desk::looked_up(beatmap).as_ref().and_then(owner).and_then(picture),
+            Face::Player(osu_id) => picture(osu_id),
+        };
+        store().lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(face, (found, Instant::now()));
         WAITING.fetch_sub(1, Ordering::Relaxed);
     });
     None
@@ -52,14 +73,9 @@ pub fn owner(found: &Value) -> Option<i64> {
         .filter(|id| *id > 0)
 }
 
-fn fetched(beatmap: i64) -> Option<image::Handle> {
+fn picture(user: i64) -> Option<image::Handle> {
     let client = crate::bot::client().ok()?;
-    let about = client.get(crate::desk::about_address(beatmap)).header("User-Agent", "Dossier").send().ok()?;
-    if !about.status().is_success() {
-        return None;
-    }
-    let mapper = owner(&about.json::<Value>().ok()?)?;
-    let picture = client.get(format!("https://a.ppy.sh/{mapper}")).header("User-Agent", "Dossier").send().ok()?;
+    let picture = client.get(format!("https://a.ppy.sh/{user}")).header("User-Agent", crate::desk::MIRROR_AGENT).send().ok()?;
     if !picture.status().is_success() {
         return None;
     }

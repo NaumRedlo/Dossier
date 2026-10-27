@@ -27,6 +27,9 @@ pub struct State {
     pub roles_failed: Option<String>,
     pub duel: Option<Duel>,
     pub reading: bool,
+    pub stale: bool,
+    pub clock_offset: i64,
+    pub clock_offset_ms: Option<i64>,
     pub covers: std::collections::HashMap<i64, iced::widget::image::Handle>,
     pub asked: std::collections::HashSet<i64>,
     pub acked: Option<String>,
@@ -190,7 +193,7 @@ impl State {
     }
 
     pub fn update(&mut self, message: Message, now: i64) -> Vec<Effect> {
-        let effects = self.step(message, now);
+        let effects = self.step(message, self.server_now(now));
         self.observe();
         effects
     }
@@ -336,6 +339,9 @@ impl State {
                 self.reading = false;
                 self.failed = None;
                 let mut effects = Vec::new();
+                if std::mem::take(&mut self.stale) {
+                    effects.extend(self.read(duel.id.clone()));
+                }
                 if let Some(pool) = &duel.pool {
                     for set in pool.entries.iter().filter_map(|entry| entry.beatmapset_id) {
                         if self.asked.insert(set) {
@@ -362,11 +368,27 @@ impl State {
             Message::Read(Err(why)) => {
                 self.reading = false;
                 self.failed = Some(why);
-                Vec::new()
+                match self.duel.as_ref().map(|duel| duel.id.clone()).filter(|_| std::mem::take(&mut self.stale)) {
+                    Some(id) => self.read(id),
+                    None => Vec::new(),
+                }
             }
             Message::Heard(crate::duels::Heard::Event { duel, .. }) if self.duel.as_ref().is_some_and(|held| held.id == duel) => self.read(duel),
             Message::Heard(crate::duels::Heard::Connected) => {
                 self.linked = true;
+                let mut effects = match self.duel.as_ref().map(|duel| duel.id.clone()) {
+                    Some(id) => self.read(id),
+                    None => Vec::new(),
+                };
+                if !self.loading {
+                    self.loading = true;
+                    effects.push(Effect::Load);
+                }
+                effects
+            }
+            Message::Heard(crate::duels::Heard::Clock(server_ms)) => {
+                let local_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as i64);
+                self.set_clock(server_ms, local_ms);
                 Vec::new()
             }
             Message::Heard(crate::duels::Heard::Lost(_)) => {
@@ -555,8 +577,22 @@ impl State {
         }
     }
 
+    pub fn server_now(&self, local: i64) -> i64 {
+        local + self.clock_offset
+    }
+
+    fn set_clock(&mut self, server_ms: i64, local_ms: i64) {
+        let offset = server_ms - local_ms;
+        let smoothed = self.clock_offset_ms.map_or(offset, |held| (held * 3 + offset) / 4);
+        self.clock_offset_ms = Some(smoothed);
+        if (smoothed - self.clock_offset * 1000).abs() > 750 {
+            self.clock_offset = (smoothed as f64 / 1000.0).round() as i64;
+        }
+    }
+
     fn read(&mut self, id: String) -> Vec<Effect> {
         if self.reading {
+            self.stale = true;
             return Vec::new();
         }
         self.reading = true;
@@ -704,6 +740,13 @@ fn face_colour(name: &str) -> Color {
 
 pub(crate) fn person<'a, M: 'a>(name: &str, side: f32) -> Element<'a, M> {
     face(name, side, 2.0)
+}
+
+pub(crate) fn player_face<'a, M: 'a>(name: &str, osu_id: Option<i64>, side: f32) -> Element<'a, M> {
+    match osu_id.and_then(crate::mapper_faces::of_player) {
+        Some(handle) => iced::widget::image(handle).content_fit(iced::ContentFit::Cover).width(side).height(side).border_radius(side / 2.0).opacity(ui::fade()).into(),
+        None => person(name, side),
+    }
 }
 
 pub(crate) fn mapper_face<'a, M: 'a>(name: &str, beatmap: i64, side: f32) -> Element<'a, M> {
@@ -934,6 +977,7 @@ fn live_panel<'a>(w: &Words, live: &Live) -> Element<'a, Message> {
 }
 
 pub fn view<'a>(state: &State, w: &Words, now: i64, wide: f32) -> Element<'a, Message> {
+    let now = state.server_now(now);
     if let Some(duel) = state.shown() {
         return crate::duel_view::view(state, duel, w, now, wide);
     }
@@ -964,6 +1008,39 @@ mod tests {
             deadlines: vec![Deadline { kind: "pair_confirm".into(), at: Some("2026-10-23T12:00:30Z".into()) }],
             ..Duel::default()
         }
+    }
+
+    #[test]
+    fn an_event_heard_during_a_read_is_read_again_and_a_reconnect_rereads_everything() {
+        let mut state = State { duel: Some(duel("DRAFTING", &[])), ..State::default() };
+        let event = || Message::Heard(crate::duels::Heard::Event { duel: "d".into(), sequence: 4, event: "state".into(), payload: serde_json::Value::Null, version: 4 });
+        assert_eq!(state.update(event(), 100), vec![Effect::Read("d".into())]);
+        assert!(state.update(event(), 100).is_empty(), "one read at a time");
+        assert!(state.stale);
+        let effects = state.update(Message::Read(Ok(duel("DRAFTING", &[]))), 100);
+        assert!(effects.contains(&Effect::Read("d".into())), "the event that came during the read is not lost: {effects:?}");
+        assert!(!state.stale && state.reading);
+        state.update(Message::Read(Ok(duel("DRAFTING", &[]))), 100);
+        assert!(!state.reading);
+        let effects = state.update(Message::Heard(crate::duels::Heard::Connected), 100);
+        assert!(effects.contains(&Effect::Read("d".into())) && effects.contains(&Effect::Load), "a reconnect catches up: {effects:?}");
+    }
+
+    #[test]
+    fn timers_follow_the_server_clock_without_flickering_between_seconds() {
+        let mut state = State::default();
+        state.set_clock(1_000_000 + 3_400, 1_000_000);
+        assert_eq!(state.server_now(100), 103);
+        for jitter in [3_550, 3_450, 3_600, 3_380] {
+            state.set_clock(2_000_000 + jitter, 2_000_000);
+            assert_eq!(state.clock_offset, 3, "a few hundred milliseconds never move the clock");
+        }
+        for _ in 0..12 {
+            state.set_clock(3_000_000 - 2_000, 3_000_000);
+        }
+        assert_eq!(state.server_now(100), 98, "a real change of the offset is followed");
+        let left = seconds_left(&duel("WAITING_READY", &[]), State::default().server_now(1_792_756_825));
+        assert_eq!(left, Some(5));
     }
 
     #[test]

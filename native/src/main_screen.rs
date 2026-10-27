@@ -1875,6 +1875,10 @@ impl Main {
                 Effect::Older(before) => ui::in_thread(move || K::JournalOlder(crate::desk::journal_before(&account, before).map_err(|why| why.to_string()))).map(wrap),
                 Effect::AddMap { beatmap, .. } if offline => Task::done(wrap(K::MapAdded(beatmap, Err("offline".to_owned())))),
                 Effect::AddMap { beatmap, slot, reason } => ui::in_thread(move || K::MapAdded(beatmap, crate::desk::add_map(&account, beatmap, slot.as_deref(), &reason).map_err(|why| why.to_string()))).map(wrap),
+                Effect::Train(_) if offline => Task::done(wrap(K::TrainStarted(Err("offline".to_owned())))),
+                Effect::Train(reason) => ui::in_thread(move || K::TrainStarted(crate::desk::train(&account, &reason).map_err(|why| why.to_string()))).map(wrap),
+                Effect::TrainingJob(job) if offline => Task::done(wrap(K::TrainingState(job, Err("offline".to_owned())))),
+                Effect::TrainingJob(job) => ui::in_thread(move || { let said = crate::desk::training_job(&account, &job).map_err(|why| why.to_string()); K::TrainingState(job, said) }).map(wrap),
                 Effect::Post(_) if offline => Task::done(wrap(K::Posted(Err("offline".to_owned())))),
                 Effect::Post(post) => ui::in_thread(move || {
                     let said = match post {
@@ -1888,7 +1892,6 @@ impl Main {
                         Post::Grant { who, role, reason } => crate::desk::grant(&account, &who, &role, &reason),
                         Post::Revoke { player, role, reason } => crate::desk::revoke(&account, player, &role, &reason),
                         Post::Discover { band, reason } => crate::desk::discover(&account, band, &reason),
-                        Post::Train { reason } => crate::desk::train(&account, &reason),
                         Post::Delete { version, reason } => crate::desk::delete_model(&account, &version, &reason),
                         Post::RenameBatch { name, year, new_name, new_year, reason } => crate::desk::rename_batch(&account, &name, year, &new_name, new_year, &reason),
                         Post::DeleteBatch { name, year, beatmap, reason } => crate::desk::delete_batch(&account, &name, year, beatmap, &reason),

@@ -2283,7 +2283,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
         foot = foot.push(container(strong(group(*total), 13.0 * k, MUTED)).center_x(cell_wide).center_y(28.0 * k));
     }
     foot = foot.push(container(strong(group(columns.iter().sum::<u32>()), 13.0 * k, INK)).center_x(sum_wide).center_y(28.0 * k));
-    grid = grid.push(foot);
+    grid = grid.push(container(foot).id(iced::widget::Id::new("desk-catalog-totals")));
     let legend = row![
         swatch(tone(ENOUGH).0, None, w.t("desk-legend-enough"), k),
         swatch(tone(2).0, None, w.t("desk-legend-few"), k),
@@ -2299,8 +2299,8 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
         .on_press_maybe((!state.posting).then_some(Message::AddingMap(!state.adding_map)));
     let heading = row![container(heading_k(k, w.t("desk-catalog-title"))).width(Length::Fill), container(add).id(iced::widget::Id::new("desk-add-map"))].spacing(12).align_y(Alignment::Center);
     let table = container(column![heading, legend.wrap().vertical_spacing(6),
-        container(scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::hidden(), horizontal: scrollable::Scrollbar::default().spacing(6.0) }).height(if stacked { Length::Fill } else { Length::Shrink })).max_height(540.0 * k)].spacing(12))
-        .padding(workspace::INSET).width(Length::Fill).max_width(890.0 * k).id(iced::widget::Id::new("desk-catalog-table")).height(if stacked { Length::Fill } else { Length::Shrink }).style(workspace::surface);
+        container(scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::hidden(), horizontal: scrollable::Scrollbar::default().spacing(6.0) }).height(Length::Shrink)).max_height(540.0 * k)].spacing(12))
+        .padding(workspace::INSET).width(Length::Fill).max_width(if stacked { f32::INFINITY } else { 890.0 * k }).id(iced::widget::Id::new("desk-catalog-table")).style(workspace::surface);
     let (aside, tall): (Element<'a, Message>, bool) = if state.adding_map {
         (add_map_view(w, state, k), true)
     } else {
@@ -2312,13 +2312,14 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
     let aside: Element<'a, Message> = container(aside)
         .padding(18)
         .width(if stacked { Length::Fill } else { Length::Fixed(320.0 * k) })
-        .height(if tall { Length::Fill } else { Length::Shrink })
+        .height(if stacked && tall { Length::Fixed(if state.adding_map { 760.0 } else { 620.0 } * k) } else if tall { Length::Fill } else { Length::Shrink })
         .max_height(if state.adding_map { 760.0 } else { 620.0 } * k)
         .id(iced::widget::Id::new("desk-catalog-aside"))
         .style(workspace::surface)
         .into();
     let content: Element<'a, Message> = if stacked {
-        column![container(table).height(Length::FillPortion(2)), container(aside).height(Length::FillPortion(3))].spacing(workspace::GAP).height(Length::Fill).into()
+        scrollable(column![table, aside].spacing(workspace::GAP).width(Length::Fill))
+            .direction(ui::hidden_bar()).height(Length::Fill).id(iced::widget::Id::new("desk-catalog-scroll")).into()
     } else {
         row![table, aside].spacing(workspace::GAP).height(Length::Fill).into()
     };

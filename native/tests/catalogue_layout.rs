@@ -802,7 +802,7 @@ fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
         let tabs = ui.find(iced::widget::Id::new("desk-tabs")).unwrap().bounds();
         assert!((tabs.center_x() - work.center_x()).abs() < 1.0, "tabs must be centered: {tabs:?}, {work:?}");
         assert!((area.center_x() - work.center_x()).abs() < 1.0, "workspace must be centered: {area:?}, {work:?}");
-        assert!(table.width <= 900.0, "table background stretched: {table:?}");
+        if width == 1600.0 { assert!(table.width <= 900.0, "table background stretched: {table:?}"); }
         if width == 1600.0 { assert!(table.height < 650.0, "table background stretched downward: {table:?}"); }
         assert!(ui.find(catalog.words.t("desk-gaps-title")).is_ok(), "without a cell the side panel points at the gaps");
         drop(ui);
@@ -811,7 +811,7 @@ fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
         adding.height = 1000.0;
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, adding.height), gallery::main_frame(&adding, &backdrop));
         let table = ui.find(iced::widget::Id::new("desk-catalog-table")).unwrap().bounds();
-        assert!(table.width <= 900.0, "the add panel must not widen the table: {table:?}");
+        if width == 1600.0 { assert!(table.width <= 900.0, "the add panel must not widen the table: {table:?}"); }
         assert!(ui.find(adding.words.t("desk-add-map-model")).is_ok());
         assert!(ui.find(adding.words.t("desk-map-unranked-note")).is_ok(), "a graveyard map warns while Kamerton would decide");
         drop(ui);
@@ -828,5 +828,26 @@ fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
         assert!(ui.find(label.words.t("desk-label-empty")).is_ok());
         assert!(ui.find(label.words.t("desk-add-tournament")).is_ok());
         assert!(ui.find("OWC 2025").is_err());
+    }
+}
+
+#[test]
+fn narrow_balance_catalogue_keeps_full_rows_above_the_lower_panel() {
+    let backdrop = dossier_native::ui::backdrop_handle();
+    for height in [600.0, 720.0] {
+        let (_, mut main) = gallery::main_states(Lang::Ru).into_iter()
+            .find(|(name, _)| name == "main-community-balance-catalog-gaps").unwrap();
+        main.width = 980.0;
+        main.height = height;
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, height), gallery::main_frame(&main, &backdrop));
+        let table = ui.find(iced::widget::Id::new("desk-catalog-table")).unwrap().bounds();
+        let totals = ui.find(iced::widget::Id::new("desk-catalog-totals")).unwrap().bounds();
+        let aside = ui.find(iced::widget::Id::new("desk-catalog-aside")).unwrap().bounds();
+        assert!(table.height > 450.0, "all slot rows need their natural height: {table:?}");
+        assert!(totals.y + totals.height <= table.y + table.height, "the last row must stay inside the table: {totals:?}, {table:?}");
+        assert!((table.width - aside.width).abs() < 1.0, "stacked panels must use the same width: {table:?}, {aside:?}");
+        assert!(aside.y >= table.y + table.height, "panels must not overlap: {table:?}, {aside:?}");
+        let scroll = ui.find(iced::widget::Id::new("desk-catalog-scroll")).unwrap().bounds();
+        assert!(scroll.height < table.height + aside.height, "the panels must share a bounded page viewport: {scroll:?}");
     }
 }

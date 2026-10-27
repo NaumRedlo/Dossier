@@ -164,7 +164,6 @@ pub enum Post {
     Grant { who: String, role: String, reason: String },
     Revoke { player: i64, role: String, reason: String },
     Discover { band: usize, reason: String },
-    Train { reason: String },
     Delete { version: String, reason: String },
     RenameBatch { name: String, year: i32, new_name: String, new_year: i32, reason: String },
     DeleteBatch { name: String, year: i32, beatmap: Option<i64>, reason: String },
@@ -186,9 +185,35 @@ pub enum Effect {
     Inspect(i64),
     AddMap { beatmap: i64, slot: Option<String>, reason: String },
     Older(i64),
+    Train(String),
+    TrainingJob(String),
 }
 
 pub const ABOUT_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// A training run the desk waits for. The server names it by a job and says when it ends; an older server without jobs
+/// only shows it by a longer list of versions, so then the wait gives up after `TRAINING_WAIT`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Training {
+    pub job: Option<String>,
+    pub versions: usize,
+    pub since: std::time::Instant,
+    pub asking: bool,
+}
+
+impl Training {
+    fn new(versions: usize) -> Self {
+        Self { job: None, versions, since: std::time::Instant::now(), asking: false }
+    }
+
+    fn landed(&self, versions: usize) -> bool {
+        self.job.is_none() && versions > self.versions
+    }
+
+    fn overdue(&self) -> bool {
+        self.job.is_none() && self.since.elapsed() > TRAINING_WAIT
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -209,6 +234,8 @@ pub enum Message {
     NotThis(bool),
     Revoke(i64, String),
     Posted(Result<(), String>),
+    TrainStarted(Result<Option<String>, String>),
+    TrainingState(String, Result<desk::Job, String>),
     Cover(i64, Option<image::Handle>),
     Hear(i64),
     Heard,
@@ -315,8 +342,9 @@ pub struct State {
     pub abouts: HashMap<i64, desk::About>,
     pub looked: HashSet<i64>,
     pub picking: bool,
-    pub training: Option<(usize, std::time::Instant)>,
+    pub training: Option<Training>,
     pub training_lost: bool,
+    pub training_failed: Option<String>,
     pub nothing_new: bool,
     pub moving: bool,
     pub confirming: bool,
@@ -577,11 +605,17 @@ impl State {
                 }
             }
             Message::PresenceTick => {
-                if self.training.is_some_and(|(_, since)| since.elapsed() > TRAINING_WAIT) {
+                if self.training.as_ref().is_some_and(Training::overdue) {
                     self.training = None;
                     self.training_lost = true;
                 }
-                Vec::new()
+                match self.training.as_mut().filter(|training| !training.asking) {
+                    Some(Training { job: Some(job), asking, .. }) => {
+                        *asking = true;
+                        vec![Effect::TrainingJob(job.clone())]
+                    }
+                    _ => Vec::new(),
+                }
             },
             Message::BusyFrame => { self.busy_frame = self.busy_frame.wrapping_add(1); Vec::new() }
             Message::Stars(band) => {
@@ -633,7 +667,7 @@ impl State {
                         self.moving = false;
                     }
                 }
-                if self.training.is_some_and(|(count, _)| self.desk.versions.len() > count) { self.training = None; }
+                if self.training.as_ref().is_some_and(|training| training.landed(self.desk.versions.len())) { self.training = None; }
                 let sets = self.desk.tasks.iter().map(|task| task.map.beatmapset_id).collect::<Vec<_>>();
                 let mut effects = self.covered(sets);
                 if let Some((slot, band)) = &self.band { effects.push(Effect::Cell(slot.clone(), *band)); }
@@ -840,7 +874,7 @@ impl State {
                 self.loading = false;
                 match found {
                     Ok(desk) => {
-                        if self.training.is_some_and(|(count, _)| desk.versions.len() > count) {
+                        if self.training.as_ref().is_some_and(|training| training.landed(desk.versions.len())) {
                             self.training = None;
                         }
                         self.refresh_failed = false;
@@ -1021,11 +1055,63 @@ impl State {
                 self.post(Post::Publish { version, reason })
             }
             Message::Train => {
-                let reason = self.reason.trim().to_owned();
-                self.training = Some((self.desk.versions.len(), std::time::Instant::now()));
+                if self.posting || self.training.is_some() { return Vec::new(); }
+                self.training = Some(Training::new(self.desk.versions.len()));
                 self.training_lost = false;
+                self.training_failed = None;
                 self.nothing_new = false;
-                self.post(Post::Train { reason })
+                self.refreshing = None;
+                self.posting = true;
+                self.failed = None;
+                vec![Effect::Train(self.reason.trim().to_owned())]
+            }
+            Message::TrainStarted(said) => {
+                self.posting = false;
+                match said {
+                    Ok(job) => {
+                        if let Some(training) = self.training.as_mut() { training.job = job; }
+                        self.reason.clear();
+                        self.loading = true;
+                        vec![Effect::Load]
+                    }
+                    Err(why) => {
+                        self.training = None;
+                        if why == "NOTHING_NEW" { self.nothing_new = true; } else { self.failed = Some(why); }
+                        Vec::new()
+                    }
+                }
+            }
+            Message::TrainingState(job, said) => {
+                let Some(training) = self.training.as_mut().filter(|training| training.job.as_ref() == Some(&job)) else { return Vec::new() };
+                training.asking = false;
+                let found = match said {
+                    Ok(found) => found,
+                    Err(why) if why == "UNKNOWN_JOB" => {
+                        self.training = None;
+                        self.training_lost = true;
+                        return Vec::new();
+                    }
+                    Err(_) => return Vec::new(),
+                };
+                match found.state.as_str() {
+                    "done" => {
+                        self.training = None;
+                        self.version = found.version;
+                        self.loading = true;
+                        vec![Effect::Load]
+                    }
+                    "nothing_new" => {
+                        self.training = None;
+                        self.nothing_new = true;
+                        Vec::new()
+                    }
+                    "failed" => {
+                        self.training = None;
+                        self.training_failed = Some(found.error.unwrap_or_default());
+                        Vec::new()
+                    }
+                    _ => Vec::new(),
+                }
             }
             Message::Delete => {
                 let Some(version) = self.version.clone().or_else(|| self.desk.versions.first().map(|found| found.version.clone())) else { return Vec::new() };
@@ -1040,7 +1126,7 @@ impl State {
             Message::Again => {
                 if self.posting { return Vec::new(); }
                 self.refreshing = None;
-                if self.training.is_some_and(|(_, since)| since.elapsed() > TRAINING_WAIT) {
+                if self.training.as_ref().is_some_and(Training::overdue) {
                     self.training = None;
                     self.training_lost = true;
                     return Vec::new();
@@ -1233,6 +1319,15 @@ fn add_failure(w: &Words, why: &str) -> String {
         "404" | "405" => w.t("desk-add-map-unsupported"),
         _ => w.with("desk-failed", &[("why", why.to_owned())]),
     }
+}
+
+/// What held-out maps the model would really have let into duels, apart from how it sorted them.
+fn admitted_line(w: &Words, report: &serde_json::Value) -> Option<String> {
+    let admitted = report.pointer("/test/admitted")?;
+    let number = |key: &str| admitted.pointer(key).and_then(serde_json::Value::as_u64).unwrap_or_default();
+    let part = |key: &str| format!("{:.0}%", admitted.pointer(key).and_then(serde_json::Value::as_f64).unwrap_or_default() * 100.0);
+    Some(w.with("desk-admitted", &[("count", w.lang().group(number("/count"))), ("checked", w.lang().group(number("/checked"))),
+        ("precision", part("/precision")), ("refused", w.lang().group(number("/refused/count")))]))
 }
 
 pub fn version_name(w: &Words, version: &str) -> String {
@@ -1595,7 +1690,12 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
         let mut reasons = column![].spacing(5).padding(Padding { top: 6.0 * k, ..Padding::ZERO });
         for reason in guess.reasons.iter().take(3) {
             let (sign, colour) = if reason.weight >= 0.0 { ("+", GOOD) } else { ("−", BAD) };
-            let level = if reason.level > 0.5 { w.t("desk-level-above") } else if reason.level < -0.5 { w.t("desk-level-below") } else { w.t("desk-level-usual") };
+            let level = match reason.level {
+                Some(level) if level > 0.5 => w.t("desk-level-above"),
+                Some(level) if level < -0.5 => w.t("desk-level-below"),
+                Some(_) => w.t("desk-level-usual"),
+                None => String::new(),
+            };
             reasons = reasons.push(row![container(strong(sign.to_owned(), 14.0 * k, colour)).width(14.0 * k), words(feature(w, &reason.feature), 14.0 * k, MUTED), words(level, 13.0 * k, FAINT)].spacing(10).align_y(Alignment::Center));
         }
         why = why.push(reasons);
@@ -2268,6 +2368,8 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
     .spacing(8);
     if state.training.is_some() {
         general = general.push(words(w.t("desk-training"), 13.0 * k, FAINT));
+    } else if let Some(error) = &state.training_failed {
+        general = general.push(words(w.with("desk-training-failed", &[("error", error.clone())]), 13.0 * k, BAD));
     } else if state.training_lost {
         general = general.push(words(w.t("desk-training-lost"), 13.0 * k, BAD));
     } else if state.nothing_new {
@@ -2313,6 +2415,10 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
         figure(w.lang().group(people), INK, w.t("desk-verified")),
     ]
     .spacing(10);
+    let figures = match admitted_line(w, report) {
+        Some(line) => column![figures, words(line, 13.0 * k, FAINT)].spacing(8),
+        None => column![figures],
+    };
     let cell = |said: String, colour: Color| -> Element<'a, Message> { container(tight(said, 16.0 * k, colour)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right).into() };
     let mut slots = column![row![Space::new().width(Length::Fill), container(tight(w.t("desk-precision"), 13.0 * k, FAINT)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right), container(tight(w.t("desk-recall"), 13.0 * k, FAINT)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right)]].spacing(4);
     let line = |slot: &str| -> Element<'a, Message> {
@@ -3009,10 +3115,42 @@ mod tests {
     fn training_on_unchanged_labels_is_answered_without_waiting() {
         let w = Words::new(crate::lang::Lang::Ru);
         let mut state = State::default();
-        let _ = state.update(Message::Train, &w);
+        assert_eq!(state.update(Message::Train, &w), [Effect::Train(String::new())]);
         assert!(state.training.is_some());
-        let _ = state.update(Message::Posted(Err("NOTHING_NEW".into())), &w);
+        let _ = state.update(Message::TrainStarted(Err("NOTHING_NEW".into())), &w);
         assert!(state.training.is_none() && state.nothing_new && state.failed.is_none());
+    }
+
+    #[test]
+    fn a_training_is_followed_by_its_job_until_the_server_says_it_ended() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        let mut state = State { reason: "новые метки".into(), ..State::default() };
+        assert_eq!(state.update(Message::Train, &w), [Effect::Train("новые метки".into())]);
+        assert!(state.update(Message::Train, &w).is_empty(), "one training at a time");
+        assert_eq!(state.update(Message::TrainStarted(Ok(Some("j1".into()))), &w), [Effect::Load]);
+        state.loading = false;
+        let job = |state: &str, version: Option<&str>, error: Option<&str>| desk::Job { job: "j1".into(), state: state.into(), version: version.map(Into::into), error: error.map(Into::into) };
+        assert_eq!(state.update(Message::PresenceTick, &w), [Effect::TrainingJob("j1".into())]);
+        assert!(state.update(Message::PresenceTick, &w).is_empty(), "no second question while the first is unanswered");
+        let _ = state.update(Message::Loaded(Ok(Desk { versions: vec![desk::Version::default(); 30], ..Desk::default() })), &w);
+        assert!(state.training.is_some(), "a longer list of versions says nothing once there is a job");
+        assert!(state.update(Message::TrainingState("j1".into(), Ok(job("running", None, None))), &w).is_empty());
+        assert!(state.update(Message::TrainingState("j1".into(), Err("offline".into())), &w).is_empty() && state.training.is_some());
+        assert_eq!(state.update(Message::PresenceTick, &w), [Effect::TrainingJob("j1".into())]);
+        state.loading = false;
+        assert_eq!(state.update(Message::TrainingState("j1".into(), Ok(job("done", Some("kamerton-21"), None))), &w), [Effect::Load]);
+        assert!(state.training.is_none() && state.version.as_deref() == Some("kamerton-21"));
+        let mut failing = State::default();
+        let _ = failing.update(Message::Train, &w);
+        let _ = failing.update(Message::TrainStarted(Ok(Some("j1".into()))), &w);
+        let _ = failing.update(Message::TrainingState("j1".into(), Ok(job("failed", None, Some("ValueError: no maps")))), &w);
+        assert!(failing.training.is_none() && failing.training_failed.as_deref() == Some("ValueError: no maps"));
+        let mut forgotten = State::default();
+        let _ = forgotten.update(Message::Train, &w);
+        let _ = forgotten.update(Message::TrainStarted(Ok(Some("j2".into()))), &w);
+        assert!(forgotten.update(Message::TrainingState("j1".into(), Err("UNKNOWN_JOB".into())), &w).is_empty() && forgotten.training.is_some(), "another job's answer is not ours");
+        let _ = forgotten.update(Message::TrainingState("j2".into(), Err("UNKNOWN_JOB".into())), &w);
+        assert!(forgotten.training.is_none() && forgotten.training_lost);
     }
 
     #[test]
@@ -3038,10 +3176,10 @@ mod tests {
     fn a_training_that_never_lands_stops_being_awaited() {
         let w = Words::new(crate::lang::Lang::Ru);
         let mut state = State::default();
-        state.training = Some((0, std::time::Instant::now()));
+        state.training = Some(Training::new(0));
         assert_eq!(state.update(Message::Again, &w), [Effect::Load]);
         state.loading = false;
-        state.training = std::time::Instant::now().checked_sub(TRAINING_WAIT * 2).map(|since| (0, since));
+        state.training = std::time::Instant::now().checked_sub(TRAINING_WAIT * 2).map(|since| Training { since, ..Training::new(0) });
         if state.training.is_some() {
             assert!(state.update(Message::Again, &w).is_empty());
             assert!(state.training.is_none() && state.training_lost);

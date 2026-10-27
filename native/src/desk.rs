@@ -53,7 +53,7 @@ pub struct Odds {
 pub struct Reason {
     pub feature: String,
     pub weight: f32,
-    pub level: f32,
+    pub level: Option<f32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -568,8 +568,23 @@ pub fn delete_model(account: &Account, version: &str, reason: &str) -> Result<Va
     call(account, reqwest::Method::POST, &format!("/render/admin/duels/models/{version}/delete"), Some(json!({ "reason": reason })), None)
 }
 
-pub fn train(account: &Account, reason: &str) -> Result<Value, Failure> {
-    call(account, reqwest::Method::POST, "/render/admin/duels/models/train", Some(json!({ "reason": reason })), None)
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Job {
+    pub job: String,
+    pub state: String,
+    pub version: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Starts a training run and gives back its job, or `None` from a server that does not hand out jobs yet.
+pub fn train(account: &Account, reason: &str) -> Result<Option<String>, Failure> {
+    let said: Value = call(account, reqwest::Method::POST, "/render/admin/duels/models/train", Some(json!({ "reason": reason })), None)?;
+    Ok(said.get("job").and_then(Value::as_str).map(str::to_owned))
+}
+
+pub fn training_job(account: &Account, job: &str) -> Result<Job, Failure> {
+    call(account, reqwest::Method::GET, &format!("/render/admin/duels/models/training/{job}"), None, None)
 }
 
 pub fn discover(account: &Account, band: usize, reason: &str) -> Result<Value, Failure> {
@@ -598,6 +613,15 @@ mod tests {
         assert!(batch_reply(json!({"read": 1, "added": 1}), 2).is_err());
         assert!(batch_reply(json!({"read": 2, "added": 0}), 2).is_ok());
         assert!(batch_reply(json!({"read": 2, "added": 2}), 2).is_ok());
+    }
+
+    #[test]
+    fn a_reason_without_a_level_says_nothing_about_it() {
+        let told: Reason = serde_json::from_value(json!({ "feature": "spacing_radii.p90", "weight": 0.4, "level": -1.2 })).expect("a reason");
+        let quiet: Reason = serde_json::from_value(json!({ "feature": "skill.aim", "weight": 0.4 })).expect("a reason");
+        assert_eq!((told.level, quiet.level), (Some(-1.2), None));
+        let job: Job = serde_json::from_value(json!({ "job": "a1", "state": "done", "version": "kamerton-3", "error": null })).expect("a job");
+        assert_eq!((job.state.as_str(), job.version.as_deref(), job.error), ("done", Some("kamerton-3"), None));
     }
 
     #[test]

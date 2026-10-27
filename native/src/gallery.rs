@@ -1468,7 +1468,7 @@ fn staged_desk() -> crate::desk_screen::State {
     let guess = Guess {
         slot: Some("NM3".into()), probability: 0.64, margin: 0.43,
         top: vec![Odds { slot: "NM3".into(), probability: 0.64 }, Odds { slot: "NM2".into(), probability: 0.21 }, Odds { slot: "NM4".into(), probability: 0.09 }, Odds { slot: "OTHER".into(), probability: 0.06 }],
-        reasons: vec![Reason { feature: "streams.lengths.3-5".into(), weight: 1.2, level: 1.4 }, Reason { feature: "angle_deg.p90".into(), weight: 0.8, level: 0.9 }, Reason { feature: "streams.lengths.16-31".into(), weight: -0.6, level: 0.2 }],
+        reasons: vec![Reason { feature: "streams.lengths.3-5".into(), weight: 1.2, level: Some(1.4) }, Reason { feature: "angle_deg.p90".into(), weight: 0.8, level: Some(0.9) }, Reason { feature: "streams.lengths.16-31".into(), weight: -0.6, level: Some(0.2) }],
         outside: false, version: "kamerton-3".into(),
     };
     let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { secondary: None, kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };

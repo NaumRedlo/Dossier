@@ -1901,3 +1901,7 @@ desk-did-batch-rename = Renamed { $target } to { $name }
 desk-did-batch-delete = Deleted { $target }
 desk-did-batch-exclude = Excluded from training: { $target }
 desk-did-batch-include = Brought back into training: { $target }
+desk-secondary = Also fits
+desk-secondary-none = Primary only
+desk-secondary-hint = Kamerton also sees { $slot } ({ $share }%): it can be marked as the secondary slot.
+desk-catalog-secondary = +N are maps for which this slot is secondary

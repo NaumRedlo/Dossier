@@ -104,6 +104,7 @@ pub struct Task {
     pub reason: String,
     pub since: Option<String>,
     pub slot: Option<String>,
+    pub secondary: Option<String>,
     pub state: Option<String>,
     pub map: Map,
     pub opinions: Option<Opinions>,
@@ -124,6 +125,7 @@ pub struct Totals {
 pub struct Coverage {
     pub slots: Vec<String>,
     pub grid: BTreeMap<String, Vec<u32>>,
+    pub secondary: BTreeMap<String, Vec<u32>>,
     pub totals: Totals,
 }
 
@@ -462,8 +464,12 @@ pub fn cell(account: &Account, slot: &str, band: usize) -> Result<Vec<Held>, Fai
     listed(account, &format!("/render/admin/duels/catalog/{slot}/{band}"), "maps")
 }
 
-pub fn review(account: &Account, beatmap: i64, decision: &str, slot: Option<&str>, reason: &str) -> Result<Value, Failure> {
-    call(account, reqwest::Method::POST, &format!("/render/admin/duels/maps/{beatmap}/review"), Some(json!({ "decision": decision, "slot": slot, "reason": reason })), None)
+pub fn review(account: &Account, beatmap: i64, decision: &str, slot: Option<&str>, secondary: Option<Option<&str>>, reason: &str) -> Result<Value, Failure> {
+    let mut body = json!({ "decision": decision, "slot": slot, "reason": reason });
+    if let Some(secondary) = secondary {
+        body["secondary"] = json!(secondary);
+    }
+    call(account, reqwest::Method::POST, &format!("/render/admin/duels/maps/{beatmap}/review"), Some(body), None)
 }
 
 pub fn label(account: &Account, cell: &Cell, beatmap: Option<i64>, label: &str, reason: &str) -> Result<Value, Failure> {

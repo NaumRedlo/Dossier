@@ -1471,7 +1471,7 @@ fn staged_desk() -> crate::desk_screen::State {
         reasons: vec![Reason { feature: "streams.lengths.3-5".into(), weight: 1.2, level: 1.4 }, Reason { feature: "angle_deg.p90".into(), weight: 0.8, level: 0.9 }, Reason { feature: "streams.lengths.16-31".into(), weight: -0.6, level: 0.2 }],
         outside: false, version: "kamerton-3".into(),
     };
-    let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };
+    let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { secondary: None, kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };
     let mut first = task("review", "uncertain_revealed", Some("NM3"), map(5687673, 2612145, "HOT LIMIT", "Extreme", "Nevo", 5.71), 720);
     first.map.model = Some(guess);
     first.opinions = Some(Opinions { played: 5, fits: 3, off: 2, difficulty: [("fine".to_owned(), 4), ("hard".to_owned(), 1)].into_iter().collect(), comments: vec!["Альтернейта тут половина".into()] });
@@ -1491,6 +1491,7 @@ fn staged_desk() -> crate::desk_screen::State {
     let coverage = Coverage {
         slots: counts.iter().map(|(slot, _)| (*slot).to_owned()).collect(),
         grid: counts.iter().map(|(slot, row)| ((*slot).to_owned(), row.to_vec())).collect(),
+        secondary: [("HD2".to_owned(), vec![0, 2, 1, 0, 0, 0, 0, 0, 0, 0]), ("DT2".to_owned(), vec![0, 0, 1, 0, 0, 0, 0, 0, 0, 0])].into_iter().collect(),
         totals: Totals { playable: 412, human: 96, uncertain: 58, quarantined: 7, unassigned: 1204 },
     };
     let corpus_map = |id: i64, label: &str, verified: bool, title: &str| CorpusMap { beatmap_id: id, beatmapset_id: None, label: label.into(), verified, file: true, conflict: false, excluded: false, title: Some(title.into()), artist: Some("Artist".into()), version: Some("Insane".into()), mapper: Some("Mapper".into()) };

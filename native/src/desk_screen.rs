@@ -180,6 +180,7 @@ pub enum Effect {
     Cell(String, usize),
     Post(Post),
     About(i64),
+    Details(i64, String),
     Archive,
     Open(String),
     Inspect(i64),
@@ -270,6 +271,7 @@ pub enum Message {
     Role(&'static str),
     Grant,
     About(i64, Option<desk::About>),
+    Details(i64, String, Option<desk::details::Details>),
     Picking(bool),
     Archive,
     Archived(Vec<desk::Packed>),
@@ -340,6 +342,8 @@ pub struct State {
     pub player: String,
     pub role: Option<&'static str>,
     pub abouts: HashMap<i64, desk::About>,
+    pub details: HashMap<(i64, String), desk::details::Details>,
+    pub details_asked: HashMap<(i64, String), std::time::Instant>,
     pub looked: HashSet<i64>,
     pub picking: bool,
     pub training: Option<Training>,
@@ -524,6 +528,27 @@ impl State {
     }
 
     fn wanted(&mut self) -> Vec<Effect> {
+        if self.tab == Tab::Queue || (self.tab == Tab::Catalog && !self.adding_map) {
+            let mut effects = Vec::new();
+            if let Some(map) = self.task().filter(|_| self.tab == Tab::Queue).map(|task| task.map.clone()) {
+                let key = (map.beatmap_id, map.revision.clone().unwrap_or_default());
+                if map.stars.is_none() && !self.details.contains_key(&key)
+                    && self.details_asked.get(&key).is_none_or(|at| at.elapsed() >= ABOUT_RETRY) {
+                    self.details_asked.insert(key.clone(), std::time::Instant::now());
+                    effects.push(Effect::Details(key.0, key.1));
+                }
+            }
+            let ids: Vec<_> = if self.tab == Tab::Queue {
+                self.tasks().into_iter().filter(|task| task.map.title.as_deref().is_none_or(|s| s.trim().is_empty() || s == task.map.beatmap_id.to_string())).map(|task| task.map.beatmap_id).collect()
+            } else {
+                self.held.iter().filter(|map| map.title.as_deref().is_none_or(|s| s.trim().is_empty() || s == map.beatmap_id.to_string())).map(|map| map.beatmap_id).collect()
+            };
+            let pending = self.looked.iter().filter(|id| !self.abouts.contains_key(id)).count();
+            for id in ids.into_iter().filter(|id| !self.looked.contains(id)).take(4usize.saturating_sub(pending)).collect::<Vec<_>>() {
+                if self.ask(id) { effects.push(Effect::About(id)); }
+            }
+            return effects;
+        }
         if self.tab == Tab::Journal {
             let ids: Vec<i64> = self.desk.journal.iter().filter(|entry| entry.action.starts_with("map_")).filter_map(|entry| entry.target.parse().ok()).collect();
             return ids.into_iter().filter(|beatmap| self.ask(*beatmap)).map(Effect::About).collect();
@@ -579,8 +604,37 @@ impl State {
         self.abouts.get(&beatmap)
     }
 
+    fn shown_map(&self, source: &desk::Map) -> desk::Map {
+        let mut map = source.clone();
+        if let Some(about) = self.about(map.beatmap_id) {
+            for (to, from) in [(&mut map.title, &about.title), (&mut map.artist, &about.artist),
+                (&mut map.version, &about.version), (&mut map.mapper, &about.mapper)] {
+                if to.as_deref().is_none_or(|s| s.trim().is_empty() || s == map.beatmap_id.to_string()) && !from.trim().is_empty() {
+                    *to = Some(from.clone());
+                }
+            }
+            map.beatmapset_id = map.beatmapset_id.or(about.set);
+            map.plain_stars = map.plain_stars.or(about.stars);
+            if map.ranked_status.as_deref().is_none_or(str::is_empty) && !about.status.is_empty() { map.ranked_status = Some(about.status.clone()); }
+        }
+        if let Some(details) = self.details.get(&(map.beatmap_id, map.revision.clone().unwrap_or_default())) {
+            let mods = map.mods.iter().filter(|code| code.as_str() != "NF").cloned().collect::<String>();
+            map.stars = map.stars.or_else(|| details.stars.get(if mods.is_empty() { "NM" } else { &mods }).copied());
+        }
+        map
+    }
+
     fn step(&mut self, message: Message, w: &Words) -> Vec<Effect> {
         match message {
+            Message::Details(beatmap, revision, found) => {
+                if let Some(found) = found {
+                    found.fill(self.abouts.entry(beatmap).or_default());
+                    let set = found.about.set;
+                    self.details.insert((beatmap, revision), found);
+                    return self.covered([set]);
+                }
+                Vec::new()
+            }
             Message::Inspect(beatmap) => {
                 if self.posting { return Vec::new(); }
                 self.inspecting = Some(beatmap);
@@ -1544,6 +1598,7 @@ fn queue_view<'a>(w: &Words, state: &'a State, now: i64, k: f32, wide: f32) -> E
     let picked = state.task().map(|task| task.map.beatmap_id);
     let mut list = column![].spacing(6);
     for task in state.tasks() {
+        let map = state.shown_map(&task.map);
         let on = picked == Some(task.map.beatmap_id) || state.task().is_some_and(|chosen| task.map.beatmapset_id.is_some() && task.map.beatmapset_id == chosen.map.beatmapset_id);
         let mut tags = row![].spacing(6).align_y(Alignment::Center);
         if let Some(slot) = task.slot.as_deref().filter(|_| task.kind != "unassigned") {
@@ -1551,8 +1606,8 @@ fn queue_view<'a>(w: &Words, state: &'a State, now: i64, k: f32, wide: f32) -> E
         }
         tags = tags.push(strong(w.t(&format!("desk-reason-{}", task.reason.replace('_', "-"))), 12.0 * k, reason_colour(task)));
         let inside = row![
-            cover(state, task.map.beatmapset_id, 60.0 * k, 38.0 * k, 7.0),
-            column![titled_map(task.map.title.as_deref(), task.map.beatmap_id, 14.0 * k), tags].spacing(3).width(Length::Fill),
+            cover(state, map.beatmapset_id, 60.0 * k, 38.0 * k, 7.0),
+            column![titled_map(map.title.as_deref(), map.beatmap_id, 14.0 * k), one_line(map.version.clone().unwrap_or_default(), 12.0 * k, MUTED, theme::SANS), tags].spacing(3).width(Length::Fill),
             tight(ago(w, task.since.as_deref(), now), 12.0 * k, FAINT),
         ]
         .spacing(12)
@@ -1581,11 +1636,11 @@ fn queue_view<'a>(w: &Words, state: &'a State, now: i64, k: f32, wide: f32) -> E
 }
 
 fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) -> Element<'a, Message> {
-    let map = &task.map;
+    let map = &state.shown_map(&task.map);
     let card = stack![
         cover(state, map.beatmapset_id, 280.0 * k, 160.0 * k, 14.0),
         container(column![
-            row![task.slot.as_deref().filter(|_| task.kind != "unassigned").map(|slot| tag(slot, k)).unwrap_or_else(|| Space::new().into()), Space::new().width(Length::Fill), stars_of(map.stars, 12.0 * k)].align_y(Alignment::Center),
+            row![task.slot.as_deref().filter(|_| task.kind != "unassigned").map(|slot| tag(slot, k)).unwrap_or_else(|| Space::new().into()), Space::new().width(Length::Fill), container(stars_of(map.stars, 12.0 * k)).id(iced::widget::Id::new("desk-map-stars"))].align_y(Alignment::Center),
             Space::new().height(Length::Fill),
             one_line(map.version.clone().unwrap_or_default(), 15.0 * k, INK, theme::SANS_SEMI),
             titled_map(map.title.as_deref(), map.beatmap_id, 17.0 * k),
@@ -1677,7 +1732,8 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
         .into(),
         _ => Space::new().into(),
     };
-    let summary = column![card, played, facts.wrap().vertical_spacing(6), under].spacing(8);
+    let status = map.ranked_status.as_deref().filter(|status| !status.is_empty()).map(|status| status_pill(w, status, k)).unwrap_or_else(|| Space::new().into());
+    let summary = column![card, row![played, status].spacing(8).align_y(Alignment::Center), facts.wrap().vertical_spacing(6), under].spacing(8);
     let top: Element<'a, Message> = if wide < 800.0 {
         column![summary, decision].spacing(16).into()
     } else { row![summary, decision].spacing(22.0 * k).into() };
@@ -2040,8 +2096,8 @@ fn status_pill<'a>(w: &Words, status: &str, k: f32) -> Element<'a, Message> {
         "ranked" | "approved" => (GOOD, status),
         "loved" => (iced::color!(0xff7eb6), status),
         "qualified" => (UNSURE, status),
-        "" => (FAINT, "unknown"),
-        _ => (MUTED, "unranked"),
+        "graveyard" | "wip" | "pending" => (MUTED, status),
+        _ => (FAINT, "unknown"),
     };
     container(strong(w.t(&format!("desk-status-{key}")), 12.0 * k, colour)).padding([3.0 * k, 8.0 * k]).style(|_| container::Style {
         background: Some(Background::Color(iced::color!(0x201319))),
@@ -2050,13 +2106,14 @@ fn status_pill<'a>(w: &Words, status: &str, k: f32) -> Element<'a, Message> {
 }
 
 fn held_card<'a>(w: &Words, state: &'a State, map: &Held, k: f32) -> Element<'a, Message> {
+    let shown = state.shown_map(&desk::Map { beatmap_id: map.beatmap_id, beatmapset_id: map.beatmapset_id, title: map.title.clone(), version: map.version.clone(), mapper: map.mapper.clone(), ..Default::default() });
     let colour = match map.level.as_str() { "human" => GOOD, "uncertain" => UNSURE, _ => MUTED };
     let fresh = state.added == Some(map.beatmap_id);
-    let byline = [map.version.clone(), map.mapper.clone()].into_iter().flatten().filter(|said| !said.is_empty()).collect::<Vec<_>>().join(" · ");
+    let byline = [shown.version.clone(), shown.mapper.clone()].into_iter().flatten().filter(|said| !said.is_empty()).collect::<Vec<_>>().join(" · ");
     let top = row![
-        cover(state, map.beatmapset_id, 76.0 * k, 46.0 * k, 8.0),
+        cover(state, shown.beatmapset_id, 76.0 * k, 46.0 * k, 8.0),
         column![
-            titled_map(map.title.as_deref(), map.beatmap_id, 14.0 * k),
+            titled_map(shown.title.as_deref(), map.beatmap_id, 14.0 * k),
             one_line(byline, 12.0 * k, MUTED, theme::SANS),
             row![stars_of(Some(map.stars), 12.0 * k), strong(w.t(&format!("desk-level-{}", map.level)), 12.0 * k, colour)].spacing(8).align_y(Alignment::Center),
         ].spacing(3).width(Length::Fill),
@@ -2993,7 +3050,7 @@ mod tests {
     #[test]
     fn refresh_keeps_selection_and_drafts_and_rejects_a_pre_save_response() {
         let w = Words::new(crate::lang::Lang::En);
-        let task = |id| Task { map: desk::Map { beatmap_id: id, ..Default::default() }, ..Default::default() };
+        let task = |id| Task { map: desk::Map { beatmap_id: id, title: Some("Song".into()), stars: Some(5.5), ..Default::default() }, ..Default::default() };
         let mut state = State::default();
         state.desk.tasks = vec![task(1), task(2)];
         state.reason = "my explanation".into();
@@ -3096,7 +3153,7 @@ mod tests {
     fn a_decision_goes_without_a_reason_and_only_one_post_runs_at_a_time() {
         let w = Words::new(crate::lang::Lang::Ru);
         let mut state = State::default();
-        state.desk.tasks = vec![Task { kind: "review".into(), reason: "uncertain_revealed".into(), slot: Some("NM3".into()), map: desk::Map { beatmap_id: 7, ..desk::Map::default() }, ..Task::default() }];
+        state.desk.tasks = vec![Task { kind: "review".into(), reason: "uncertain_revealed".into(), slot: Some("NM3".into()), map: desk::Map { beatmap_id: 7, title: Some("Song".into()), stars: Some(5.5), ..desk::Map::default() }, ..Task::default() }];
         assert!(state.update(Message::NotThis(true), &w).is_empty() && state.moving);
         let effects = state.update(Message::Decide("MOVE", Some("NM2".into())), &w);
         assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "MOVE", slot: Some("NM2".into()), secondary: Some(None), reason: String::new() })]);
@@ -3400,4 +3457,27 @@ mod tests {
         assert_eq!((state.tab, state.task().map(|task| task.map.beatmap_id)), (Tab::Queue, Some(2)), "without a slot the map opens for a decision");
         assert_eq!(add_failure(&w, "404"), w.t("desk-add-map-unsupported"));
     }
+    #[test]
+    fn linked_maps_restore_titles_and_keep_mod_stars_separate_across_refreshes() {
+        let w = Words::new(crate::lang::Lang::En);
+        let map = desk::Map { beatmap_id: 7, title: Some("7".into()), mods: vec!["DT".into()], revision: Some("old".into()), ..Default::default() };
+        let mut state = State::default();
+        state.desk.tasks.push(Task { map: map.clone(), ..Default::default() });
+        let effects = state.wanted();
+        assert!(effects.contains(&Effect::Details(7, "old".into())));
+        assert!(effects.contains(&Effect::About(7)));
+        assert!(state.wanted().is_empty(), "do not repeat requests on every frame");
+        state.update(Message::About(7, Some(desk::About { title: "Voiceless Fish".into(), version: "Insane".into(), status: "graveyard".into(), stars: Some(5.08), ..Default::default() })), &w);
+        state.update(Message::Details(7, "old".into(), Some(desk::details::Details { stars: [("DT".into(), 6.92)].into_iter().collect(), ..Default::default() })), &w);
+        let shown = state.shown_map(&map);
+        assert_eq!(shown.title.as_deref(), Some("Voiceless Fish"));
+        assert_eq!((shown.stars, shown.plain_stars), (Some(6.92), Some(5.08)));
+        assert_eq!(shown.ranked_status.as_deref(), Some("graveyard"));
+        let mut changed = map.clone();
+        changed.revision = Some("new".into());
+        assert_eq!(state.shown_map(&changed).stars, None, "another revision needs its own calculation");
+        changed.stars = Some(7.1);
+        assert_eq!(state.shown_map(&changed).stars, Some(7.1), "preserve stars received from the server");
+    }
+
 }

@@ -5,6 +5,8 @@ use serde_json::{json, Value};
 
 use crate::duels::{call, Account, Failure, Seat, Wins};
 
+pub mod details;
+
 pub const REVIEWER: &str = "BALANCE_REVIEWER";
 pub const OPERATOR: &str = "TECHNICAL_OPERATOR";
 pub const PUBLISHER: &str = "MODEL_PUBLISHER";
@@ -84,6 +86,8 @@ pub struct Map {
     pub plain_stars: Option<f32>,
     pub bpm: Option<f32>,
     pub mods: Vec<String>,
+    pub revision: Option<String>,
+    pub ranked_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -341,12 +345,9 @@ pub fn looked_up(beatmap: i64) -> Option<Value> {
         response.json::<Value>().ok()
     };
     let ours = |found: &Value| found.get("id").and_then(Value::as_i64) == Some(beatmap);
-    if let Some(found) = get(about_address(beatmap)).filter(ours) {
-        return Some(found);
-    }
-    let mut found = get(spare_address(beatmap)).filter(ours)?;
-    if found.get("set").is_none() && found.get("beatmapset").is_none() {
-        if let Some(set) = found.get("beatmapset_id").and_then(Value::as_i64).and_then(|set| get(spare_set_address(set))) {
+    let mut found = get(about_address(beatmap)).filter(ours).or_else(|| get(spare_address(beatmap)).filter(ours))?;
+    if read_about(&found).is_none_or(|about| about.title.trim().is_empty()) {
+        if let Some(set) = found.get("beatmapset_id").and_then(Value::as_i64).and_then(|set| get(spare_set_address(set)).or_else(|| get(format!("https://catboy.best/api/v2/s/{set}")))) {
             found["set"] = set;
         }
     }
@@ -361,8 +362,8 @@ pub fn read_about(found: &Value) -> Option<About> {
     let mapper = found.get("owners").and_then(Value::as_array).and_then(|owners| owners.first()).and_then(|owner| owner.get("username")).and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| text(set.get("creator")));
     Some(About {
         set: found.get("beatmapset_id").and_then(Value::as_i64).or_else(|| set.get("id").and_then(Value::as_i64)),
-        title: text(set.get("title")),
-        artist: text(set.get("artist")),
+        title: text(set.get("title").or_else(|| found.get("title"))),
+        artist: text(set.get("artist").or_else(|| found.get("artist"))),
         version: text(found.get("version")),
         mapper,
         stars: found.get("difficulty_rating").and_then(Value::as_f64).map(|value| value as f32),
@@ -374,7 +375,14 @@ pub fn read_about(found: &Value) -> Option<About> {
 }
 
 pub fn about(beatmap: i64) -> Option<About> {
-    read_about(&looked_up(beatmap)?)
+    let mut found = looked_up(beatmap).and_then(|value| read_about(&value));
+    if found.as_ref().is_none_or(|about| about.title.trim().is_empty()) {
+        if let Some(details) = details::load(beatmap, "") {
+            let about = found.get_or_insert_with(About::default);
+            details.fill(about);
+        }
+    }
+    found
 }
 
 #[derive(Debug, Clone, PartialEq)]

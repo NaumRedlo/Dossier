@@ -1864,6 +1864,11 @@ impl Main {
                 }
                 Effect::About(_) if self.gallery => Task::none(),
                 Effect::About(beatmap) => ui::in_thread(move || K::About(beatmap, crate::desk::about(beatmap))).map(wrap),
+                Effect::Details(..) if self.gallery => Task::none(),
+                Effect::Details(beatmap, revision) => ui::in_thread(move || {
+                    let found = crate::desk::details::load(beatmap, &revision);
+                    K::Details(beatmap, revision, found)
+                }).map(wrap),
                 Effect::Archive => Task::perform(
                     async {
                         let picked = rfd::AsyncFileDialog::new().add_filter("osu!", &["osz"]).pick_file().await?;

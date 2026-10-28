@@ -1463,7 +1463,7 @@ fn staged_desk() -> crate::desk_screen::State {
     let map = |id: i64, set: i64, title: &str, version: &str, mapper: &str, stars: f32| Map {
         bpm: Some(180.0),
         beatmap_id: id, beatmapset_id: Some(set), title: Some(title.into()), artist: Some("Artist".into()), version: Some(version.into()), mapper: Some(mapper.into()), stars: Some(stars), model: None,
-        settings: [("cs".to_owned(), 4.2), ("ar".to_owned(), 9.3), ("od".to_owned(), 8.8), ("hp".to_owned(), 5.5)].into_iter().collect(), length: Some(216.0), plain_stars: None, mods: Vec::new(),
+        settings: [("cs".to_owned(), 4.2), ("ar".to_owned(), 9.3), ("od".to_owned(), 8.8), ("hp".to_owned(), 5.5)].into_iter().collect(), length: Some(216.0), plain_stars: None, mods: Vec::new(), ..Default::default()
     };
     let guess = Guess {
         slot: Some("NM3".into()), probability: 0.64, margin: 0.43,

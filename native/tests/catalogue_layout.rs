@@ -851,3 +851,31 @@ fn narrow_balance_catalogue_keeps_full_rows_above_the_lower_panel() {
         assert!(scroll.height < table.height + aside.height, "the panels must share a bounded page viewport: {scroll:?}");
     }
 }
+
+#[test]
+fn balance_linked_maps_show_recovered_names_mod_stars_and_exact_status() {
+    use dossier_native::{desk, desk_screen::Message};
+    let backdrop = dossier_native::ui::backdrop_handle();
+    for lang in [Lang::Ru, Lang::En] {
+        for width in [980.0, 1600.0] {
+            let (_, mut main) = gallery::main_states(lang).into_iter().find(|(name, _)| name == "main-community-balance-dt").unwrap();
+            main.width = width;
+            main.height = 1000.0;
+            let task = main.desk.desk.tasks.iter_mut().find(|task| Some(task.map.beatmap_id) == main.desk.picked).unwrap();
+            let id = task.map.beatmap_id;
+            task.map.title = Some(id.to_string());
+            task.map.stars = None;
+            main.desk.update(Message::About(id, Some(desk::About { title: "Recovered map title".into(), status: "graveyard".into(), ..Default::default() })), &main.words);
+            main.desk.update(Message::Details(id, String::new(), Some(desk::details::Details { stars: [("DT".into(), 6.93)].into_iter().collect(), ..Default::default() })), &main.words);
+            let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, main.height), gallery::main_frame(&main, &backdrop));
+            assert!(ui.find("Recovered map title").is_ok());
+            assert!(ui.find(id.to_string()).is_err(), "an ID must not remain as the title");
+            assert!(ui.find("GRAVEYARD").is_ok());
+            assert!(ui.find("6,93").is_ok());
+            assert!(ui.find("5,30").is_ok(), "NM stars remain separate under the card");
+            let corner = ui.find(iced::widget::Id::new("desk-map-stars")).unwrap().bounds();
+            let stars = ui.find("6,93").unwrap().bounds();
+            assert!(corner.contains(stars.center()), "mod stars must stay in the corner badge");
+        }
+    }
+}

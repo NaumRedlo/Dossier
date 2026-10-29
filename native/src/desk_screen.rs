@@ -1466,7 +1466,7 @@ impl State {
 
 fn add_failure(w: &Words, why: &str) -> String {
     match why {
-        "MAP_NOT_FOUND" | "NOT_STANDARD" | "MAP_LENGTH" | "NO_FILE" | "PARSE_FAILED" | "REJECTED_STAYS" | "UNKNOWN_SLOT" | "SERVICE_RECOVERING" | "FORBIDDEN" | "STARS_RANGE" => {
+        "MAP_NOT_FOUND" | "NOT_STANDARD" | "MAP_LENGTH" | "TRIMMED" | "NO_FILE" | "PARSE_FAILED" | "REJECTED_STAYS" | "UNKNOWN_SLOT" | "SERVICE_RECOVERING" | "FORBIDDEN" | "STARS_RANGE" => {
             w.t(&format!("desk-add-map-{}", why.to_lowercase().replace('_', "-")))
         }
         "404" | "405" => w.t("desk-add-map-unsupported"),
@@ -1739,7 +1739,11 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
             one_line(map.version.clone().unwrap_or_default(), 15.0 * k, INK, theme::SANS_SEMI),
             titled_map(map.title.as_deref(), map.beatmap_id, 17.0 * k),
             one_line(map.artist.clone().unwrap_or_default(), 13.0 * k, MUTED, theme::SANS),
-            row![crate::duels_screen::mapper_face(map.mapper.as_deref().unwrap_or_default(), map.beatmap_id, 18.0 * k), words(map.mapper.clone().unwrap_or_default(), 13.0 * k, MUTED)].spacing(6).align_y(Alignment::Center),
+            row![
+                crate::duels_screen::mapper_face(map.mapper.as_deref().unwrap_or_default(), map.beatmap_id, 18.0 * k),
+                container(words(map.mapper.clone().unwrap_or_default(), 13.0 * k, MUTED)).width(Length::Fill).clip(true),
+                map.ranked_status.as_deref().filter(|status| !status.is_empty()).map(|status| status_pill(w, status, k)).unwrap_or_else(|| Space::new().into()),
+            ].spacing(6).align_y(Alignment::Center),
         ].spacing(1))
         .padding(12.0 * k)
         .width(280.0 * k)
@@ -1817,18 +1821,11 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
     let decision = column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(answers).padding(Padding { top: 6.0 * k, bottom: 10.0 * k, ..Padding::ZERO }), grade_row(w, state, task, k), secondary_row(w, state, task, k), reason]
         .spacing(8)
         .width(Length::Fill);
-    let played: Element<'a, Message> = match (map.mods.is_empty(), map.plain_stars) {
-        (false, Some(plain)) => row![
-            container(strong(map.mods.join(""), 12.0 * k, INK)).padding([2.0 * k, 8.0 * k]).style(|_| container::Style { background: Some(Background::Color(LIT)), border: Border { radius: 6.0.into(), ..Border::default() }, ..container::Style::default() }),
-            meta_pill("NM".into(), k), stars_of(Some(plain), 12.0 * k),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center)
-        .into(),
-        _ => Space::new().into(),
-    };
-    let status = map.ranked_status.as_deref().filter(|status| !status.is_empty()).map(|status| status_pill(w, status, k)).unwrap_or_else(|| Space::new().into());
-    let summary = column![card, row![played, status].spacing(8).align_y(Alignment::Center), facts.wrap().vertical_spacing(6), under].spacing(8);
+    let mut summary = column![card].spacing(8);
+    if let (false, Some(plain)) = (map.mods.is_empty(), map.plain_stars) {
+        summary = summary.push(row![meta_pill("NM".into(), k), stars_of(Some(plain), 12.0 * k)].spacing(8).align_y(Alignment::Center));
+    }
+    let summary = summary.push(facts.wrap().vertical_spacing(6)).push(under);
     let top: Element<'a, Message> = if wide < 800.0 {
         column![summary, decision].spacing(16).into()
     } else { row![summary, decision].spacing(22.0 * k).into() };

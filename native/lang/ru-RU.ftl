@@ -1188,6 +1188,7 @@ witness-playing = Идёт игра: { $map }
 witness-client = Версия клиента: { $build }
 witness-kept = Сохранено реплеев за сеанс: { $n }
 witness-not-kept = Не удалось сохранить реплей
+witness-not-sent = Не удалось отправить игру в беседу
 witness-told = Передано результатов в ленту за сеанс: { $n }
 witness-untold = Некоторые результаты Witness требуют проверки
 witness-pending = Ожидают отправки: { $n }

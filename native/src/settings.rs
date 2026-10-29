@@ -29,6 +29,13 @@ use crate::sources::Source;
 
 pub const DEFAULT_SERVER: &str = "https://onenineeightfour.ignorelist.com";
 
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct DayMark {
+    pub day: String,
+    pub pp: f64,
+    pub rank: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
     pub lang: Lang,
@@ -69,6 +76,8 @@ pub struct Settings {
     pub tiles_bot: Vec<String>,
     #[serde(default)]
     pub duel_running: Option<String>,
+    #[serde(default)]
+    pub day_mark: Option<DayMark>,
     #[serde(default)]
     pub side_order: Vec<String>,
     #[serde(default)]
@@ -980,6 +989,7 @@ impl Default for Settings {
             tiles_app: Vec::new(),
             tiles_bot: Vec::new(),
             duel_running: None,
+            day_mark: None,
             side_order: Vec::new(),
             inbox_heard: 0,
             chat_id: None,

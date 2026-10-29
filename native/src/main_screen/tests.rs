@@ -603,14 +603,15 @@ fn the_overlay_switch_reaches_the_running_witness_with_the_language_and_the_jour
     main.witness_control = Some(control.clone());
     main.settings.lang = crate::lang::Lang::En;
     main.settings.witness_overlay = false;
+    main.settings.token = "linked".into();
     assert_eq!(control.overlay(), None);
     let _ = main.update(super::Message::Prefs(P::WitnessOverlay(true)));
     assert!(main.settings.witness_overlay);
-    assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: true }));
+    assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: true, offers: true }), "a linked player is offered to send a play");
     let _ = main.update(super::Message::Prefs(P::Witness(false)));
-    assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: false }), "the tile may not say a play was saved");
+    assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: false, offers: true }), "the tile may not say a play was saved");
     let _ = main.update(super::Message::Prefs(P::PickLang(crate::lang::Lang::Ru)));
-    assert_eq!(control.overlay(), Some(Overlay { english: false, keeps: false }));
+    assert_eq!(control.overlay(), Some(Overlay { english: false, keeps: false, offers: true }));
     let _ = main.update(super::Message::Prefs(P::WitnessOverlay(false)));
     assert_eq!(control.overlay(), None);
 }

@@ -190,6 +190,9 @@ pub enum Message {
     Sharing(sharing::Message),
     Witness(crate::witness::Event),
     WitnessDelivered(crate::witness_delivery::Delivery, Result<(), Refused>),
+    OverlayDay(Result<crate::bot::PlayDay, String>),
+    OverlaySent(Result<dossier_hud::Sent, String>),
+    OverlayPlaces(String, Vec<dossier_hud::Place>),
     WitnessDeliveryTick,
     HistoryTold(crate::history::Sent),
     ToastHover(u64, bool),
@@ -679,6 +682,9 @@ pub struct Main {
     pub read_over_person: bool,
     pub witness: crate::witness::Seen,
     pub witness_control: Option<std::sync::Arc<crate::witness::Control>>,
+    pub last_kept: Option<crate::witness::Kept>,
+    pub overlay_send: Option<String>,
+    pub overlay_map: String,
     pub sittings: crate::witness::Sittings,
     pub witness_delivery: crate::witness_delivery::Queue,
     pub history_running: bool,
@@ -968,6 +974,9 @@ impl Main {
             read_over_person: false,
             witness: crate::witness::Seen::default(),
             witness_control: None,
+            last_kept: None,
+            overlay_send: None,
+            overlay_map: String::new(),
             sittings: crate::witness::Sittings::default(),
             witness_delivery: crate::witness_delivery::Queue::own(),
             history_running: false,
@@ -1064,7 +1073,7 @@ impl Main {
     }
 
     fn witness_overlay(&self) -> Option<crate::witness::Overlay> {
-        self.settings.witness_overlay.then(|| crate::witness::Overlay { english: self.settings.lang == crate::lang::Lang::En, keeps: self.settings.witness_keep })
+        self.settings.witness_overlay.then(|| crate::witness::Overlay { english: self.settings.lang == crate::lang::Lang::En, keeps: self.settings.witness_keep, offers: !self.settings.token.is_empty() })
     }
 
     fn witness_shown(&self) {
@@ -1189,6 +1198,77 @@ impl Main {
             None => return None,
         };
         Some(self.queue_delivery(request))
+    }
+
+    fn overlay_task(&mut self, event: &crate::witness::Event) -> Task<Message> {
+        use crate::witness::Event;
+        if self.gallery || self.settings.token.is_empty() || !self.settings.witness_overlay {
+            return Task::none();
+        }
+        let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
+        match event {
+            Event::Attached { .. } => ui::in_thread(move || Message::OverlayDay(crate::bot::play_day(&server, &token, &name, &crate::witness::time_zone()).map_err(|e| e.to_string()))),
+            Event::Kept(kept) => {
+                self.last_kept = Some(kept.clone());
+                if let Some(control) = &self.witness_control {
+                    control.dress(|extras| extras.sent = None);
+                }
+                ui::in_thread(move || Message::OverlayDay(crate::bot::play_day(&server, &token, &name, &crate::witness::time_zone()).map_err(|e| e.to_string())))
+            }
+            Event::State(state) if state.id > 0 && !state.md5.is_empty() && !state.md5.eq_ignore_ascii_case(&self.overlay_map) => {
+                self.overlay_map = state.md5.clone();
+                let (hash, beatmap, chat) = (state.md5.clone(), state.id as u64, self.settings.chat_id);
+                ui::in_thread(move || {
+                    let places = crate::bot::map_board(&server, &token, &name, chat, beatmap, false).map(|board| {
+                        board.rows.iter().take(3).map(|row| dossier_hud::Place { place: row.place, name: row.name.clone(), accuracy: f64::from(row.play.accuracy), you: row.you }).collect()
+                    }).unwrap_or_default();
+                    Message::OverlayPlaces(hash, places)
+                })
+            }
+            Event::SendAsked => {
+                self.overlay_send = self.last_kept.as_ref().and_then(crate::witness::replay_hash);
+                self.overlay_send_task()
+            }
+            _ => Task::none(),
+        }
+    }
+
+    fn overlay_send_task(&mut self) -> Task<Message> {
+        if self.witness.pending > 0 {
+            return Task::none();
+        }
+        let Some(replay) = self.overlay_send.take() else { return Task::none() };
+        let (server, token, name, chat) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone(), self.settings.chat_id);
+        ui::in_thread(move || Message::OverlaySent(crate::bot::send_play(&server, &token, &name, &replay, chat).map_err(|e| e.to_string())))
+    }
+
+    fn overlay_day(&mut self, told: crate::bot::PlayDay) -> dossier_hud::Day {
+        let mut day = dossier_hud::Day { best: told.best, plays: told.plays, seconds: told.seconds, records: told.records, ..dossier_hud::Day::default() };
+        let Some(card) = self.osu_card.as_ref().filter(|card| card.pp > 0.0) else { return day };
+        let (pp, rank) = (card.pp, card.global_rank.max(0.0) as u32);
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        if self.settings.day_mark.as_ref().is_none_or(|mark| mark.day != today) {
+            self.settings.day_mark = Some(crate::settings::DayMark { day: today, pp, rank });
+            let _ = self.settings.save();
+        }
+        if let Some(mark) = &self.settings.day_mark {
+            day.pp_gain = pp - mark.pp;
+            day.rank = rank;
+            day.climbed = i64::from(mark.rank) - i64::from(rank);
+        }
+        day
+    }
+
+    fn overlay_notices(&self) -> Vec<dossier_hud::Notice> {
+        let since = unix_now() - 86_400;
+        let mut fresh: Vec<_> = self.notices.notices.iter().filter(|notice| !notice.seen && notice.at >= since).collect();
+        fresh.sort_by_key(|notice| std::cmp::Reverse(notice.at));
+        fresh.into_iter().take(2).map(|notice| dossier_hud::Notice {
+            title: notice.words.clone(),
+            body: notice.detail.clone(),
+            sign: notice.note.clone(),
+            tone: match notice.mark { notices::Mark::Done => dossier_hud::Tone::Good, notices::Mark::Bad => dossier_hud::Tone::Accent, notices::Mark::Plain => dossier_hud::Tone::Blue },
+        }).collect()
     }
 
     fn pin_task(&self) -> Task<Message> {
@@ -3747,8 +3827,9 @@ impl Main {
                     control.context(&event, self.witness.state.as_ref(), &self.pools.list, self.settings.lang == crate::lang::Lang::En);
                 }
                 self.tell_duel(&event);
+                let overlay = self.overlay_task(&event);
                 let leaving = was_there && matches!(event, crate::witness::Event::Gone | crate::witness::Event::Waiting | crate::witness::Event::Absent);
-                let sitting = Task::batch([self.sitting_task(&event), if leaving { self.history_task(false) } else { Task::none() }]);
+                let sitting = Task::batch([self.sitting_task(&event), if leaving { self.history_task(false) } else { Task::none() }, overlay]);
                 if let crate::witness::Event::Kept(kept) = &event {
                     let tell = Task::batch([self.tell_task(kept).unwrap_or_else(Task::none), sitting]);
                     if !self.settings.witness_keep {
@@ -3788,11 +3869,39 @@ impl Main {
                 let fresh = if sent == Ok(true) && matches!(delivery.request, crate::witness_delivery::Request::Play(_)) {
                     self.witness.told += 1;
                     self.map_boards_fresh.clear();
-                    self.community_task(true)
+                    Task::batch([self.community_task(true), self.overlay_send_task()])
                 } else {
                     Task::none()
                 };
                 Task::batch([fresh, self.delivery_task()])
+            }
+            Message::OverlayDay(Ok(told)) => {
+                let day = self.overlay_day(told);
+                if let Some(control) = &self.witness_control {
+                    let notices = self.overlay_notices();
+                    control.dress(|extras| {
+                        extras.day = Some(day);
+                        extras.notices = notices;
+                    });
+                }
+                Task::none()
+            }
+            Message::OverlayDay(Err(_)) => Task::none(),
+            Message::OverlaySent(said) => {
+                let sent = said.as_ref().ok().cloned();
+                if let Some(control) = &self.witness_control {
+                    control.dress(|extras| extras.sent = sent);
+                }
+                if let Err(why) = said {
+                    self.announce(notices::Mark::Bad, self.words.t("witness-not-sent"), why, String::new(), String::new(), notices::Link::None);
+                }
+                Task::none()
+            }
+            Message::OverlayPlaces(hash, places) => {
+                if let Some(control) = &self.witness_control {
+                    control.dress(|extras| extras.places = Some((hash, places)));
+                }
+                Task::none()
             }
             Message::Sharing(message) => self.sharing_update(message),
             Message::FarmTick => self.farm_task(),

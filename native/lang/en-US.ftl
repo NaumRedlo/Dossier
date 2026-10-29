@@ -1151,6 +1151,7 @@ witness-playing = Playing: { $map }
 witness-client = Client version: { $build }
 witness-kept = Replays saved this session: { $n }
 witness-not-kept = The replay could not be saved
+witness-not-sent = The play could not be sent to the chat
 witness-told = Results sent to the feed this session: { $n }
 witness-untold = Some Witness results need attention
 witness-pending = Waiting to send: { $n }

@@ -55,6 +55,11 @@ mod shown {
             }
         }
 
+        pub fn heard(&mut self, packet: dossier_hud::context::Packet) {
+            self.hud.heard(packet);
+            self.fresh = true;
+        }
+
         pub fn moving(&self) -> bool {
             self.hud.moving()
         }
@@ -70,7 +75,10 @@ mod shown {
             }
             let keys = self.window.map_or_else(Default::default, panes::keys);
             if self.hud.step(keys, Instant::now()) {
-                eprintln!("witness overlay: the send key was held for its time; nothing is sent yet");
+                use std::io::Write;
+                let mut out = std::io::stdout().lock();
+                let told = writeln!(out, "{{\"event\":\"send\"}}").and_then(|()| out.flush());
+                eprintln!("witness overlay: the send key was held for its time; {}", if told.is_ok() { "Dossier is asked to send the play" } else { "Dossier could not be told" });
                 self.fresh = true;
             }
             self.fresh |= self.hud.take_dirty();
@@ -136,7 +144,13 @@ mod shown {
 }
 
 #[cfg(windows)]
-fn listen(frames: std::sync::mpsc::Sender<dossier_overlay::Frame>) {
+enum Input {
+    Frame(dossier_overlay::Frame),
+    Packet(dossier_hud::context::Packet),
+}
+
+#[cfg(windows)]
+fn listen(frames: std::sync::mpsc::Sender<Input>) {
     use std::io::{BufRead, Read};
     let input = std::io::stdin();
     let mut input = input.lock();
@@ -148,9 +162,17 @@ fn listen(frames: std::sync::mpsc::Sender<dossier_overlay::Frame>) {
                 eprintln!("witness overlay: a frame came cut short or too long; the input is closed");
                 return;
             }
+            Ok(_) if line.starts_with(br#"{"event":"context""#) => match dossier_hud::context::Line::read(&line) {
+                Some(packet) => {
+                    if frames.send(Input::Packet(packet)).is_err() {
+                        return;
+                    }
+                }
+                None => eprintln!("witness overlay: what Dossier told could not be read"),
+            },
             Ok(_) => match dossier_overlay::Frame::decode(&line) {
                 Ok(frame) => {
-                    if frames.send(frame).is_err() {
+                    if frames.send(Input::Frame(frame)).is_err() {
                         return;
                     }
                 }
@@ -179,7 +201,8 @@ fn main() {
     loop {
         loop {
             match told.try_recv() {
-                Ok(frame) => shown.take(&frame),
+                Ok(Input::Frame(frame)) => shown.take(&frame),
+                Ok(Input::Packet(packet)) => shown.heard(packet),
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     shown.hide();

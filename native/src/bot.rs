@@ -623,6 +623,37 @@ pub fn local_scores(server: &str, token: &str, name: &str, scores: &[crate::hist
     Ok(kept.kept)
 }
 
+#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
+#[serde(default)]
+pub struct PlayDay {
+    pub plays: u32,
+    pub seconds: u64,
+    pub records: u32,
+    pub best: Option<dossier_hud::Best>,
+}
+
+pub fn play_day(server: &str, token: &str, name: &str, zone: &str) -> Result<PlayDay, Refused> {
+    let response = client()?
+        .get(format!("{server}/render/me/day"))
+        .query(&[("zone", zone)])
+        .header("X-Render-Worker", crate::bot::worker(name))
+        .bearer_auth(token)
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn send_play(server: &str, token: &str, name: &str, replay: &str, chat: Option<i64>) -> Result<dossier_hud::Sent, Refused> {
+    let response = client()?
+        .post(format!("{server}/render/me/play/send"))
+        .header("X-Render-Worker", crate::bot::worker(name))
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "replay": replay, "chat": chat }))
+        .send()
+        .map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
 pub fn witness_session(server: &str, token: &str, name: &str, sitting: &crate::witness::Sitting) -> Result<(), Refused> {
     let response = client()?
         .post(format!("{server}/render/me/session"))

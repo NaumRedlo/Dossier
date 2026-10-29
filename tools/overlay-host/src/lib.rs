@@ -166,6 +166,8 @@ mod tests {
             map_md5: None,
             card: None,
             day: Some(dossier_hud::Day::default()),
+            notices: Vec::new(),
+            sent: None,
         }));
         assert!(matches!(
             scene.update(Some(&view), 7, 1280, 720, now),

@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use dossier_hud::context::Packet;
 use dossier_hud::hold::{Hold, Keys};
 use dossier_hud::{Context, Lang, Outcome, Sprite, Stage};
 use dossier_overlay::{Frame, Message, Receiver, Screen, View, Viewport};
@@ -15,11 +16,12 @@ pub struct Hud {
     last: Option<Instant>,
     receiver: Receiver,
     dirty: bool,
+    packet: Option<Packet>,
 }
 
 impl Hud {
     pub fn new(lang: Lang, offers: bool) -> Hud {
-        Hud { context: Context { lang, ..Context::default() }, view: None, stage: Stage::default(), hold: Hold::default(), offers, last: None, receiver: Receiver::default(), dirty: false }
+        Hud { context: Context { lang, ..Context::default() }, view: None, stage: Stage::default(), hold: Hold::default(), offers, last: None, receiver: Receiver::default(), dirty: false, packet: None }
     }
 
     pub fn told(&mut self, frame: &Frame) -> bool {
@@ -63,6 +65,27 @@ impl Hud {
         self.dirty = true;
     }
 
+    pub fn heard(&mut self, packet: Packet) {
+        if let (Some(sent), Some(outcome)) = (packet.sent.clone(), self.context.outcome.as_mut()) {
+            if outcome.saved && outcome.offer.is_none() && outcome.sent.is_none() {
+                outcome.sent = Some(sent);
+            }
+        }
+        self.packet = Some(packet);
+        self.dirty = true;
+    }
+
+    fn shown(&self) -> Context {
+        let mut shown = self.context.clone();
+        let told = self.packet.as_ref().zip(self.view.as_ref()).and_then(|(packet, view)| packet.context(view, dossier_hud::context::now_ms()));
+        if let Some(told) = told {
+            shown.day = told.day;
+            shown.card = told.card;
+            shown.notices = told.notices;
+        }
+        shown
+    }
+
     pub fn take_dirty(&mut self) -> bool {
         std::mem::take(&mut self.dirty)
     }
@@ -77,7 +100,8 @@ impl Hud {
         }
         let seconds = self.last.map_or(0.0, |was| now.saturating_duration_since(was).as_secs_f32()).min(0.25);
         self.last = Some(now);
-        self.stage.advance(self.view.as_ref(), &self.context, now);
+        let shown = self.shown();
+        self.stage.advance(self.view.as_ref(), &shown, now);
         let results = self.view.as_ref().is_some_and(|view| view.snapshot.screen == Screen::Results);
         let Some(outcome) = self.context.outcome.as_mut().filter(|outcome| results && outcome.saved && outcome.offer.is_some() && outcome.sent.is_none()) else {
             self.hold = Hold::default();
@@ -92,11 +116,11 @@ impl Hud {
     }
 
     pub fn moving(&self) -> bool {
-        self.stage.moving(self.view.as_ref(), &self.context) || self.hold.share() > 0.0
+        self.stage.moving(self.view.as_ref(), &self.shown()) || self.hold.share() > 0.0
     }
 
     pub fn sprites(&self, viewport: Viewport) -> Vec<Sprite> {
-        dossier_hud::sprites(self.view.as_ref(), &self.context, &self.stage, viewport)
+        dossier_hud::sprites(self.view.as_ref(), &self.shown(), &self.stage, viewport)
     }
 }
 
@@ -166,6 +190,32 @@ mod tests {
         next.session = 2;
         assert!(hud.told(&next));
         assert_eq!(keys(&hud), ["tile"]);
+    }
+
+    fn packet(sent: Option<dossier_hud::Sent>) -> Packet {
+        Packet {
+            version: 1, pid: 7, at_ms: dossier_hud::context::now_ms(), lang: Lang::Ru, map_md5: None, card: None,
+            day: Some(dossier_hud::Day { plays: 4, ..dossier_hud::Day::default() }),
+            notices: vec![dossier_hud::Notice { title: "Видео готово".into(), ..dossier_hud::Notice::default() }], sent,
+        }
+    }
+
+    #[test]
+    fn dossier_tells_the_day_and_notices_for_the_menu_and_the_card_it_sent() {
+        let mut hud = connected(Lang::Ru, true);
+        hud.told(&frame(1, Screen::Menu, false));
+        assert_eq!(keys(&hud), ["tile"]);
+        hud.heard(packet(None));
+        assert!(hud.take_dirty());
+        assert_eq!(keys(&hud), ["day", "notice-1", "tile"]);
+        hud.told(&frame(2, Screen::Results, false));
+        hud.kept(true);
+        let now = Instant::now();
+        hud.step(UP, now);
+        let (fired, _) = run(&mut hud, DOWN, now, 1.0);
+        assert_eq!(fired, 1);
+        hud.heard(packet(Some(dossier_hud::Sent { chat: "Osu Squad".into(), ..dossier_hud::Sent::default() })));
+        assert_eq!(keys(&hud), ["tile", "sent"]);
     }
 
     fn keys(hud: &Hud) -> Vec<&'static str> {

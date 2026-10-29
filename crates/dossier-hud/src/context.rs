@@ -1,4 +1,4 @@
-use crate::{Card, Context, Day, Lang};
+use crate::{Card, Context, Day, Lang, Notice, Sent};
 use dossier_overlay::View;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -18,6 +18,28 @@ pub struct Packet {
     pub map_md5: Option<String>,
     pub card: Option<Card>,
     pub day: Option<Day>,
+    #[serde(default)]
+    pub notices: Vec<Notice>,
+    #[serde(default)]
+    pub sent: Option<Sent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Line {
+    pub event: String,
+    pub packet: Packet,
+}
+
+pub const LINE_EVENT: &str = "context";
+
+impl Line {
+    pub fn of(packet: Packet) -> Line {
+        Line { event: LINE_EVENT.to_owned(), packet }
+    }
+
+    pub fn read(line: &[u8]) -> Option<Packet> {
+        serde_json::from_slice::<Line>(line).ok().filter(|line| line.event == LINE_EVENT).map(|line| line.packet)
+    }
 }
 
 impl Packet {
@@ -38,6 +60,7 @@ impl Packet {
             lang: self.lang,
             day: self.day.clone(),
             card: if matches { self.card.clone() } else { None },
+            notices: self.notices.clone(),
             ..Context::default()
         })
     }
@@ -97,6 +120,8 @@ mod tests {
             map_md5: None,
             card: None,
             day: None,
+            notices: Vec::new(),
+            sent: None,
         };
         write(&path, &packet).unwrap();
         assert_eq!(read(&path).unwrap(), packet);
@@ -131,8 +156,15 @@ mod tests {
                 ..Card::default()
             }),
             day: None,
+            notices: Vec::new(),
+            sent: None,
         };
-        assert!(packet.context(&view, 1001).unwrap().card.is_some());
+        packet.notices = vec![Notice { title: "Готово".into(), ..Notice::default() }];
+        let told = packet.context(&view, 1001).unwrap();
+        assert!(told.card.is_some() && told.notices.len() == 1);
+        let line = serde_json::to_vec(&Line::of(packet.clone())).unwrap();
+        assert_eq!(Line::read(&line), Some(packet.clone()));
+        assert_eq!(Line::read(br#"{"event":"overlay","packet":{}}"#), None);
         packet.map_md5 = Some("b".repeat(32));
         assert!(packet.context(&view, 1001).unwrap().card.is_none());
         assert!(packet.context(&view, 1000 + TTL_MS).is_none());

@@ -158,7 +158,7 @@ impl Sittings {
                 self.begin_if_none(now, zone);
                 self.moved(now)
             }
-            Event::Loading | Event::Alive | Event::Overlay(_) | Event::Screen(_) | Event::Cursor(_) => None,
+            Event::Loading | Event::Alive | Event::Overlay(_) | Event::Screen(_) | Event::Cursor(_) | Event::SendAsked => None,
         }
     }
 
@@ -297,6 +297,8 @@ pub enum Event {
     Overlay(bool),
     #[serde(skip)]
     Screen(Option<String>),
+    #[serde(skip)]
+    SendAsked,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -377,7 +379,7 @@ impl Seen {
             }
             Event::Overlay(on) => self.overlay = *on,
             Event::Screen(screen) => self.screen = screen.clone(),
-            Event::Alive | Event::Cursor(_) => {}
+            Event::Alive | Event::Cursor(_) | Event::SendAsked => {}
         }
     }
 }
@@ -560,6 +562,20 @@ pub fn launch() -> Option<Launch> {
 pub struct Overlay {
     pub english: bool,
     pub keeps: bool,
+    pub offers: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Extras {
+    pub day: Option<dossier_hud::Day>,
+    pub notices: Vec<dossier_hud::Notice>,
+    pub places: Option<(String, Vec<dossier_hud::Place>)>,
+    pub sent: Option<dossier_hud::Sent>,
+}
+
+pub fn replay_hash(kept: &Kept) -> Option<String> {
+    let bytes = bytes_of(&kept.osr)?;
+    dossier_replay::Replay::heading(&bytes).ok().map(|replay| replay.replay_hash.to_lowercase()).filter(|hash| hash.len() == 32)
 }
 
 fn launched(launch: &Launch, program: &Path) -> Command {
@@ -609,8 +625,11 @@ pub fn overlay_command(launch: &Launch, program: &Path, overlay: Overlay) -> Com
     if overlay.keeps {
         command.arg("--keeps");
     }
+    if overlay.offers {
+        command.arg("--offer");
+    }
     let told = std::fs::File::create(overlay_log()).map_or_else(|_| Stdio::null(), Stdio::from);
-    command.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(told);
+    command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(told);
     command
 }
 
@@ -637,6 +656,15 @@ fn write_frames(mut input: ChildStdin, frames: std::sync::mpsc::Receiver<String>
     while let Ok(line) = frames.recv() {
         if input.write_all(line.as_bytes()).and_then(|()| input.write_all(b"\n")).is_err() {
             return;
+        }
+    }
+}
+
+fn listen_overlay(output: std::process::ChildStdout, asked: &std::sync::atomic::AtomicU32) {
+    for line in std::io::BufReader::new(output).lines() {
+        let Ok(line) = line else { return };
+        if line.contains("\"event\":\"send\"") {
+            asked.fetch_add(1, Ordering::SeqCst);
         }
     }
 }
@@ -668,6 +696,8 @@ pub struct Control {
     overlay_tried: Mutex<Option<Instant>>,
     screen: Mutex<Option<String>>,
     context: Mutex<Option<dossier_hud::context::Packet>>,
+    extras: Mutex<Extras>,
+    asked: Arc<std::sync::atomic::AtomicU32>,
     pid: std::sync::atomic::AtomicU32,
     cursor: Mutex<Option<std::sync::mpsc::Sender<Cursor>>>,
 }
@@ -699,8 +729,37 @@ impl Control {
                     pool: Some(pool.name.clone()), stars: slot.measure.as_ref().filter(|_| slot.mods == crate::pools::Mod::Nm).map(|measure| measure.stars), places: Vec::new(),
                 })
             }));
-            dossier_hud::context::Packet { version: 1, pid, at_ms: 0, lang: if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, map_md5, card, day: None }
+            dossier_hud::context::Packet { version: 1, pid, at_ms: 0, lang: if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, map_md5, card, day: None, notices: Vec::new(), sent: None }
         });
+        drop(held);
+        self.tell_overlay();
+    }
+
+    pub fn dress(&self, change: impl FnOnce(&mut Extras)) {
+        change(&mut self.extras.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        self.tell_overlay();
+    }
+
+    pub fn packet(&self) -> Option<dossier_hud::context::Packet> {
+        let mut packet = self.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()?;
+        let extras = self.extras.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+        packet.day = extras.day;
+        packet.notices = extras.notices;
+        packet.sent = extras.sent;
+        if let Some((hash, places)) = extras.places.filter(|(hash, places)| !places.is_empty() && packet.map_md5.as_ref().is_some_and(|known| known.eq_ignore_ascii_case(hash))) {
+            let _ = hash;
+            packet.card.get_or_insert_with(dossier_hud::Card::default).places = places;
+        }
+        packet.at_ms = dossier_hud::context::now_ms();
+        Some(packet)
+    }
+
+    fn tell_overlay(&self) {
+        let Some(packet) = self.packet() else { return };
+        let Ok(line) = serde_json::to_string(&dossier_hud::context::Line::of(packet)) else { return };
+        if let Some(shown) = self.shown.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref() {
+            let _ = shown.frames.try_send(line);
+        }
     }
 
     pub fn stop(&self) {
@@ -719,6 +778,9 @@ impl Control {
     }
 
     fn forward(&self, line: &str, push: &mut dyn FnMut(Event) -> bool) -> bool {
+        if self.asked.swap(0, Ordering::SeqCst) > 0 && !push(Event::SendAsked) {
+            return false;
+        }
         if let Some(screen) = screen_of(line) {
             let mut held = self.screen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             if *held != screen {
@@ -750,6 +812,10 @@ impl Control {
                             let _ = child.wait();
                             return None;
                         };
+                        if let Some(output) = child.stdout.take() {
+                            let asked = self.asked.clone();
+                            std::thread::spawn(move || listen_overlay(output, &asked));
+                        }
                         let (frames, queue) = std::sync::mpsc::sync_channel(OVERLAY_QUEUE);
                         std::thread::spawn(move || write_frames(input, queue));
                         if let Some(first) = self.hello.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone().filter(|_| !hello) {
@@ -855,10 +921,9 @@ pub fn run(control: Arc<Control>, player: String, push: &mut dyn FnMut(Event) ->
         std::thread::spawn(move || {
             while !holder.stopped() {
                 let _ = std::fs::write(&leash, b"held");
-                let packet = holder.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-                if let Some(mut packet) = packet.filter(|_| holder.overlay().is_some()) {
-                    packet.at_ms = dossier_hud::context::now_ms();
+                if let Some(packet) = holder.packet().filter(|_| holder.overlay().is_some()) {
                     let _ = dossier_hud::context::write(&context_path(), &packet);
+                    holder.tell_overlay();
                 } else { let _ = std::fs::remove_file(context_path()); }
                 holder.rest(LEASH_EVERY);
             }
@@ -981,6 +1046,41 @@ mod tests {
         assert!(packet.day.is_none() && packet.card.is_none());
         control.context(&Event::Gone, None, &[], true);
         assert!(control.context.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn the_overlay_hears_dossiers_day_notices_places_and_sent_card() {
+        let control = Control::default();
+        assert!(control.packet().is_none(), "nothing is told before the game is attached");
+        let state = State { md5: "a".repeat(32), ..State::default() };
+        control.context(&Event::Attached { pid: 42, build: String::new(), player: String::new() }, Some(&state), &[], false);
+        let place = dossier_hud::Place { place: 1, name: "kotofey".into(), accuracy: 98.5, you: false };
+        control.dress(|extras| {
+            extras.day = Some(dossier_hud::Day { plays: 3, ..dossier_hud::Day::default() });
+            extras.notices = vec![dossier_hud::Notice { title: "Видео готово".into(), ..dossier_hud::Notice::default() }];
+            extras.places = Some(("b".repeat(32), vec![place.clone()]));
+            extras.sent = Some(dossier_hud::Sent { chat: "Osu Squad".into(), ..dossier_hud::Sent::default() });
+        });
+        let packet = control.packet().unwrap();
+        assert_eq!(packet.day.as_ref().map(|day| day.plays), Some(3));
+        assert_eq!(packet.notices.len(), 1);
+        assert_eq!(packet.sent.as_ref().map(|sent| sent.chat.as_str()), Some("Osu Squad"));
+        assert!(packet.card.is_none(), "places of another map are not shown");
+        assert!(packet.at_ms > 0);
+        control.dress(|extras| extras.places = Some(("A".repeat(32), vec![place.clone()])));
+        assert_eq!(control.packet().unwrap().card.unwrap().places, vec![place]);
+        let line = serde_json::to_vec(&dossier_hud::context::Line::of(control.packet().unwrap())).unwrap();
+        assert!(line.starts_with(br#"{"event":"context""#), "the overlay tells a context line from a frame by its start");
+    }
+
+    #[test]
+    fn a_held_send_key_heard_from_the_overlay_asks_dossier_once() {
+        let control = Control::default();
+        control.asked.fetch_add(1, Ordering::SeqCst);
+        let mut heard = Vec::new();
+        assert!(control.forward("{}", &mut |event| { heard.push(event); true }));
+        assert!(control.forward("{}", &mut |event| { heard.push(event); true }));
+        assert_eq!(heard, vec![Event::SendAsked]);
     }
 
     #[test]
@@ -1194,7 +1294,8 @@ mod tests {
         let program = Path::new("/home/none/.dossier/bin/witness-overlay.exe");
         let args = |overlay: Overlay| overlay_command(&Launch::Direct, program, overlay).get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
         assert!(args(Overlay::default()).is_empty());
-        assert_eq!(args(Overlay { english: true, keeps: true }), ["--lang", "en", "--keeps"]);
+        assert_eq!(args(Overlay { english: true, keeps: true, offers: false }), ["--lang", "en", "--keeps"]);
+        assert_eq!(args(Overlay { english: false, keeps: false, offers: true }), ["--offer"]);
         let control = Control::default();
         assert_eq!(control.overlay(), None);
         assert!(control.show(Some(Overlay::default())), "a change is told");

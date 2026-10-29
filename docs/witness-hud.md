@@ -168,7 +168,8 @@ changes size. The state behind them is `crates/dossier-witness-overlay/src/hud.r
 - `--offer` shows the offer to send after a passed play that was kept, and reads
   the hold of Tab by the rule above (`dossier_hud::hold`), asking the system for
   the state of the keys, with no hook. A full hold takes the offer away and
-  writes a line to the error stream; nothing is sent yet.
+  writes `{"event":"send"}` on the overlay's output; Dossier reads it and asks
+  the bot to post the play.
 - `--keeps` says that whoever started Witness keeps the replays, so the tile may
   say «Игра сохранена» after a play; without it (and without `--offer`) a kept
   take changes nothing on the screen.
@@ -194,9 +195,36 @@ In Dossier the overlay has its own tile in the settings, «Witness Overlay»,
 with the switch «Оверлей в игре», marked «эксперимент» and off by default
 (`Settings::witness_overlay`). It says whether the plates are being drawn or
 the overlay waits for Witness to see the game. Dossier passes `--lang en` for
-the English interface and `--keeps` when replays are saved to the journal; a
-change of either starts the overlay again. Dossier never passes `--offer`:
-nothing can be sent yet.
+the English interface, `--keeps` when replays are saved to the journal and
+`--offer` when the player is linked to the bot; a change of any of them starts
+the overlay again.
+
+### What Dossier tells the overlay
+
+Beside the frames, Dossier writes the context packet on the overlay's input as
+one line, `{"event":"context","packet":{…}}` (`dossier_hud::context::Line`),
+whenever it changes and every five seconds, so it never expires while Dossier
+runs. The packet is the same one `tools/overlay-host` reads from its file:
+
+- `day`: the plays, time in game, new records and best play of the day from
+  the bot (`GET /render/me/day?zone=`), with the PP gained and the world rank
+  measured against the profile Dossier first saw that day;
+- `notices`: up to two unseen Dossier notices of the last day;
+- `card`: the pool the map is in and its first three places in the chat
+  (`GET /render/maps/{id}/board`);
+- `sent`: what the bot posted after the send key, shown in place of the offer.
+
+The day is asked when the game is found and after every kept play; the places
+when song select shows another map.
+
+### Sending a play
+
+After the hold Dossier waits until Witness has delivered the play to the bot,
+then asks `POST /render/me/play/send` with the replay's hash and the chat chosen
+in Dossier (the pinned or first group when none is). The bot draws the same
+card as its recent score command: from the official score when the osu! API has
+it within ten minutes of the play, otherwise from what Witness kept. A play the
+bot cannot post leaves a notice in Dossier.
 
 The outcome of a play lives until the player leaves the results screen, so an
 older score opened from song select is not offered.
@@ -240,7 +268,4 @@ the user's report, were not seen over the game, which ran in a window there.
 ## Not done
 
 No host draws these sprites inside a client: Witness shows them from outside.
-Dossier does not build a `Context`, so the day, the pool, the chat places and the
-record a play is compared with are not shown yet. The send key is read, but the
-bot has no request for posting a result. Avatars and map covers are
-placeholders.
+Avatars and map covers are placeholders.

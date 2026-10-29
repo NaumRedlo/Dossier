@@ -955,6 +955,17 @@ fn watch_button<'a>(duel: &Running) -> Element<'a, Message> {
 }
 
 fn live_panel<'a>(w: &Words, live: &Live) -> Element<'a, Message> {
+    if live.running.is_empty() && live.finished.is_empty() {
+        let quiet = column![
+            glyph(Icon::Eye, 56.0, FAINT),
+            strong(w.t("duels-quiet"), 18.0, INK),
+            text(w.t("duels-quiet-note")).font(theme::SANS).size(14.0).color(FAINT).align_x(iced::alignment::Horizontal::Center),
+        ]
+        .spacing(12)
+        .align_x(Alignment::Center)
+        .max_width(260.0);
+        return container(slab(container(quiet).center(Length::Fill).into(), 22.0)).width(LIVE_WIDTH).height(Length::Fill).into();
+    }
     let header = row![
         strong(w.t("duels-running"), 17.0, INK),
         Space::new().width(Length::Fill),

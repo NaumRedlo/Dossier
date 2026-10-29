@@ -1595,6 +1595,15 @@ fn listen_button<'a>(w: &Words, state: &State, beatmap: i64, high: f32) -> Eleme
         .into()
 }
 
+fn listen_mark<'a>(w: &Words, state: &State, beatmap: i64, side: f32) -> Element<'a, Message> {
+    let said = if state.silent == Some(beatmap) { w.t("desk-no-preview") } else { w.t("desk-listen") };
+    let made = button(container(glyph(Icon::Volume, 16.0 * (side / 38.0).max(32.0 / 38.0), INK)).center_x(side).center_y(side))
+        .padding(0)
+        .style(quiet(state.hearing == Some(beatmap), theme::CONTROL_RADIUS))
+        .on_press(Message::Hear(beatmap));
+    ui::tip(made, said)
+}
+
 fn line_button_k<'a>(said: String, on: Option<Message>, k: f32) -> Element<'a, Message> {
     button(container(tight(said, theme::BODY * k, INK)).center_x(Length::Fill).center_y((theme::CONTROL_HEIGHT + 6.0) * k)).padding([0.0, 12.0 * k]).style(quiet(false, theme::CONTROL_RADIUS)).on_press_maybe(on).into()
 }
@@ -2286,10 +2295,10 @@ fn held_card<'a>(w: &Words, state: &'a State, map: &Held, k: f32) -> Element<'a,
     ].spacing(10).align_y(Alignment::Center);
     let edit = button(container(row![glyph(Icon::Sliders, 15.0 * k, INK), tight(w.t("desk-edit-short"), 13.0 * k, INK)].spacing(6).align_y(Alignment::Center)).center_x(Length::Fill).center_y(32.0 * k))
         .width(Length::Fill)
-        .padding([0, 10])
+        .padding([0.0, 12.0 * k])
         .style(quiet(false, theme::CONTROL_RADIUS))
         .on_press_maybe((!state.posting).then_some(Message::Inspect(map.beatmap_id)));
-    let actions = row![container(listen_button(w, state, map.beatmap_id, 32.0 * k)).width(Length::Fill), edit, link_button(w, state, map.beatmap_id, 32.0 * k)].spacing(6).align_y(Alignment::Center);
+    let actions = row![listen_mark(w, state, map.beatmap_id, 32.0 * k), edit, link_button(w, state, map.beatmap_id, 32.0 * k)].spacing(6).align_y(Alignment::Center);
     let card = container(column![top, actions].spacing(8)).padding(10).width(Length::Fill).style(move |_| container::Style {
         background: Some(Background::Color(if fresh { LIT } else { ROW })),
         border: Border { radius: 12.0.into(), ..Border::default() },

@@ -9,7 +9,6 @@ as a video.
 [![ci](https://github.com/NaumRedlo/Dossier/actions/workflows/ci.yml/badge.svg)](https://github.com/NaumRedlo/Dossier/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/NaumRedlo/Dossier?include_prereleases&label=release)](https://github.com/NaumRedlo/Dossier/releases)
 [![downloads](https://img.shields.io/github/downloads/NaumRedlo/Dossier/total?label=downloads)](https://github.com/NaumRedlo/Dossier/releases)
-[![last commit](https://img.shields.io/github/last-commit/NaumRedlo/Dossier/global?label=last%20commit)](https://github.com/NaumRedlo/Dossier/commits/global)
 [![licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 ![platforms](https://img.shields.io/badge/runs%20on-Windows%2C%20macOS%2C%20Linux%2C%20ARM-lightgrey)
 

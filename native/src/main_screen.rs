@@ -1881,13 +1881,18 @@ impl Main {
                 Effect::AddMap { beatmap, .. } if offline => Task::done(wrap(K::MapAdded(beatmap, Err("offline".to_owned())))),
                 Effect::AddMap { beatmap, slot, reason } => ui::in_thread(move || K::MapAdded(beatmap, crate::desk::add_map(&account, beatmap, slot.as_deref(), &reason).map_err(|why| why.to_string()))).map(wrap),
                 Effect::Train(_) if offline => Task::done(wrap(K::TrainStarted(Err("offline".to_owned())))),
-                Effect::Train(reason) => ui::in_thread(move || K::TrainStarted(crate::desk::train(&account, &reason).map_err(|why| why.to_string()))).map(wrap),
+                Effect::Train(reason) => ui::in_thread(move || match crate::desk::train(&account, &reason) {
+                    Ok(job) => K::TrainStarted(Ok(job)),
+                    Err(crate::duels::Failure::Network(why)) => K::TrainStarted(Err(why)),
+                    Err(crate::duels::Failure::Refused { code, .. }) if code == "NOTHING_NEW" => K::TrainStarted(Err(code)),
+                    Err(why) => K::TrainRefused(why.to_string()),
+                }).map(wrap),
                 Effect::TrainingJob(job) if offline => Task::done(wrap(K::TrainingState(job, Err("offline".to_owned())))),
                 Effect::TrainingJob(job) => ui::in_thread(move || { let said = crate::desk::training_job(&account, &job).map_err(|why| why.to_string()); K::TrainingState(job, said) }).map(wrap),
                 Effect::Post(_) if offline => Task::done(wrap(K::Posted(Err("offline".to_owned())))),
                 Effect::Post(post) => ui::in_thread(move || {
                     let said = match post {
-                        Post::Review { beatmap, decision, slot, secondary, reason } => crate::desk::review(&account, beatmap, decision, slot.as_deref(), secondary.as_ref().map(Option::as_deref), &reason),
+                        Post::Review { beatmap, decision, slot, secondary, grade, reason } => crate::desk::review(&account, beatmap, decision, slot.as_deref(), secondary.as_ref().map(Option::as_deref), grade.as_ref().map(|(tier, marks)| (tier.as_str(), marks.as_slice())), &reason),
                         Post::Label { cell, beatmap, label, reason } => crate::desk::label(&account, &cell, beatmap, &label, &reason),
                         Post::Tournament { name, year, pool, reason } => crate::desk::tournament(&account, &name, year, &pool, &reason),
                         Post::Publish { version, reason } => crate::desk::publish(&account, &version, &reason),

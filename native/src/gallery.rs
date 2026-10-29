@@ -1403,8 +1403,8 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             let mut main = tabbed(Tab::Catalog);
             main.desk.band = Some(("NM3".into(), 1));
             main.desk.held = vec![
-                crate::desk::Held { reviewer: Some("NaumRedlo".into()), beatmap_id: 5687673, beatmapset_id: Some(2612145), stars: 5.71, level: "human".into(), mapper: Some("Nevo".into()), title: Some("HOT LIMIT".into()), version: Some("Extreme".into()) },
-                crate::desk::Held { reviewer: None, beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()), version: Some("Insane".into()) },
+                crate::desk::Held { reviewer: Some("NaumRedlo".into()), beatmap_id: 5687673, beatmapset_id: Some(2612145), stars: 5.71, level: "human".into(), tier: Some("exemplary".into()), typical: Some(0.71), mapper: Some("Nevo".into()), title: Some("HOT LIMIT".into()), version: Some("Extreme".into()) },
+                crate::desk::Held { reviewer: None, beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), tier: None, typical: Some(0.48), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()), version: Some("Insane".into()) },
             ];
             main.desk.added = Some(5379506);
             main
@@ -1448,6 +1448,33 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main
         }),
         ("main-community-balance-model".to_owned(), tabbed(Tab::Model)),
+        ("main-community-balance-training".to_owned(), {
+            let mut main = tabbed(Tab::Model);
+            let mut active = crate::desk_screen::Training::new(main.desk.desk.versions.len());
+            active.job = Some("preview-training".into());
+            active.status = Some(crate::desk::Job {
+                job: "preview-training".into(), state: "running".into(), phase: "validation".into(),
+                completed: 5602, total: 16008, maps: 842, checks_done: 2, checks_total: 7,
+                fold: Some("2024".into()), elapsed_seconds: 43, revision: 56, ..Default::default()
+            });
+            main.desk.training = Some(active);
+            main.desk.training_selected = true;
+            main
+        }),
+        ("main-community-balance-training-offline".to_owned(), {
+            let mut main = tabbed(Tab::Model);
+            let mut active = crate::desk_screen::Training::new(main.desk.desk.versions.len());
+            active.job = Some("preview-training".into());
+            active.status = Some(crate::desk::Job {
+                job: "preview-training".into(), state: "running".into(), phase: "fitting".into(),
+                completed: 13000, total: 16008, maps: 842, checks_done: 7, checks_total: 7,
+                elapsed_seconds: 123, revision: 130, ..Default::default()
+            });
+            active.disconnected = true;
+            main.desk.training = Some(active);
+            main.desk.training_selected = true;
+            main
+        }),
         ("main-community-balance-duels".to_owned(), {
             let mut main = tabbed(Tab::Duels);
             main.desk.match_id = "114482093".into();
@@ -1481,7 +1508,7 @@ fn staged_desk() -> crate::desk_screen::State {
         reasons: vec![Reason { feature: "streams.lengths.3-5".into(), weight: 1.2, level: Some(1.4) }, Reason { feature: "angle_deg.p90".into(), weight: 0.8, level: Some(0.9) }, Reason { feature: "streams.lengths.16-31".into(), weight: -0.6, level: Some(0.2) }],
         outside: false, version: "kamerton-3".into(),
     };
-    let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { secondary: None, kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };
+    let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { secondary: None, tier: None, reasons: Vec::new(), kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };
     let mut first = task("review", "uncertain_revealed", Some("NM3"), map(5687673, 2612145, "HOT LIMIT", "Extreme", "Nevo", 5.71), 720);
     first.map.model = Some(guess);
     first.opinions = Some(Opinions { played: 5, fits: 3, off: 2, difficulty: [("fine".to_owned(), 4), ("hard".to_owned(), 1)].into_iter().collect(), comments: vec!["Альтернейта тут половина".into()] });

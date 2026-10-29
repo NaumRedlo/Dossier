@@ -12,6 +12,7 @@ use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
 mod occupancy;
+mod training;
 
 const TRAINING_WAIT: std::time::Duration = std::time::Duration::from_secs(240);
 
@@ -158,7 +159,7 @@ impl std::fmt::Debug for Pool {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Post {
-    Review { beatmap: i64, decision: &'static str, slot: Option<String>, secondary: Option<Option<String>>, reason: String },
+    Review { beatmap: i64, decision: &'static str, slot: Option<String>, secondary: Option<Option<String>>, grade: Option<(String, Vec<String>)>, reason: String },
     Label { cell: Cell, beatmap: Option<i64>, label: String, reason: String },
     Tournament { name: String, year: i32, pool: String, reason: String },
     Publish { version: String, reason: String },
@@ -202,11 +203,14 @@ pub struct Training {
     pub versions: usize,
     pub since: std::time::Instant,
     pub asking: bool,
+    pub status: Option<desk::Job>,
+    pub disconnected: bool,
+    pub received: std::time::Instant,
 }
 
 impl Training {
-    fn new(versions: usize) -> Self {
-        Self { job: None, versions, since: std::time::Instant::now(), asking: false }
+    pub(crate) fn new(versions: usize) -> Self {
+        Self { job: None, versions, since: std::time::Instant::now(), asking: false, status: None, disconnected: false, received: std::time::Instant::now() }
     }
 
     fn landed(&self, versions: usize) -> bool {
@@ -239,6 +243,8 @@ pub enum Message {
     Revoke(i64, String),
     Posted(Result<(), String>),
     TrainStarted(Result<Option<String>, String>),
+    TrainRefused(String),
+    TrainingFocus,
     TrainingState(String, Result<desk::Job, String>),
     Cover(i64, Option<image::Handle>),
     Hear(i64),
@@ -288,6 +294,8 @@ pub enum Message {
     DeleteBatch(Option<i64>),
     ExcludeBatch(Option<i64>, bool),
     Secondary(Option<String>),
+    Tier(String),
+    Mark(String),
     Discover,
     Open(i64),
     AddingMap(bool),
@@ -353,6 +361,9 @@ pub struct State {
     pub about_pending: HashSet<i64>,
     pub picking: bool,
     pub training: Option<Training>,
+    pub training_selected: bool,
+    pub training_seen: Option<String>,
+    pub training_done: Option<String>,
     pub training_lost: bool,
     pub training_failed: Option<String>,
     pub nothing_new: bool,
@@ -385,6 +396,8 @@ pub struct State {
     pub batch_year: String,
     pub batch_sure: Option<Option<i64>>,
     pub secondary: Option<(i64, Option<String>)>,
+    pub tier: Option<(i64, String)>,
+    pub marks: Option<(i64, Vec<String>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -598,6 +611,20 @@ impl State {
         self.desk.batches.iter().find(|batch| held.is_some_and(|(name, year)| batch.name == *name && batch.year == *year)).or_else(|| self.desk.batches.first())
     }
 
+    pub fn tier_for(&self, task: &Task) -> String {
+        match &self.tier {
+            Some((beatmap, tier)) if *beatmap == task.map.beatmap_id => tier.clone(),
+            _ => task.tier.clone().filter(|tier| desk::TIERS.contains(&tier.as_str())).unwrap_or_else(|| desk::FITS.to_owned()),
+        }
+    }
+
+    pub fn marks_for(&self, task: &Task) -> Vec<String> {
+        match &self.marks {
+            Some((beatmap, marks)) if *beatmap == task.map.beatmap_id => marks.clone(),
+            _ => task.reasons.iter().filter(|mark| desk::MARKS.contains(&mark.as_str())).take(desk::MOST_MARKS).cloned().collect(),
+        }
+    }
+
     pub fn secondary_for(&self, task: &Task) -> Option<String> {
         match &self.secondary {
             Some((beatmap, pick)) if *beatmap == task.map.beatmap_id => pick.clone(),
@@ -710,15 +737,28 @@ impl State {
                 match result {
                     Ok(update) => {
                         self.presence = update.people;
+                        let mut effects = Vec::new();
+                        if !(self.posting && self.training.as_ref().is_some_and(|training| training.job.is_none())) {
+                            if let Some(found) = update.training {
+                                effects.extend(self.observe_training(found));
+                            } else if update.training_known && self.training.as_ref().is_some_and(|training| training.job.is_none() && training.disconnected) {
+                                self.training = None;
+                                self.training_failed = Some(w.t("desk-training-not-started"));
+                            }
+                        }
                         if let Some(revision) = update.revision.filter(|revision| self.revision.as_ref() != Some(revision)) {
                             if !self.loading && !self.posting && self.refreshing.is_none() {
                                 self.refresh_serial = self.refresh_serial.wrapping_add(1);
                                 self.refreshing = Some((self.refresh_serial, revision));
-                                return vec![Effect::Refresh(self.refresh_serial)];
+                                effects.push(Effect::Refresh(self.refresh_serial));
                             }
                         }
+                        return effects;
                     }
-                    Err(_) => self.presence.clear(),
+                    Err(_) => {
+                        self.presence.clear();
+                        if let Some(training) = &mut self.training { training.disconnected = true; }
+                    },
                 }
                 Vec::new()
             }
@@ -918,6 +958,24 @@ impl State {
                 self.secondary = Some((beatmap, pick));
                 Vec::new()
             }
+            Message::Tier(tier) => {
+                let Some(beatmap) = self.task().map(|task| task.map.beatmap_id) else { return Vec::new() };
+                if desk::TIERS.contains(&tier.as_str()) { self.tier = Some((beatmap, tier)); }
+                Vec::new()
+            }
+            Message::Mark(mark) => {
+                let Some(task) = self.task() else { return Vec::new() };
+                if !desk::MARKS.contains(&mark.as_str()) { return Vec::new(); }
+                let beatmap = task.map.beatmap_id;
+                let mut marks = self.marks_for(task);
+                if let Some(at) = marks.iter().position(|held| *held == mark) {
+                    marks.remove(at);
+                } else if marks.len() < desk::MOST_MARKS {
+                    marks.push(mark);
+                }
+                self.marks = Some((beatmap, marks));
+                Vec::new()
+            }
             Message::BatchName(said) => {
                 self.hold_batch();
                 self.batch_name = said;
@@ -1037,7 +1095,8 @@ impl State {
                 if self.posting || self.loading { return Vec::new(); }
                 let Some(task) = self.task() else { return Vec::new() };
                 let secondary = matches!(decision, "APPROVE" | "MOVE").then(|| self.secondary_for(task)).map(|pick| pick.filter(|pick| Some(pick) != slot.as_ref().or(task.slot.as_ref())));
-                let post = Post::Review { beatmap: task.map.beatmap_id, decision, slot, secondary, reason: self.reason.trim().to_owned() };
+                let grade = matches!(decision, "APPROVE" | "MOVE").then(|| (self.tier_for(task), self.marks_for(task)));
+                let post = Post::Review { beatmap: task.map.beatmap_id, decision, slot, secondary, grade, reason: self.reason.trim().to_owned() };
                 self.pending_review = Some(task.map.beatmap_id);
                 self.post(post)
             }
@@ -1142,7 +1201,9 @@ impl State {
                 }
                 Vec::new()
             }
+            Message::TrainingFocus => { self.training_selected = true; Vec::new() }
             Message::Version(version) => {
+                self.training_selected = false;
                 self.confirming = false;
                 self.version = Some(version);
                 Vec::new()
@@ -1155,6 +1216,8 @@ impl State {
             Message::Train => {
                 if self.posting || self.training.is_some() { return Vec::new(); }
                 self.training = Some(Training::new(self.desk.versions.len()));
+                self.training_selected = true;
+                self.training_done = None;
                 self.training_lost = false;
                 self.training_failed = None;
                 self.nothing_new = false;
@@ -1162,6 +1225,13 @@ impl State {
                 self.posting = true;
                 self.failed = None;
                 vec![Effect::Train(self.reason.trim().to_owned())]
+            }
+            Message::TrainRefused(why) => {
+                self.posting = false;
+                self.training = None;
+                self.training_selected = false;
+                self.training_failed = Some(why);
+                Vec::new()
             }
             Message::TrainStarted(said) => {
                 self.posting = false;
@@ -1173,8 +1243,12 @@ impl State {
                         vec![Effect::Load]
                     }
                     Err(why) => {
-                        self.training = None;
-                        if why == "NOTHING_NEW" { self.nothing_new = true; } else { self.failed = Some(why); }
+                        if why == "NOTHING_NEW" {
+                            self.training = None;
+                            self.nothing_new = true;
+                        } else if let Some(training) = &mut self.training {
+                            training.disconnected = true;
+                        }
                         Vec::new()
                     }
                 }
@@ -1182,33 +1256,14 @@ impl State {
             Message::TrainingState(job, said) => {
                 let Some(training) = self.training.as_mut().filter(|training| training.job.as_ref() == Some(&job)) else { return Vec::new() };
                 training.asking = false;
-                let found = match said {
-                    Ok(found) => found,
+                match said {
+                    Ok(found) => self.observe_training(found),
                     Err(why) if why == "UNKNOWN_JOB" => {
                         self.training = None;
                         self.training_lost = true;
-                        return Vec::new();
-                    }
-                    Err(_) => return Vec::new(),
-                };
-                match found.state.as_str() {
-                    "done" => {
-                        self.training = None;
-                        self.version = found.version;
-                        self.loading = true;
-                        vec![Effect::Load]
-                    }
-                    "nothing_new" => {
-                        self.training = None;
-                        self.nothing_new = true;
                         Vec::new()
                     }
-                    "failed" => {
-                        self.training = None;
-                        self.training_failed = Some(found.error.unwrap_or_default());
-                        Vec::new()
-                    }
-                    _ => Vec::new(),
+                    Err(_) => { training.disconnected = true; Vec::new() }
                 }
             }
             Message::Delete => {
@@ -1759,7 +1814,7 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
         facts = facts.push(fact(w.t("desk-length"), format!("{}:{:02}", seconds / 60, seconds % 60), k));
     }
     let reason = column![words(w.t("desk-reason"), 13.0 * k, MUTED), field_k(String::new(), &state.reason, Message::Reason, k)].spacing(6);
-    let decision = column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(answers).padding(Padding { top: 6.0 * k, bottom: 10.0 * k, ..Padding::ZERO }), secondary_row(w, state, task, k), reason]
+    let decision = column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(answers).padding(Padding { top: 6.0 * k, bottom: 10.0 * k, ..Padding::ZERO }), grade_row(w, state, task, k), secondary_row(w, state, task, k), reason]
         .spacing(8)
         .width(Length::Fill);
     let played: Element<'a, Message> = match (map.mods.is_empty(), map.plain_stars) {
@@ -1820,6 +1875,35 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
     let info: Element<'a, Message> = if wide >= 1300.0 { row![container(model_side).width(Length::FillPortion(2)), container(players).width(Length::Fill)].spacing(14).into() } else { column![model_side, players].spacing(14).into() };
     container(scrollable(column![difficulties.wrap(), top, info].spacing(18.0 * k)).direction(ui::hidden_bar()))
         .padding(workspace::INSET).width(Length::Fill).style(workspace::surface).into()
+}
+
+fn grade_row<'a>(w: &Words, state: &State, task: &Task, k: f32) -> Element<'a, Message> {
+    let chosen = state.tier_for(task);
+    let mut tiers = row![].spacing(6).align_y(Alignment::Center);
+    for tier in desk::TIERS {
+        let made = button(container(words(w.t(&format!("desk-tier-{tier}")), 13.0 * k, if chosen == tier { INK } else { MUTED })).center_y(30.0 * k))
+            .padding([0.0, 12.0 * k])
+            .style(workspace::choice(chosen == tier));
+        tiers = tiers.push(if state.posting { made } else { made.on_press(Message::Tier(tier.to_owned())) });
+    }
+    let marks = state.marks_for(task);
+    let full = marks.len() >= desk::MOST_MARKS;
+    let mut chips = row![].spacing(6).align_y(Alignment::Center);
+    for mark in desk::MARKS {
+        let on = marks.iter().any(|held| held == mark);
+        let made = button(container(words(w.t(&format!("desk-mark-{}", mark.replace('_', "-"))), 13.0 * k, if on { INK } else { MUTED })).center_y(30.0 * k))
+            .padding([0.0, 12.0 * k])
+            .style(workspace::choice(on));
+        chips = chips.push(if state.posting || (full && !on) { made } else { made.on_press(Message::Mark(mark.to_owned())) });
+    }
+    let mut body = column![
+        column![words(w.t("desk-tier"), 13.0 * k, FAINT), tiers.wrap().vertical_spacing(6)].spacing(6),
+        column![words(w.t("desk-marks"), 13.0 * k, FAINT), chips.wrap().vertical_spacing(6)].spacing(6),
+    ].spacing(14.0 * k);
+    if chosen == desk::BORDERLINE && state.secondary_for(task).is_none() {
+        body = body.push(words(w.t("desk-tier-borderline-hint"), 12.0 * k, UNSURE));
+    }
+    container(body).padding(Padding { bottom: 6.0 * k, ..Padding::ZERO }).into()
 }
 
 fn secondary_row<'a>(w: &Words, state: &State, task: &Task, k: f32) -> Element<'a, Message> {
@@ -2142,13 +2226,21 @@ fn held_card<'a>(w: &Words, state: &'a State, map: &Held, k: f32) -> Element<'a,
     let shown = state.shown_map(&desk::Map { beatmap_id: map.beatmap_id, beatmapset_id: map.beatmapset_id, title: map.title.clone(), version: map.version.clone(), mapper: map.mapper.clone(), ..Default::default() });
     let colour = match map.level.as_str() { "human" => GOOD, "uncertain" => UNSURE, _ => MUTED };
     let fresh = state.added == Some(map.beatmap_id);
-    let byline = [shown.version.clone(), shown.mapper.clone()].into_iter().flatten().filter(|said| !said.is_empty()).collect::<Vec<_>>().join(" · ");
+    let mut byline = row![].spacing(10).align_y(Alignment::Center);
+    for said in [shown.version.clone(), shown.mapper.clone()].into_iter().flatten().filter(|said| !said.is_empty()) {
+        byline = byline.push(words(said, 12.0 * k, MUTED));
+    }
+    let mut facts = row![stars_of(Some(map.stars), 12.0 * k)].spacing(8).align_y(Alignment::Center);
+    if let Some((tier, ink)) = map.tier.as_deref().and_then(|tier| match tier { "exemplary" => Some((tier, GOOD)), "borderline" => Some((tier, UNSURE)), _ => None }) {
+        facts = facts.push(strong(w.t(&format!("desk-tier-{tier}")), 12.0 * k, ink));
+    }
+    facts = facts.push(strong(if map.level == "human" { map.reviewer.as_ref().map_or_else(|| w.t("desk-level-human"), |name| w.with("desk-reviewed-by", &[("name", name.clone())])) } else { w.t(&format!("desk-level-{}", map.level)) }, 12.0 * k, colour));
     let top = row![
         cover(state, shown.beatmapset_id, 76.0 * k, 46.0 * k, 8.0),
         column![
             titled_map(shown.title.as_deref(), map.beatmap_id, 14.0 * k),
-            one_line(byline, 12.0 * k, MUTED, theme::SANS),
-            row![stars_of(Some(map.stars), 12.0 * k), strong(if map.level == "human" { map.reviewer.as_ref().map_or_else(|| w.t("desk-level-human"), |name| w.with("desk-reviewed-by", &[("name", name.clone())])) } else { w.t(&format!("desk-level-{}", map.level)) }, 12.0 * k, colour)].spacing(8).align_y(Alignment::Center),
+            byline,
+            facts.wrap().vertical_spacing(4),
         ].spacing(3).width(Length::Fill),
     ].spacing(10).align_y(Alignment::Center);
     let edit = button(container(row![glyph(Icon::Sliders, 15.0 * k, INK), tight(w.t("desk-edit-short"), 13.0 * k, INK)].spacing(6).align_y(Alignment::Center)).center_x(Length::Fill).center_y(32.0 * k))
@@ -2436,8 +2528,9 @@ fn state_colour(state: &str) -> Color {
 fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f32) -> Element<'a, Message> {
     let chosen = state.version.clone().or_else(|| state.desk.versions.first().map(|found| found.version.clone()));
     let mut list = column![strong(w.t("desk-versions"), 17.0 * k, INK)].spacing(8);
+    if let Some(active) = &state.training { list = list.push(training::card(w, active, state.training_selected, k)); }
     for version in &state.desk.versions {
-        let on = Some(&version.version) == chosen.as_ref();
+        let on = Some(&version.version) == chosen.as_ref() && !(state.training_selected && state.training.is_some());
         let (score, colour) = percent(version.report.pointer("/test/macro_f1").and_then(serde_json::Value::as_f64));
         let inside = row![
             column![one_line(version_name(w, &version.version), 16.0 * k, INK, theme::SANS_SEMI), tight(w.t(&format!("desk-model-{}", version.state.to_lowercase())), 13.0 * k, state_colour(&version.state))].spacing(3).width(Length::Fill),
@@ -2448,7 +2541,7 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
         let fill = if on { LIT } else { ROW };
         list = list.push(tile(fill, on.then_some((PICKED, 1.5)), container(inside).padding([2.0 * k, 4.0 * k]).into(), Some(Message::Version(version.version.clone()))));
     }
-    if state.desk.versions.is_empty() {
+    if state.desk.versions.is_empty() && state.training.is_none() {
         list = list.push(words(w.t(if state.loading { "desk-loading" } else { "desk-no-versions" }), 14.0 * k, FAINT));
     }
     let may = desk::allows(roles, desk::PUBLISHER) && !state.posting;
@@ -2459,8 +2552,10 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
     ]
     .spacing(8)]
     .spacing(8);
-    if state.training.is_some() {
-        general = general.push(words(w.t("desk-training"), 13.0 * k, FAINT));
+    if let Some(active) = &state.training {
+        general = general.push(words(w.t(if active.disconnected { "desk-training-reconnecting" } else { "desk-training-server" }), 13.0 * k, MUTED));
+    } else if let Some(version) = &state.training_done {
+        general = general.push(words(w.with("desk-training-done", &[("version", version_name(w, version))]), 13.0 * k, GOOD));
     } else if let Some(error) = &state.training_failed {
         general = general.push(words(w.with("desk-training-failed", &[("error", error.clone())]), 13.0 * k, BAD));
     } else if state.training_lost {
@@ -2469,6 +2564,9 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
         general = general.push(words(w.t("desk-nothing-new"), 13.0 * k, FAINT));
     }
     let aside = container(column![scrollable(list).direction(ui::hidden_bar()).height(Length::Fill), general].spacing(12)).padding(18).width(300.0 * k).height(Length::Fill).style(theme::slab);
+    if let Some(active) = state.training.as_ref().filter(|_| state.training_selected) {
+        return row![aside, training::detail(w, active, k)].spacing(14).height(Length::Fill).into();
+    }
     let Some(version) = state.desk.versions.iter().find(|version| Some(&version.version) == chosen.as_ref()) else {
         return row![aside, panel(Space::new().into())].spacing(14).height(Length::Fill).into();
     };
@@ -3106,8 +3204,9 @@ mod tests {
         state.band = Some(("FM4".into(), 9));
         assert_eq!(state.presence_context(), ("catalog:FM4:9".into(), None));
         let slots = state.catalog_slots();
-        assert_eq!(slots.len(), 27);
-        for slot in ["HD4", "HR4", "DT4", "FM4", "EZ2", "FL2"] { assert!(slots.contains(&slot.to_owned())); }
+        assert_eq!(slots.len(), 23);
+        for slot in ["HD4", "HR4", "DT4", "FM4"] { assert!(slots.contains(&slot.to_owned())); }
+        for slot in ["EZ1", "FL1"] { assert!(!slots.contains(&slot.to_owned())); }
         assert_eq!(desk::SLOTS.len(), 9);
         state.tab = Tab::Model;
         assert_eq!(state.presence_context(), ("model".into(), None));
@@ -3262,7 +3361,7 @@ mod tests {
         state.desk.tasks = vec![Task { kind: "review".into(), reason: "uncertain_revealed".into(), slot: Some("NM3".into()), map: desk::Map { beatmap_id: 7, title: Some("Song".into()), stars: Some(5.5), ..desk::Map::default() }, ..Task::default() }];
         assert!(state.update(Message::NotThis(true), &w).is_empty() && state.moving);
         let effects = state.update(Message::Decide("MOVE", Some("NM2".into())), &w);
-        assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "MOVE", slot: Some("NM2".into()), secondary: Some(None), reason: String::new() })]);
+        assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "MOVE", slot: Some("NM2".into()), secondary: Some(None), grade: Some(("fits".into(), Vec::new())), reason: String::new() })]);
         assert!(state.update(Message::Decide("REJECT", None), &w).is_empty());
         assert_eq!(state.update(Message::Posted(Ok(())), &w), [Effect::Load]);
         assert!(state.posting && !state.moving);
@@ -3273,7 +3372,7 @@ mod tests {
         assert!(!state.posting && state.pending_review.is_none());
         let _ = state.update(Message::Reason("короткие группы".into()), &w);
         let effects = state.update(Message::Decide("APPROVE", None), &w);
-        assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "APPROVE", slot: None, secondary: Some(None), reason: "короткие группы".into() })]);
+        assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "APPROVE", slot: None, secondary: Some(None), grade: Some(("fits".into(), Vec::new())), reason: "короткие группы".into() })]);
     }
 
     #[test]
@@ -3306,7 +3405,7 @@ mod tests {
         assert!(state.update(Message::Train, &w).is_empty(), "one training at a time");
         assert_eq!(state.update(Message::TrainStarted(Ok(Some("j1".into()))), &w), [Effect::Load]);
         state.loading = false;
-        let job = |state: &str, version: Option<&str>, error: Option<&str>| desk::Job { job: "j1".into(), state: state.into(), version: version.map(Into::into), error: error.map(Into::into) };
+        let job = |state: &str, version: Option<&str>, error: Option<&str>| desk::Job { job: "j1".into(), state: state.into(), version: version.map(Into::into), error: error.map(Into::into), ..Default::default() };
         assert_eq!(state.update(Message::PresenceTick, &w), [Effect::TrainingJob("j1".into())]);
         assert!(state.update(Message::PresenceTick, &w).is_empty(), "no second question while the first is unanswered");
         let _ = state.update(Message::Loaded(Ok(Desk { versions: vec![desk::Version::default(); 30], ..Desk::default() })), &w);
@@ -3334,8 +3433,8 @@ mod tests {
     fn a_slot_without_a_name_shows_only_its_tag() {
         let w = Words::new(crate::lang::Lang::Ru);
         assert_eq!(skill(&w, "NM5"), "Скорость");
-        assert_eq!(skill(&w, "FM4"), "Скорость во фримоде");
-        assert_eq!(skill(&w, "EZ1"), "Easy");
+        assert_eq!(skill(&w, "FM4"), "Фримод");
+        assert_eq!(skill(&w, "EZ1"), "");
         assert_eq!(skill(&w, "NM9"), "");
         assert_eq!(feature(&w, "no.such_path"), "no.such_path");
     }
@@ -3531,6 +3630,34 @@ mod tests {
         state.posting = false;
         let effects = state.update(Message::Decide("REJECT", None), &w);
         assert!(matches!(&effects[0], Effect::Post(Post::Review { decision: "REJECT", secondary: None, .. })));
+    }
+
+    #[test]
+    fn a_reviewer_grades_the_map_and_picks_at_most_three_reasons_for_its_own_map() {
+        let w = Words::new(crate::lang::Lang::En);
+        let task = |id: i64, tier: Option<&str>, reasons: &[&str]| Task { kind: "review".into(), reason: "manual".into(), slot: Some("NM1".into()),
+            tier: tier.map(Into::into), reasons: reasons.iter().map(|reason| (*reason).to_owned()).collect(),
+            map: desk::Map { beatmap_id: id, ..Default::default() }, ..Default::default() };
+        let mut state = State::default();
+        state.desk.tasks = vec![task(7, Some("exemplary"), &["jumps"]), task(8, None, &[])];
+        let effects = state.update(Message::Decide("APPROVE", None), &w);
+        assert!(matches!(&effects[0], Effect::Post(Post::Review { grade: Some((tier, marks)), .. }) if tier == "exemplary" && marks == &["jumps"]), "an untouched map keeps its own grade");
+        state.posting = false;
+        state.update(Message::Tier("borderline".into()), &w);
+        state.update(Message::Tier("great".into()), &w);
+        for mark in ["turns", "sliders", "stamina", "vibes"] {
+            state.update(Message::Mark(mark.into()), &w);
+        }
+        assert_eq!(state.marks_for(state.task().unwrap()), ["jumps", "turns", "sliders"], "a fourth reason waits until one is taken off");
+        state.update(Message::Mark("jumps".into()), &w);
+        state.update(Message::Mark("stamina".into()), &w);
+        let effects = state.update(Message::Decide("MOVE", Some("NM4".into())), &w);
+        assert!(matches!(&effects[0], Effect::Post(Post::Review { grade: Some((tier, marks)), .. }) if tier == "borderline" && marks == &["turns", "sliders", "stamina"]));
+        state.posting = false;
+        state.update(Message::Pick(8), &w);
+        assert_eq!((state.tier_for(state.task().unwrap()), state.marks_for(state.task().unwrap())), ("fits".to_owned(), Vec::new()), "a grade belongs to its own map");
+        let effects = state.update(Message::Decide("QUARANTINE", None), &w);
+        assert!(matches!(&effects[0], Effect::Post(Post::Review { grade: None, .. })));
     }
 
     #[test]

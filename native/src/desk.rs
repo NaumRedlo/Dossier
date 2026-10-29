@@ -13,8 +13,13 @@ pub const PUBLISHER: &str = "MODEL_PUBLISHER";
 pub const OWNER: &str = "OWNER";
 pub const GRANTED: [&str; 3] = [REVIEWER, PUBLISHER, OPERATOR];
 pub const SLOTS: [&str; 9] = ["NM1", "NM2", "NM3", "NM4", "HD2", "HR2", "DT1", "DT2", "TB"];
-pub const RESERVE: [&str; 18] = ["NM5", "NM6", "HD1", "HD3", "HD4", "HR1", "HR3", "HR4", "DT3", "DT4", "FM1", "FM2", "FM3", "FM4", "EZ1", "EZ2", "FL1", "FL2"];
+pub const RESERVE: [&str; 14] = ["NM5", "NM6", "HD1", "HD3", "HD4", "HR1", "HR3", "HR4", "DT3", "DT4", "FM1", "FM2", "FM3", "FM4"];
 const READ_PATIENCE: std::time::Duration = std::time::Duration::from_secs(45);
+pub const TIERS: [&str; 3] = ["exemplary", "fits", "borderline"];
+pub const FITS: &str = "fits";
+pub const BORDERLINE: &str = "borderline";
+pub const MARKS: [&str; 10] = ["jumps", "turns", "streams", "bursts", "triplets", "rhythm", "sliders", "low_ar", "small_circles", "stamina"];
+pub const MOST_MARKS: usize = 3;
 pub const BANDS: [f32; 10] = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5];
 pub const TOP: f32 = 10.0;
 pub const EXCLUDED: &str = "NONE";
@@ -37,6 +42,8 @@ pub struct Presence {
 pub struct PresenceUpdate {
     pub people: Vec<Presence>,
     pub revision: Option<String>,
+    pub training_known: bool,
+    pub training: Option<Job>,
 }
 
 fn read<T: serde::de::DeserializeOwned>(account: &Account, path: &str) -> Result<T, Failure> {
@@ -121,6 +128,8 @@ pub struct Task {
     pub since: Option<String>,
     pub slot: Option<String>,
     pub secondary: Option<String>,
+    pub tier: Option<String>,
+    pub reasons: Vec<String>,
     pub state: Option<String>,
     pub map: Map,
     pub opinions: Option<Opinions>,
@@ -153,6 +162,8 @@ pub struct Held {
     pub beatmapset_id: Option<i64>,
     pub stars: f32,
     pub level: String,
+    pub tier: Option<String>,
+    pub typical: Option<f32>,
     pub mapper: Option<String>,
     pub title: Option<String>,
     pub version: Option<String>,
@@ -486,10 +497,14 @@ pub fn cell(account: &Account, slot: &str, band: usize) -> Result<Vec<Held>, Fai
     listed(account, &format!("/render/admin/duels/catalog/{slot}/{band}"), "maps")
 }
 
-pub fn review(account: &Account, beatmap: i64, decision: &str, slot: Option<&str>, secondary: Option<Option<&str>>, reason: &str) -> Result<Value, Failure> {
+pub fn review(account: &Account, beatmap: i64, decision: &str, slot: Option<&str>, secondary: Option<Option<&str>>, grade: Option<(&str, &[String])>, reason: &str) -> Result<Value, Failure> {
     let mut body = json!({ "decision": decision, "slot": slot, "reason": reason });
     if let Some(secondary) = secondary {
         body["secondary"] = json!(secondary);
+    }
+    if let Some((tier, marks)) = grade {
+        body["tier"] = json!(tier);
+        body["reasons"] = json!(marks);
     }
     call(account, reqwest::Method::POST, &format!("/render/admin/duels/maps/{beatmap}/review"), Some(body), None)
 }
@@ -597,6 +612,17 @@ pub struct Job {
     pub state: String,
     pub version: Option<String>,
     pub error: Option<String>,
+    pub phase: String,
+    pub started_at: Option<String>,
+    pub completed: u64,
+    pub total: u64,
+    pub maps: u64,
+    pub checks_done: u64,
+    pub checks_total: u64,
+    pub fold: Option<String>,
+    pub elapsed_seconds: u64,
+    pub revision: u64,
+
 }
 
 pub fn train(account: &Account, reason: &str) -> Result<Option<String>, Failure> {

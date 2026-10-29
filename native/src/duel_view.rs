@@ -639,6 +639,8 @@ fn result_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> Element<'
         let reason = match duel.outcome.as_deref() {
             Some("pool_unavailable") => Some("duels-pool-unavailable"),
             Some("room_unresponsive") => Some("duels-room-unresponsive"),
+            Some("room_lost") => Some("duels-room-lost"),
+            Some("evidence_missing") => Some("duels-evidence-missing"),
             _ => None,
         };
         let mut message = column![bold(w.t("duels-no-result"), 32.0, INK)].spacing(18);

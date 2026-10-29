@@ -112,13 +112,13 @@ pub(super) fn category_menu<'a>(pool: &Pool, at: usize, lit: bool) -> Element<'a
 }
 
 pub(super) fn figure<'a>(label: String, value: String, size: f32, colour: Color) -> Element<'a, Message> {
-    column![ui::mono_small(label, FAINT), text(value).font(theme::MONO_BOLD).size(size).wrapping(text::Wrapping::None).color(ui::faded(colour))].spacing(4).into()
+    column![ui::label(label, FAINT), text(value).font(theme::MONO_BOLD).size(size).wrapping(text::Wrapping::None).color(ui::faded(colour))].spacing(4).into()
 }
 
 pub(super) fn profile_bars<'a>(measure: &Measure, words: &Words) -> Element<'a, Message> {
     let k = ui::fade();
     let percents = measure.percents();
-    let mut list = column![ui::mono_small(words.t("pool-slot-profile"), FAINT)].spacing(10);
+    let mut list = column![ui::label(words.t("pool-slot-profile"), FAINT)].spacing(10);
     for (at, skill) in Skill::ALL.into_iter().enumerate() {
         let filled = percents[at].clamp(0, 100) as u16;
         let track = container(
@@ -147,7 +147,7 @@ pub(super) fn category_fields<'a>(pool: &'a Pool, editor: &'a Editor, at: usize,
     if !editor.category_creator { return quiet_button(words.t("pool-create-category"), Message::CreateCategory(true)); }
     let name = text_input(&words.t("pool-custom-category"), &editor.category_draft).on_input(Message::CategoryDraft).font(theme::SANS).size(12.0).padding([7, 10]).style(theme::field_faded(ui::fade()));
     let mut fields = column![name].spacing(8);
-    fields = fields.push(row![ui::mono_small(words.t("pool-category-colour"), MUTED), text_input("#5ec2d0", &editor.colour_draft).on_input(move |value| Message::Colour(at, value)).font(theme::MONO).size(12.0).padding([7, 10]).style(theme::field_faded(ui::fade())).width(120.0)].spacing(12).align_y(iced::Center));
+    fields = fields.push(row![ui::label(words.t("pool-category-colour"), MUTED), text_input("#5ec2d0", &editor.colour_draft).on_input(move |value| Message::Colour(at, value)).font(theme::MONO).size(12.0).padding([7, 10]).style(theme::field_faded(ui::fade())).width(120.0)].spacing(12).align_y(iced::Center));
     let valid = !editor.category_draft.is_empty() && !Mod::ALL.iter().any(|m| m.code() == editor.category_draft) && parse_colour(&editor.colour_draft).is_some();
     fields = fields.push(row![ui::primary(words.t("pool-create-category"), valid.then_some(Message::SaveCategory(at))), quiet_button(words.t("pool-delete-no"), Message::CreateCategory(false))].spacing(8));
     fields.into()
@@ -167,7 +167,7 @@ pub(super) fn slot_panel<'a>(pool: &'a Pool, editor: &'a Editor, at: usize, wide
         }
         Some(hash) => {
             body = body.push(cover(thumbs, Some(hash), wide - 32.0, 150.0, HERO_ROUND));
-            body = body.push(column![wrapped_semi(slot.title.clone(), 20.0, INK), ui::moving_text(slot.artist.clone(), theme::SANS, 14.0, MUTED), ui::moving_text(slot.version.clone(), theme::MONO, 12.0, FAINT)].spacing(3).width(Length::Fill));
+            body = body.push(column![wrapped_semi(slot.title.clone(), 20.0, INK), ui::moving_text(slot.artist.clone(), theme::SANS, 14.0, MUTED), ui::moving_text(slot.version.clone(), theme::SANS, 12.0, FAINT)].spacing(3).width(Length::Fill));
             match slot.measure {
                 Some(measure) => {
                     body = body.push(
@@ -192,15 +192,15 @@ pub(super) fn slot_panel<'a>(pool: &'a Pool, editor: &'a Editor, at: usize, wide
                     );
                     body = body.push(profile_bars(&measure, words));
                 }
-                None if songs.is_some_and(|songs| !songs.contains_key(hash)) => body = body.push(mono(words.t("pool-no-disk"), 12.0, ACCENT)),
-                None => body = body.push(mono(words.t("pool-measuring"), 12.0, FAINT)),
+                None if songs.is_some_and(|songs| !songs.contains_key(hash)) => body = body.push(faded_text(words.t("pool-no-disk"), 12.0, ACCENT)),
+                None => body = body.push(faded_text(words.t("pool-measuring"), 12.0, FAINT)),
             }
         }
     }
     if !slot.is_empty() {
         body = body.push(
             column![
-                ui::mono_small(words.t("pool-slot-note"), FAINT),
+                ui::label(words.t("pool-slot-note"), FAINT),
                 text_input("", &slot.note).on_input(move |note| Message::Note(at, note)).on_paste(move |contents| Message::PasteInto(Input::Note(at), contents)).font(theme::SANS).size(13.0).padding([8, 12]).style(theme::field_faded(ui::fade())),
             ]
             .spacing(8),

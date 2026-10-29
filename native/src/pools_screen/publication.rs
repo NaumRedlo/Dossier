@@ -22,7 +22,7 @@ pub(super) fn share_modal<'a>(pool: &'a Pool, words: &'a Words, exporting: bool)
     let line = pool_share::to_text(pool);
     let shown = if line.chars().count() > 46 { format!("{}…", line.chars().take(46).collect::<String>()) } else { line };
     let hash = row![
-        ui::mono_small(words.t("pool-hash"), FAINT),
+        ui::label(words.t("pool-hash"), FAINT),
         text(pool.fingerprint()).font(theme::MONO_BOLD).size(14.0).color(ui::faded(INK)),
         icon_button(Icon::Copy, 14.0, MUTED, Some(Message::CopyHash)),
     ]
@@ -53,7 +53,7 @@ pub(super) fn check_line<'a>(check: &Check, words: &Words) -> Element<'a, Messag
     };
     let said: Element<'a, Message> = match check.verdict {
         Verdict::Stop => text(check.words(words)).font(theme::MONO_BOLD).size(14.0).color(ui::faded(WARNED)).into(),
-        Verdict::Fine | Verdict::Note => text(check.words(words)).font(theme::MONO).size(14.0).color(ui::faded(if check.verdict == Verdict::Fine { MUTED } else { FAINT })).into(),
+        Verdict::Fine | Verdict::Note => text(check.words(words)).font(theme::SANS).size(14.0).color(ui::faded(if check.verdict == Verdict::Fine { MUTED } else { FAINT })).into(),
     };
     let mut line = row![mark, container(said).width(Length::Fill)].spacing(12).align_y(iced::Center);
     if let Some(slot) = check.slot {

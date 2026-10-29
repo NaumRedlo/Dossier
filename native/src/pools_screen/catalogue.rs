@@ -326,7 +326,7 @@ pub(super) fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<
     page = page.push(ledger_box(drafts.into()));
     if collection {
         if let Some(collections) = &state.collections {
-            page = page.push(ui::appearing(ui::appear(t, 3), 8.0, || ui::mono_small(words.t("catalogue-game-collections"), MUTED)));
+            page = page.push(ui::appearing(ui::appear(t, 3), 8.0, || ui::label(words.t("catalogue-game-collections"), MUTED)));
             for (at, found) in collections.iter().enumerate() {
                 page = page.push(ui::appearing(ui::appear(t, 3 + at), 8.0, || quiet_button(found.name.clone(), Message::ImportCollection(at))));
             }

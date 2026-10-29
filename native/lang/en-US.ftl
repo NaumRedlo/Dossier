@@ -1656,6 +1656,9 @@ desk-fold-queue = Queue
 desk-did-train-model = Started training
 desk-precision = Precision
 desk-recall = Recall
+desk-trusted = Auto admission
+desk-trusted-count = { $right } of { $count }
+desk-trusted-rule = Kamerton admits maps on its own only in a slot where at least 10 of its confident answers were checked and 90% of them were right. Elsewhere only reviewed maps are played.
 desk-verified = Manual review
 desk-sure-right = Confident picks right
 desk-admitted = On held-out maps the model would admit { $count } of { $checked } to duels, { $precision } of them right; refused: { $refused }
@@ -1924,6 +1927,8 @@ desk-did-auto-discover = Looked for { $slot } maps, { $band }★: { $added } add
 
 duels-pool-unavailable = There are not enough catalogue maps or new maps confidently classified by Kamerton to build a pool at this difficulty.
 duels-room-unresponsive = The osu! room did not confirm setup or the start of the round. The duel was cancelled; you can search again.
+duels-room-lost = The osu! room stopped answering and the map could not be stopped. The duel was cancelled without a rating change.
+duels-evidence-missing = The map's result never reached the osu! API. The duel was cancelled without a rating change.
 
 desk-skill-hd4 = Hidden
 desk-skill-hr4 = HardRock

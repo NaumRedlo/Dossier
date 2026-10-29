@@ -1537,7 +1537,7 @@ fn staged_desk() -> crate::desk_screen::State {
     cells.push(Cell { corpus: "own-v1".into(), year: 2024, stage: "Russian Cup".into(), slot: "NM1".into(), label: None, maps: vec![own(571525, "NM1", "The Big Black", "WHO'S AFRAID", "Blue Dragon", true), own(2612145, "NM3", "HOT LIMIT", "Extreme", "Nevo", false), own(2440213, "NM2", "Harumodoki", "Insane", "Shmiklak", false)] });
     let version = |name: &str, state: &str, f1: f64, ago: i64| Version {
         version: name.into(), state: state.into(), labels: 214,
-        report: serde_json::json!({ "verified": 41, "maps": 572, "test": { "macro_f1": f1, "confident": { "precision": 0.75 }, "per_slot": {
+        report: serde_json::json!({ "verified": 41, "maps": 572, "test": { "macro_f1": f1, "confident": { "precision": 0.75, "slots": { "NM1": { "count": 14, "right": 13 }, "NM2": { "count": 11, "right": 10 }, "NM3": { "count": 6, "right": 3 }, "NM4": { "count": 9, "right": 9 }, "HD2": { "count": 12, "right": 10 }, "HR2": { "count": 10, "right": 9 }, "DT1": { "count": 13, "right": 13 }, "DT2": { "count": 8, "right": 7 }, "TB": { "count": 15, "right": 14 } } }, "per_slot": {
             "NM1": { "precision": 0.62, "recall": 0.71 }, "NM2": { "precision": 0.75, "recall": 0.43 }, "NM3": { "precision": 0.25, "recall": 0.14 },
             "NM4": { "precision": 0.75, "recall": 0.43 }, "HD2": { "precision": 0.57, "recall": 0.57 }, "HR2": { "precision": 0.67, "recall": 0.57 },
             "DT1": { "precision": 1.0, "recall": 0.43 }, "DT2": { "precision": 0.75, "recall": 0.43 }, "TB": { "precision": 0.86, "recall": 1.0 },

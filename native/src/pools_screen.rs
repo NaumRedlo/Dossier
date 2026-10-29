@@ -1820,7 +1820,7 @@ fn conflict_banner<'a>(state: &State, pool: &Pool, words: &'a Words, width: f32)
     let busy = state.resolving.is_some() || state.catalogue_loading;
     let mut told = column![semi(words.t("catalogue-conflict-title"), 15.0, WARNED)].spacing(4);
     if let Some(theirs) = state.server_revision(pool).filter(|theirs| *theirs != pool.published_revision) {
-        told = told.push(mono(words.with("catalogue-conflict-versions", &[("theirs", theirs.to_string()), ("mine", pool.published_revision.to_string())]), 13.0, INK));
+        told = told.push(faded_text(words.with("catalogue-conflict-versions", &[("theirs", theirs.to_string()), ("mine", pool.published_revision.to_string())]), 13.0, INK));
     }
     let actions = row![
         outlined(words.t("catalogue-conflict-theirs"), (!busy).then_some(Message::Conflict(Keep::Theirs))),
@@ -1900,7 +1900,7 @@ fn open_view<'a>(state: &'a State, opening: &'a Opening, words: &'a Words, thumb
     }
     ledger = ledger.push(line(measured, known && !measured && missing.is_empty(), words.t("pool-open-measure")));
     if opening.lost > 0 && !opening.running {
-        ledger = ledger.push(mono(words.n("pool-open-lost", opening.lost as u64), 12.0, ACCENT));
+        ledger = ledger.push(faded_text(words.n("pool-open-lost", opening.lost as u64), 12.0, ACCENT));
     }
     let mut actions = column![].spacing(10);
     if known && !missing.is_empty() && !opening.running {
@@ -1919,7 +1919,7 @@ fn open_view<'a>(state: &'a State, opening: &'a Opening, words: &'a Words, thumb
         let badges = row![number_badge(category_number(pool, at), false), mod_badge(slot.mods, false)].spacing(8).align_y(iced::Center).width(88.0);
         let figure: Element<'a, Message> = match (&slot.measure, gone, slot.hash.is_some()) {
             (Some(measure), _, _) => text(stars_of(words, measure.stars)).font(theme::MONO_BOLD).size(19.0).wrapping(text::Wrapping::None).color(ui::faded(crate::dossier::star_colour(measure.stars as f32))).into(),
-            (None, true, _) => mono(words.t("pool-gone"), 12.0, ACCENT),
+            (None, true, _) => faded_text(words.t("pool-gone"), 12.0, ACCENT),
             _ => Space::new().width(0.0).into(),
         };
         let inner: Element<'a, Message> = if slot.hash.is_none() {
@@ -1928,7 +1928,7 @@ fn open_view<'a>(state: &'a State, opening: &'a Opening, words: &'a Words, thumb
             row![
                 badges,
                 cover(thumbs, slot.hash.as_deref(), COVER_WIDE, COVER_HIGH, COVER_ROUND),
-                column![semi(slot.title.clone(), 14.0, INK), faded_text(slot.artist.clone(), 12.5, MUTED), mono(slot.version.clone(), 11.0, FAINT)].spacing(1).width(Length::Fill),
+                column![semi(slot.title.clone(), 14.0, INK), faded_text(slot.artist.clone(), 12.5, MUTED), faded_text(slot.version.clone(), 11.0, FAINT)].spacing(1).width(Length::Fill),
                 figure,
             ]
             .spacing(14)
@@ -1937,7 +1937,7 @@ fn open_view<'a>(state: &'a State, opening: &'a Opening, words: &'a Words, thumb
         };
         list = list.push(container(inner).height(ROW_HIGH).align_y(iced::Center).padding([4, 10]));
     }
-    let right = column![ui::mono_small(words.t("pool-open-body"), FAINT), list].spacing(10);
+    let right = column![ui::label(words.t("pool-open-body"), FAINT), list].spacing(10);
     let body: Element<'a, Message> = row![container(left).width(Length::Fixed(OPEN_WIDE)), container(right).width(Length::Fill)].spacing(32).align_y(iced::alignment::Vertical::Top).into();
     column![ui::appearing(ui::appear(t, 0), 10.0, || head.into()), ui::appearing(ui::appear(t, 1), 10.0, || body)].spacing(24).into()
 }

@@ -139,7 +139,7 @@ pub fn pool_foot<'a>(state: &State, pool: &Pool, words: &'a Words) -> Element<'a
         line = line.push(column![stars_span(words, facts.low, facts.high), faded_text(words.t("shelf-stars"), 12.0, MUTED)].spacing(3));
     }
     let saved = saved_words(state, pool, words);
-    line.push(ui::grow()).push(mono(saved, 12.0, MUTED)).into()
+    line.push(ui::grow()).push(faded_text(saved, 12.0, MUTED)).into()
 }
 
 pub(super) fn editor_toolbar<'a>(state: &'a State, editor: &'a Editor, pool: &'a Pool, words: &'a Words, width: f32) -> Element<'a, Message> {
@@ -384,7 +384,7 @@ pub(super) fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Wo
         button(row![check_box(on), text(label).font(theme::SANS).size(14.0).color(ui::faded(INK))].spacing(12).align_y(iced::Center)).padding(0).style(ui::button_faded(theme::bare)).on_press_maybe(live.then_some(press)).into()
     };
     let inside = column![
-        row![semi(words.t("pool-backdrop-title"), 16.0, INK), ui::grow(), mono(words.t("pool-backdrop-optional"), 12.0, MUTED)].align_y(iced::Center),
+        row![semi(words.t("pool-backdrop-title"), 16.0, INK), ui::grow(), faded_text(words.t("pool-backdrop-optional"), 12.0, MUTED)].align_y(iced::Center),
         from,
         column![row![text(words.t("pool-backdrop-dim")).font(theme::SANS).size(14.0).color(ui::faded(INK)), ui::grow(), text(format!("{dim}%")).font(theme::MONO_BOLD).size(14.0).color(ui::faded(INK))].align_y(iced::Center), scale].spacing(8),
         tick(held.is_some_and(|backdrop| backdrop.blur), words.t("pool-backdrop-blur"), Message::BackdropBlur(!held.is_some_and(|backdrop| backdrop.blur))),
@@ -515,7 +515,7 @@ pub(super) fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Poo
             let mut name = row![semi(words.t(key), 16.0, if offered { INK } else { MUTED })].spacing(8).align_y(iced::Center);
             if !offered {
                 let k = ui::fade();
-                name = name.push(container(mono(words.t("pool-frame-soon"), 11.0, MUTED)).padding([1, 7]).style(move |_| container::Style { border: Border { color: crate::theme::outline(soft(0.16, k)), width: 1.0, radius: 9.0.into() }, ..container::Style::default() }));
+                name = name.push(container(faded_text(words.t("pool-frame-soon"), 11.0, MUTED)).padding([1, 7]).style(move |_| container::Style { border: Border { color: crate::theme::outline(soft(0.16, k)), width: 1.0, radius: 9.0.into() }, ..container::Style::default() }));
             }
             let inside = row![glyph(icon, 32.0, if offered { INK } else { FAINT }), column![name, frame_tags(frame, words)].spacing(10).width(Length::Fill)].spacing(16);
             let tile = button(container(inside).padding(16).width(Length::Fill).height(Length::Fill)).padding(0).width(Length::Fill).height(frame_high).style(ui::button_faded(start_tile(offered && pool.frame == frame)));

@@ -1698,6 +1698,9 @@ desk-fold-queue = Очередь
 desk-did-train-model = Запустил обучение
 desk-precision = Точность
 desk-recall = Полнота
+desk-trusted = Автодопуск
+desk-trusted-count = { $right } из { $count }
+desk-trusted-rule = Kamerton сам допускает карты только в слотах, где проверено не меньше 10 его уверенных ответов и верны из них не меньше 90%. В остальных слотах играют только проверенные карты.
 desk-verified = Ручная проверка
 desk-sure-right = Уверенные верны
 desk-admitted = На отложенных картах модель допустила бы в дуэли { $count } из { $checked }, из них верно { $precision }; отказов: { $refused }
@@ -1968,6 +1971,8 @@ desk-did-auto-discover = Искал карты для { $slot }, { $band }★: �
 
 duels-pool-unavailable = Не удалось собрать пул нужной сложности. Не хватает карт из каталога или новых карт с уверенной оценкой Kamerton.
 duels-room-unresponsive = Комната osu! не подтвердила настройку или начало раунда. Дуэль отменена; можно начать новый поиск.
+duels-room-lost = Комната osu! перестала отвечать, и карту не удалось остановить. Дуэль отменена без изменения рейтинга.
+duels-evidence-missing = Результат карты так и не появился в API osu!. Дуэль отменена без изменения рейтинга.
 
 desk-skill-hd4 = Hidden
 desk-skill-hr4 = HardRock

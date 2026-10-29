@@ -18,6 +18,8 @@ const TRAINING_WAIT: std::time::Duration = std::time::Duration::from_secs(240);
 const GOOD: Color = theme::GRADE_A;
 const UNSURE: Color = theme::GRADE_S;
 const BAD: Color = iced::color!(0xf38a8a);
+const TRUSTED_LEAST: u64 = 10;
+const TRUSTED_PRECISION: f64 = 0.90;
 const PICKED: Color = Color { a: 0.55, ..ACCENT };
 pub(crate) const LIT: Color = Color::from_rgba(0.135, 0.086, 0.098, 0.92);
 
@@ -2406,6 +2408,23 @@ fn percent(value: Option<f64>) -> (String, Color) {
     }
 }
 
+fn trusted(report: &serde_json::Value, slot: &str) -> Option<(u64, u64, bool)> {
+    let found = report.pointer(&format!("/test/confident/slots/{slot}"))?;
+    let count = found.get("count").and_then(serde_json::Value::as_u64)?;
+    let right = found.get("right").and_then(serde_json::Value::as_u64)?;
+    Some((right, count, count >= TRUSTED_LEAST && right as f64 >= TRUSTED_PRECISION * count as f64))
+}
+
+fn trusted_cell(w: &Words, report: &serde_json::Value, slot: &str) -> (String, Color) {
+    if !desk::SLOTS.contains(&slot) {
+        return (String::new(), FAINT);
+    }
+    match trusted(report, slot) {
+        Some((right, count, open)) => (w.with("desk-trusted-count", &[("right", right.to_string()), ("count", count.to_string())]), if open { GOOD } else { BAD }),
+        None => ("—".to_owned(), FAINT),
+    }
+}
+
 fn state_colour(state: &str) -> Color {
     match state {
         "published" => GOOD,
@@ -2494,12 +2513,13 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
         None => column![figures],
     };
     let cell = |said: String, colour: Color| -> Element<'a, Message> { container(tight(said, 16.0 * k, colour)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right).into() };
-    let mut slots = column![row![Space::new().width(Length::Fill), container(tight(w.t("desk-precision"), 13.0 * k, FAINT)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right), container(tight(w.t("desk-recall"), 13.0 * k, FAINT)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right)]].spacing(4);
+    let mut slots = column![row![Space::new().width(Length::Fill), container(tight(w.t("desk-precision"), 13.0 * k, FAINT)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right), container(tight(w.t("desk-recall"), 13.0 * k, FAINT)).width(96.0 * k).align_x(iced::alignment::Horizontal::Right), container(tight(w.t("desk-trusted"), 13.0 * k, FAINT)).width(110.0 * k).align_x(iced::alignment::Horizontal::Right)]].spacing(4);
     let line = |slot: &str| -> Element<'a, Message> {
         let held = report.pointer(&format!("/test/per_slot/{slot}"));
         let (precision, pc) = percent(held.and_then(|held| held.get("precision")).and_then(serde_json::Value::as_f64));
         let (recall, rc) = percent(held.and_then(|held| held.get("recall")).and_then(serde_json::Value::as_f64));
-        row![container(row![tag(slot, k), one_line(skill(w, slot), 14.0 * k, MUTED, theme::SANS)].spacing(10).align_y(Alignment::Center)).width(Length::Fill).clip(true), cell(precision, pc), cell(recall, rc)].spacing(8).height(36.0 * k).align_y(Alignment::Center).into()
+        let (sure, sc) = trusted_cell(w, report, slot);
+        row![container(row![tag(slot, k), one_line(skill(w, slot), 14.0 * k, MUTED, theme::SANS)].spacing(10).align_y(Alignment::Center)).width(Length::Fill).clip(true), cell(precision, pc), cell(recall, rc), container(tight(sure, 16.0 * k, sc)).width(110.0 * k).align_x(iced::alignment::Horizontal::Right)].spacing(8).height(36.0 * k).align_y(Alignment::Center).into()
     };
     for slot in desk::SLOTS {
         slots = slots.push(line(slot));
@@ -2526,7 +2546,7 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
         }
     }
     let body = column![
-        column![strong(w.t("desk-slots"), 17.0 * k, INK), slots].spacing(10),
+        column![strong(w.t("desk-slots"), 17.0 * k, INK), slots, words(w.t("desk-trusted-rule"), 13.0 * k, FAINT)].spacing(10),
         column![strong(w.t("desk-by-year"), 17.0 * k, INK), years].spacing(10),
     ].spacing(24.0 * k);
     let reason = row![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(12).align_y(Alignment::Center);

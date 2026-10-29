@@ -68,6 +68,8 @@ pub struct Settings {
     #[serde(default)]
     pub tiles_bot: Vec<String>,
     #[serde(default)]
+    pub duel_running: Option<String>,
+    #[serde(default)]
     pub side_order: Vec<String>,
     #[serde(default)]
     pub inbox_heard: i64,
@@ -977,6 +979,7 @@ impl Default for Settings {
             settings_tab: String::new(),
             tiles_app: Vec::new(),
             tiles_bot: Vec::new(),
+            duel_running: None,
             side_order: Vec::new(),
             inbox_heard: 0,
             chat_id: None,

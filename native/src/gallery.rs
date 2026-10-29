@@ -1655,6 +1655,20 @@ fn duel_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.duels = Box::new(staged_duels(false));
             main
         }),
+        ("main-community-duels-calibrating".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            if let Some(me) = main.duels.me.as_mut() {
+                me.rating.calibrating = true;
+                me.rating.played = 2;
+                me.rating.needed = 5;
+                me.rating.rating = None;
+                me.won = 2;
+                me.lost = 0;
+            }
+            main.duels.live = crate::duels::Live::default();
+            main
+        }),
         ("main-community-duel-room".to_owned(), {
             let mut main = community(crate::community_screen::Section::Duels, None);
             main.duels = Box::new(staged_duels(false));
@@ -2239,11 +2253,11 @@ pub fn every_main_frame() -> Vec<(String, crate::main_screen::Main, Size)> {
     for lang in Lang::ALL {
         for (name, main) in main_states(lang) {
             for (label, size) in SIZES {
-                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-backdrop" && name != "main-pools-errors" && name != "main-pools-tools" && name != "main-pools-slot-menu" && name != "main-pools-editor" && name != "main-pools-head" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-pools-start" && name != "main-billing-plans" && name != "main-billing-active" && name != "main-menu-feed" && name != "main-pools-conflict" && name != "main-pools-guide" && name != "main-pools-balance" && name != "main-pools-publish" && name != "main-prefs-device" && name != "main-hover" {
+                if label != SIZES[0].0 && name != "main-rest" && name != "main-idle" && name != "main-notifications" && name != "main-player-mini" && name != "main-community-clip-mini" && name != "main-community-feed-wide" && name != "main-pools-best" && name != "main-pools-backdrop" && name != "main-pools-errors" && name != "main-pools-tools" && name != "main-pools-slot-menu" && name != "main-pools-editor" && name != "main-pools-head" && name != "main-pools-grouped" && name != "main-pools-new" && name != "main-pools-start" && name != "main-billing-plans" && name != "main-billing-active" && name != "main-menu-feed" && name != "main-pools-conflict" && name != "main-pools-guide" && name != "main-pools-balance" && name != "main-pools-publish" && name != "main-prefs-device" && name != "main-hover" && name != "main-community-duels-calibrating" {
                     continue;
                 }
                 let mut frame = main.clone();
-                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-head" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-pools-start" || name == "main-pools-backdrop" || name == "main-pools-errors" || name == "main-pools-tools" || name == "main-pools-slot-menu" || name == "main-billing-plans" || name == "main-billing-active" || name == "main-menu-feed" || name == "main-pools-conflict" || name == "main-pools-guide" || name == "main-pools-balance" || name == "main-pools-publish" || name == "main-prefs-device" || name == "main-hover" { frame.width = size.width; frame.height = size.height; }
+                if name == "main-idle" || name == "main-notifications" || name == "main-player-mini" || name == "main-community-clip-mini" || name == "main-community-feed-wide" || name == "main-pools-best" || name == "main-pools-editor" || name == "main-pools-head" || name == "main-pools-grouped" || name == "main-pools-new" || name == "main-pools-start" || name == "main-pools-backdrop" || name == "main-pools-errors" || name == "main-pools-tools" || name == "main-pools-slot-menu" || name == "main-billing-plans" || name == "main-billing-active" || name == "main-menu-feed" || name == "main-pools-conflict" || name == "main-pools-guide" || name == "main-pools-balance" || name == "main-pools-publish" || name == "main-prefs-device" || name == "main-hover" || name == "main-community-duels-calibrating" { frame.width = size.width; frame.height = size.height; }
                 out.push((format!("{name}-{}-{label}", lang.tag()), frame, size));
             }
         }

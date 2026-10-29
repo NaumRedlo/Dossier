@@ -1919,6 +1919,11 @@ impl Main {
         let account = crate::duels::Account { server: self.settings.server.clone(), token: self.settings.token.clone(), device: self.settings.device.clone() };
         let offline = account.token.is_empty() || self.gallery;
         let wrap = |message: D| Message::Community(crate::community_screen::Message::Duels(message));
+        let running = self.duels.running();
+        if self.duels.me.is_some() && !self.gallery && running != self.settings.duel_running {
+            self.settings.duel_running = running;
+            let _ = self.settings.save();
+        }
         let mut tasks: Vec<Task<Message>> = Vec::new();
         for effect in effects {
             let account = account.clone();
@@ -6049,7 +6054,19 @@ impl Main {
         ]
     }
 
+    fn in_match(&self) -> bool {
+        if self.duels.me.is_some() { self.duels.running().is_some() } else { self.settings.duel_running.is_some() }
+    }
+
     fn sided<'a>(&'a self, entries: Vec<crate::sidebar::Entry<Message>>, body: Element<'a, Message>, scale: f32) -> Element<'a, Message> {
+        self.sided_unless(entries, body, scale, false)
+    }
+
+    fn sided_unless<'a>(&'a self, entries: Vec<crate::sidebar::Entry<Message>>, body: Element<'a, Message>, scale: f32, tucked: bool) -> Element<'a, Message> {
+        if tucked {
+            let workspace = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), ui::scaled(body, scale)].width(Length::Fill).height(Length::Fill);
+            return crate::glide::brim(workspace).header().into();
+        }
         let entries = crate::sidebar::arranged(entries, &self.settings.side_order);
         let open = self.side_open.interpolate(0.0, 1.0, self.now);
         let shrink = ((self.width - crate::sidebar::width_at(open)) / (self.width - crate::sidebar::NARROW)).clamp(0.3, 1.0);
@@ -6191,7 +6208,7 @@ impl Main {
             _ => None,
         };
         let body: Element<'_, Message> = crate::community_screen::view(&ground).map(Message::Community);
-        let page = self.sided(self.community_entries(), body, COMMUNITY_SCALE);
+        let page = self.sided_unless(self.community_entries(), body, COMMUNITY_SCALE, self.in_match());
         let stage = stage.unwrap_or_else(|| Space::new().width(Length::Fill).height(Length::Fill).into());
         Some(stack![page, stage].width(Length::Fill).height(Length::Fill).into())
     }

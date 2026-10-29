@@ -12,7 +12,10 @@ pub const SIDE_B: Color = color!(0x5b9bf0);
 pub(crate) const WON: Color = theme::GRADE_A;
 pub(crate) const LOST: Color = color!(0xf06868);
 pub(crate) const CLOCK: Color = theme::GRADE_S;
-const LIVE_WIDTH: f32 = 420.0;
+const LIVE_WIDTH: f32 = 360.0;
+const WAYS_WIDTH: f32 = 340.0;
+const ROOMY: f32 = 1400.0;
+const PAGE_WIDTH: f32 = 1480.0;
 
 #[derive(Debug, Clone, Default)]
 pub struct State {
@@ -672,6 +675,11 @@ impl State {
         }
     }
 
+    pub fn running(&self) -> Option<String> {
+        let opened = self.shown().filter(|duel| phase_of(&duel.state) != Phase::Result && !matches!(duel.state.as_str(), "INVITED" | "MATCH_OFFERED"));
+        self.current().filter(|_| self.stage() == Stage::Busy).or(opened).map(|duel| duel.id.clone())
+    }
+
     pub fn opponent<'a>(&self, duel: &'a Duel) -> Option<&'a crate::duels::Participant> {
         duel.participants.iter().find(|person| Some(person.player) != self.player && self.player.is_some())
     }
@@ -730,8 +738,6 @@ pub(crate) fn bold<'a, M: 'a>(said: String, size: f32, colour: Color) -> Element
 }
 
 const FACES: [Color; 8] = [color!(0x4f72c4), color!(0x2f8a8a), color!(0xa04878), color!(0xb0682c), color!(0x7a5ac8), color!(0x4a8a3a), color!(0x8a6a2a), color!(0xc0504a)];
-const NOTE_ROOM: f32 = 140.0;
-const WATCH_WIDTH: f32 = 46.0;
 pub(crate) const ROW: Color = Color::from_rgba(0.085, 0.078, 0.082, 0.88);
 pub(crate) const OUTLINE: Color = Color { a: 0.45, ..FAINT };
 
@@ -887,13 +893,11 @@ pub(crate) fn standing<'a>(w: &Words, me: Option<&Me>) -> Element<'a, Message> {
         });
         let line = row(marks.collect::<Vec<Element<'a, Message>>>()).spacing(6);
         return column![
-            words(w.t("duels-rating-hidden"), 15.0, FAINT),
-            bold("?".to_owned(), 96.0, INK),
-            container(column![
-                row![strong(w.t("duels-calibration"), 17.0, INK), Space::new().width(Length::Fill), strong(w.with("duels-calibration-of", &[("played", filled.to_string()), ("needed", me.rating.needed.to_string())]), 16.0, MUTED)].align_y(Alignment::Center),
-                line,
-            ].spacing(14)).padding(20).max_width(560.0).style(theme::slab),
-        ].spacing(12).into();
+            words(w.t("duels-calibration"), 15.0, FAINT),
+            row![bold(filled.to_string(), 96.0, INK), container(strong(w.with("duels-calibration-out-of", &[("needed", me.rating.needed.to_string())]), 24.0, MUTED)).padding(Padding { bottom: 16.0, ..Padding::ZERO })].spacing(16).align_y(Alignment::End),
+            line,
+            words(w.t("duels-calibration-note"), 14.0, FAINT),
+        ].spacing(14).into();
     }
     let rating = me.rating.rating.map(|value| w.lang().group(value.max(0) as u64)).unwrap_or_default();
     let spread = me.rating.rd.map(|rd| format!("± {rd}")).unwrap_or_default();
@@ -937,44 +941,67 @@ fn ago(w: &Words, seconds: Option<i64>) -> String {
     }
 }
 
+fn watch_button<'a>(duel: &Running) -> Element<'a, Message> {
+    let inside = row![glyph(Icon::Eye, 14.0, MUTED), words(duel.watching.to_string(), 13.0, MUTED)].spacing(5).align_y(Alignment::Center);
+    iced::widget::button(container(inside).center_y(28.0)).padding([0, 8]).style(|_, status| {
+        let lit = matches!(status, iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed);
+        iced::widget::button::Style {
+            background: Some(iced::Background::Color(if lit { ROW } else { Color::TRANSPARENT })),
+            text_color: INK,
+            border: iced::Border { radius: theme::CONTROL_RADIUS.into(), ..iced::Border::default() },
+            ..iced::widget::button::Style::default()
+        }
+    }).on_press(Message::Watch(duel.id.clone())).into()
+}
+
 fn live_panel<'a>(w: &Words, live: &Live) -> Element<'a, Message> {
     let header = row![
-        strong(w.t("duels-running"), 20.0, INK),
+        strong(w.t("duels-running"), 17.0, INK),
         Space::new().width(Length::Fill),
         container(Space::new().width(8).height(8)).style(|_| container::Style { background: Some(iced::Background::Color(LOST)), border: iced::Border { radius: 4.0.into(), ..iced::Border::default() }, ..container::Style::default() }),
         words(live.running.len().to_string(), 14.0, FAINT),
     ].spacing(6).align_y(Alignment::Center);
-    let mut list = column![header].spacing(10);
+    let mut list = column![header].spacing(12);
     if live.running.is_empty() {
-        list = list.push(words(w.t("duels-running-none"), 15.0, FAINT));
+        list = list.push(words(w.t("duels-running-none"), 14.0, FAINT));
     }
     for duel in live.running.iter().take(6) {
         let note = duel.title.clone().filter(|title| !title.is_empty()).or_else(|| duel.slot.clone()).unwrap_or_else(|| w.t("duels-drafting"));
-        let watch = outlined_wide(container(row![glyph(Icon::Eye, 15.0, INK), words(duel.watching.to_string(), 14.0, INK)].spacing(6).align_y(Alignment::Center)).center_x(WATCH_WIDTH).center_y(theme::CONTROL_HEIGHT - 2.0).into(), Some(Message::Watch(duel.id.clone())));
-        let line = row![
-            container(pair(duel, 32.0)).width(56),
-            column![names(w, duel, 15.0), words(ui::fitted(&note, theme::SANS, 13.0, NOTE_ROOM), 13.0, FAINT)].spacing(2).width(Length::Fill),
-            bold(format!("{}:{}", duel.wins.a, duel.wins.b), 17.0, INK),
-            watch,
-        ].spacing(12).align_y(Alignment::Center);
-        list = list.push(container(line).padding(Padding { top: 10.0, right: 12.0, bottom: 10.0, left: 12.0 }).clip(true).style(|_| container::Style {
-            background: Some(iced::Background::Color(ROW)),
-            border: iced::Border { radius: 12.0.into(), ..iced::Border::default() },
-            ..container::Style::default()
-        }));
+        list = list.push(row![
+            container(pair(duel, 26.0)).width(46),
+            column![names(w, duel, 14.0), ui::marquee(vec![ui::piece(note, theme::SANS, 12.0, FAINT)])].spacing(2).width(Length::Fill),
+            bold(format!("{}:{}", duel.wins.a, duel.wins.b), 15.0, INK),
+            watch_button(duel),
+        ].spacing(10).align_y(Alignment::Center));
     }
-    list = list.push(Space::new().height(14)).push(strong(w.t("duels-finished"), 20.0, INK));
+    list = list.push(Space::new().height(10)).push(strong(w.t("duels-finished"), 17.0, INK));
     if live.finished.is_empty() {
-        list = list.push(words(w.t("duels-finished-none"), 15.0, FAINT));
+        list = list.push(words(w.t("duels-finished-none"), 14.0, FAINT));
     }
     for duel in live.finished.iter().take(6) {
         list = list.push(row![
-            container(names(w, duel, 15.0)).width(Length::Fill),
-            bold(format!("{}:{}", duel.wins.a, duel.wins.b), 16.0, INK),
-            container(words(ago(w, duel.seconds_ago), 13.0, FAINT)).width(64).align_x(iced::alignment::Horizontal::Right),
-        ].spacing(12).align_y(Alignment::Center).height(40));
+            container(names(w, duel, 14.0)).width(Length::Fill),
+            bold(format!("{}:{}", duel.wins.a, duel.wins.b), 15.0, INK),
+            container(words(ago(w, duel.seconds_ago), 12.0, FAINT)).width(56).align_x(iced::alignment::Horizontal::Right),
+        ].spacing(10).align_y(Alignment::Center).height(30));
     }
     container(slab(list.into(), 22.0)).width(LIVE_WIDTH).height(Length::Fill).into()
+}
+
+fn ways<'a>(w: &Words, stacked: bool) -> Element<'a, Message> {
+    let tile = |mark: Icon, title: &str, note: &str| -> Element<'a, Message> {
+        container(column![glyph(mark, 20.0, MUTED), strong(w.t(title), 16.0, INK), words(w.t(note), 14.0, FAINT)].spacing(8))
+            .padding(18)
+            .width(Length::Fill)
+            .style(|_| container::Style { background: Some(iced::Background::Color(ROW)), border: iced::Border { radius: 14.0.into(), ..iced::Border::default() }, ..container::Style::default() })
+            .into()
+    };
+    let tiles = [
+        tile(Icon::Pool, "duels-way-pool", "duels-way-pool-note"),
+        tile(Icon::Ban, "duels-way-draft", "duels-way-draft-note"),
+        tile(Icon::Check, "duels-way-room", "duels-way-room-note"),
+    ];
+    if stacked { column(tiles).spacing(12).width(WAYS_WIDTH).into() } else { row(tiles).spacing(12).into() }
 }
 
 pub fn view<'a>(state: &State, w: &Words, now: i64, wide: f32) -> Element<'a, Message> {
@@ -985,12 +1012,15 @@ pub fn view<'a>(state: &State, w: &Words, now: i64, wide: f32) -> Element<'a, Me
     if let Some(running) = &state.watching {
         return crate::duel_watch::view(state, running, w, wide);
     }
-    let mut left = column![standing(w, state.me.as_ref()), action(w, state, now)].spacing(26).width(Length::Fill).padding(Padding { top: 24.0, ..Padding::ZERO });
+    let hero = container(column![standing(w, state.me.as_ref()), action(w, state, now)].spacing(28)).padding(32).width(Length::Fill).style(theme::slab);
+    let roomy = wide >= ROOMY;
+    let top: Element<'a, Message> = if roomy { row![hero, ways(w, true)].spacing(16).into() } else { column![hero, ways(w, false)].spacing(16).into() };
+    let mut left = column![top].spacing(16).width(Length::Fill);
     if let Some(why) = state.failed.as_ref().or(state.roles_failed.as_ref()) {
         left = left.push(row![glyph(Icon::Warn, 16.0, LOST), words(w.with("duels-failed", &[("reason", why.clone())]), 14.0, MUTED)].spacing(8).align_y(Alignment::Center));
     }
-    let page = row![left, live_panel(w, &state.live)].spacing(28).height(Length::Fill);
-    container(page).padding(Padding { top: 8.0, right: 40.0, bottom: 28.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into()
+    let page = container(row![left, live_panel(w, &state.live)].spacing(28).height(Length::Fill)).max_width(PAGE_WIDTH);
+    container(page).padding(Padding { top: 8.0, right: 40.0, bottom: 28.0, left: 40.0 }).center_x(Length::Fill).height(Length::Fill).into()
 }
 
 #[cfg(test)]
@@ -1009,6 +1039,21 @@ mod tests {
             deadlines: vec![Deadline { kind: "pair_confirm".into(), at: Some("2026-10-23T12:00:30Z".into()) }],
             ..Duel::default()
         }
+    }
+
+    #[test]
+    fn a_match_runs_from_acceptance_until_its_result() {
+        let mut state = State::default();
+        assert_eq!(state.running(), None);
+        state.mine = vec![duel("MATCH_OFFERED", &["accept"])];
+        assert_eq!(state.running(), None, "an offer is not a match yet");
+        state.mine = vec![duel("DRAFTING", &[])];
+        assert_eq!(state.running().as_deref(), Some("d"));
+        state.mine.clear();
+        state.duel = Some(duel("PLAYING", &[]));
+        assert_eq!(state.running().as_deref(), Some("d"), "an opened duel in play counts after a restart too");
+        state.duel = Some(duel("COMPLETED", &[]));
+        assert_eq!(state.running(), None);
     }
 
     #[test]

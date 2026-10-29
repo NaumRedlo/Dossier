@@ -1356,9 +1356,16 @@ witness-launch-failed = Could not start Witness: { $reason }
 
 community-duels = Duels
 duels-rating = Rating
-duels-rating-hidden = Rating opens after calibration
 duels-calibration = Calibration
 duels-calibration-of = { $played } of { $needed }
+duels-calibration-out-of = of { $needed }
+duels-calibration-note = Your rating opens after five rated BO5 series. Friendly duels and technical wins do not count towards calibration.
+duels-way-pool = A pool of nine maps
+duels-way-pool-note = Each map's difficulty is chosen for both players' level.
+duels-way-draft = Bans and picks
+duels-way-draft-note = Each player bans two maps, then you pick in turns. At 2:2 the TB decides.
+duels-way-room = A room in osu!
+duels-way-room-note = The bot opens a room in osu!stable and scores the maps from the API.
 duels-find = Find an opponent
 duels-searching = Looking for an opponent
 duels-searching-range = Opponent rated close to you

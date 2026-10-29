@@ -1398,9 +1398,16 @@ witness-launch-failed = Не удалось запустить Witness: { $reaso
 
 community-duels = Дуэли
 duels-rating = Рейтинг
-duels-rating-hidden = Рейтинг откроется после калибровки
 duels-calibration = Калибровка
 duels-calibration-of = { $played } из { $needed }
+duels-calibration-out-of = из { $needed }
+duels-calibration-note = Рейтинг откроется после пяти рейтинговых серий BO5. Товарищеские дуэли и технические победы в калибровку не идут.
+duels-way-pool = Пул из девяти карт
+duels-way-pool-note = Сложность каждой карты подбирается под уровень обоих игроков.
+duels-way-draft = Баны и выборы
+duels-way-draft-note = Каждый банит по две карты, затем вы по очереди выбираете. При 2:2 играется TB.
+duels-way-room = Комната в osu!
+duels-way-room-note = Бот создаёт комнату в osu!stable и засчитывает карты по данным API.
 duels-find = Найти соперника
 duels-searching = Ищем соперника
 duels-searching-range = Рейтинг соперника рядом с вашим

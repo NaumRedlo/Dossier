@@ -107,6 +107,15 @@ pub struct Map {
     pub mods: Vec<String>,
     pub revision: Option<String>,
     pub ranked_status: Option<String>,
+    pub tags: Option<Tags>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct Tags {
+    pub tournaments: Vec<String>,
+    pub stages: Vec<String>,
+    pub slots: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

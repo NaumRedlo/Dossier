@@ -3258,6 +3258,7 @@ impl Main {
                         }
                         if self.osu_card.is_none() {
                             self.osu_card = crate::osu_profile::load();
+                            self.desk.supporter = self.osu_card.as_ref().is_some_and(|card| card.is_supporter);
                             self.remerge();
                             self.dress_staged_you();
                         }
@@ -3813,6 +3814,7 @@ impl Main {
             Message::NewsTick => self.refresh_news(false),
             Message::OsuProfile(Ok(card)) => {
                 crate::osu_profile::save(&card);
+                self.desk.supporter = card.is_supporter;
                 self.osu_card = Some(card);
                 self.remerge();
                 self.dress_staged_you();

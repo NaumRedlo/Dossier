@@ -1929,7 +1929,7 @@ desk-batches-all = Наборы балансировщиков
 desk-batches-hint = Наборы, которые ревьюеры добавили для обучения Kamerton.
 desk-batches-unknown = автор неизвестен
 desk-batches-excluded = исключено { $count }
-desk-batches-none = Наборов пока нет.
+desk-batches-none = Наборов пока нет. Добавьте набор карт, и он появится здесь.
 desk-batches-by = Добавил { $name }, { $when }
 desk-batches-rename-title = Название и год
 desk-batches-rename = Переименовать
@@ -1959,6 +1959,13 @@ desk-tier-exemplary = Образцовая
 desk-tier-fits = Подходит
 desk-tier-borderline = Пограничная
 desk-tier-borderline-hint = Укажите дополнительный слот: Kamerton учит пограничную карту вместе с ним.
+desk-tags = Теги набора
+desk-open-site = Открыть на сайте osu!
+desk-open-game = Открыть в osu! через osu!direct
+desk-tier-explained =
+    Образцовая: эталон слота. Kamerton учится на ней в первую очередь, в каталоге она идёт первой.
+    Подходит: обычная карта этого слота.
+    Пограничная: подходит, но заметно тянет к другому слоту. Укажите его как дополнительный, и Kamerton будет учить карту вместе с ним.
 desk-marks = Что проверяет (до трёх)
 desk-mark-jumps = Дальние прыжки
 desk-mark-turns = Смена направления

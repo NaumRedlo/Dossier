@@ -1885,7 +1885,7 @@ desk-batches-all = Reviewers' batches
 desk-batches-hint = Batches reviewers added to train Kamerton.
 desk-batches-unknown = unknown author
 desk-batches-excluded = { $count } excluded
-desk-batches-none = No batches yet.
+desk-batches-none = No batches yet. Add a map batch and it will appear here.
 desk-batches-by = Added by { $name }, { $when }
 desk-batches-rename-title = Name and year
 desk-batches-rename = Rename
@@ -1915,6 +1915,13 @@ desk-tier-exemplary = Exemplary
 desk-tier-fits = Fits
 desk-tier-borderline = Borderline
 desk-tier-borderline-hint = Choose a secondary slot: Kamerton learns a borderline map together with it.
+desk-tags = Set tags
+desk-open-site = Open on the osu! website
+desk-open-game = Open in osu! through osu!direct
+desk-tier-explained =
+    Exemplary: a model map for the slot. Kamerton learns from it first, and the catalogue lists it first.
+    Fits: an ordinary map for this slot.
+    Borderline: fits, but leans towards another slot. Choose it as the secondary slot, and Kamerton will learn the map together with it.
 desk-marks = What it tests (up to three)
 desk-mark-jumps = Wide jumps
 desk-mark-turns = Sharp turns

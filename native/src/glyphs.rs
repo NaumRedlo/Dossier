@@ -54,6 +54,7 @@ pub enum Icon {
     Scale,
     Volume,
     Download,
+    Help,
 }
 
 fn drawn(icon: Icon) -> &'static [u8] {
@@ -109,6 +110,7 @@ fn drawn(icon: Icon) -> &'static [u8] {
         Icon::Scale => include_bytes!("../assets/icons/scale.svg"),
         Icon::Volume => include_bytes!("../assets/icons/volume-2.svg"),
         Icon::Download => include_bytes!("../assets/icons/download.svg"),
+        Icon::Help => include_bytes!("../assets/icons/circle-question-mark.svg"),
     }
 }
 
@@ -135,7 +137,7 @@ mod tests {
 
     #[test]
     fn every_icon_is_a_stroked_svg_from_the_set() {
-        for icon in [Icon::Chevron, Icon::Target, Icon::Keys, Icon::Chain, Icon::Play, Icon::Star, Icon::Clock, Icon::Heart, Icon::Trophy, Icon::Chart, Icon::News, Icon::Send, Icon::Gear, Icon::Calendar, Icon::Flame, Icon::Swords, Icon::External, Icon::Compare, Icon::Up, Icon::Down, Icon::Search, Icon::Film, Icon::Flag, Icon::Metronome, Icon::Person, Icon::Mapper, Icon::Chat, Icon::Circle, Icon::Refresh, Icon::Check, Icon::Warn, Icon::Right, Icon::Plus, Icon::Close, Icon::Pool, Icon::Copy, Icon::File, Icon::Shapes, Icon::Medal, Icon::Bell, Icon::Undo, Icon::Redo, Icon::Link, Icon::Sliders, Icon::People, Icon::Globe, Icon::Ban, Icon::Eye, Icon::Scale, Icon::Volume, Icon::Download] {
+        for icon in [Icon::Chevron, Icon::Target, Icon::Keys, Icon::Chain, Icon::Play, Icon::Star, Icon::Clock, Icon::Heart, Icon::Trophy, Icon::Chart, Icon::News, Icon::Send, Icon::Gear, Icon::Calendar, Icon::Flame, Icon::Swords, Icon::External, Icon::Compare, Icon::Up, Icon::Down, Icon::Search, Icon::Film, Icon::Flag, Icon::Metronome, Icon::Person, Icon::Mapper, Icon::Chat, Icon::Circle, Icon::Refresh, Icon::Check, Icon::Warn, Icon::Right, Icon::Plus, Icon::Close, Icon::Pool, Icon::Copy, Icon::File, Icon::Shapes, Icon::Medal, Icon::Bell, Icon::Undo, Icon::Redo, Icon::Link, Icon::Sliders, Icon::People, Icon::Globe, Icon::Ban, Icon::Eye, Icon::Scale, Icon::Volume, Icon::Download, Icon::Help] {
             let said = std::str::from_utf8(drawn(icon)).unwrap();
             assert!(said.contains("<svg") && said.contains("stroke=\"currentColor\""), "{icon:?}");
         }

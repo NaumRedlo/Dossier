@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::duels::{call, Account, Failure, Seat, Wins};
+use crate::duels::{call, call_within, Account, Failure, Seat, Wins};
 
 pub mod details;
 
@@ -14,6 +14,7 @@ pub const OWNER: &str = "OWNER";
 pub const GRANTED: [&str; 3] = [REVIEWER, PUBLISHER, OPERATOR];
 pub const SLOTS: [&str; 9] = ["NM1", "NM2", "NM3", "NM4", "HD2", "HR2", "DT1", "DT2", "TB"];
 pub const RESERVE: [&str; 18] = ["NM5", "NM6", "HD1", "HD3", "HD4", "HR1", "HR3", "HR4", "DT3", "DT4", "FM1", "FM2", "FM3", "FM4", "EZ1", "EZ2", "FL1", "FL2"];
+const READ_PATIENCE: std::time::Duration = std::time::Duration::from_secs(45);
 pub const BANDS: [f32; 10] = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5];
 pub const TOP: f32 = 10.0;
 pub const EXCLUDED: &str = "NONE";
@@ -38,6 +39,10 @@ pub struct PresenceUpdate {
     pub revision: Option<String>,
 }
 
+fn read<T: serde::de::DeserializeOwned>(account: &Account, path: &str) -> Result<T, Failure> {
+    call_within(account, reqwest::Method::GET, path, None, None, Some(READ_PATIENCE))
+}
+
 pub fn presence(account: &Account, section: Option<&str>, beatmap: Option<i64>) -> Result<PresenceUpdate, Failure> {
     let mut parts = section.unwrap_or_default().split(':');
     let page = parts.next().filter(|_| section.is_some());
@@ -47,7 +52,7 @@ pub fn presence(account: &Account, section: Option<&str>, beatmap: Option<i64>) 
 }
 
 pub fn inspect(account: &Account, beatmap: i64) -> Result<Task, Failure> {
-    call(account, reqwest::Method::GET, &format!("/render/admin/duels/maps/{beatmap}/inspect"), None, None)
+    read(account, &format!("/render/admin/duels/maps/{beatmap}/inspect"))
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -440,7 +445,7 @@ pub fn band_of(stars: f32) -> usize {
 }
 
 fn listed<T: serde::de::DeserializeOwned>(account: &Account, path: &str, key: &str) -> Result<Vec<T>, Failure> {
-    let found: Value = call(account, reqwest::Method::GET, path, None, None)?;
+    let found: Value = read(account, path)?;
     let inner = if key.is_empty() { found } else { found.get(key).cloned().unwrap_or(Value::Array(Vec::new())) };
     serde_json::from_value(inner).map_err(|why| Failure::Network(why.to_string()))
 }
@@ -449,7 +454,7 @@ pub fn load(account: &Account, roles: &[String]) -> Result<Desk, Failure> {
     let mut desk = Desk::default();
     if allows(roles, REVIEWER) {
         desk.tasks = listed(account, "/render/admin/duels/queue", "tasks")?;
-        desk.coverage = Some(call(account, reqwest::Method::GET, "/render/admin/duels/catalog", None, None)?);
+        desk.coverage = Some(read(account, "/render/admin/duels/catalog")?);
         desk.cells = listed(account, "/render/admin/duels/corpus", "cells")?;
     }
     if allows(roles, REVIEWER) || allows(roles, PUBLISHER) {

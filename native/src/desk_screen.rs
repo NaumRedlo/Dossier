@@ -3201,12 +3201,12 @@ mod tests {
     fn catalogue_presence_tracks_cells_and_navigation_without_changing_duel_slots() {
         let mut state = State::default();
         state.tab = Tab::Catalog;
-        state.band = Some(("FM4".into(), 9));
-        assert_eq!(state.presence_context(), ("catalog:FM4:9".into(), None));
+        state.band = Some(("FM3".into(), 9));
+        assert_eq!(state.presence_context(), ("catalog:FM3:9".into(), None));
         let slots = state.catalog_slots();
-        assert_eq!(slots.len(), 23);
-        for slot in ["HD4", "HR4", "DT4", "FM4"] { assert!(slots.contains(&slot.to_owned())); }
-        for slot in ["EZ1", "FL1"] { assert!(!slots.contains(&slot.to_owned())); }
+        assert_eq!(slots.len(), 22);
+        for slot in ["HD4", "HR4", "DT4", "FM3"] { assert!(slots.contains(&slot.to_owned())); }
+        for slot in ["FM4", "EZ1", "FL1"] { assert!(!slots.contains(&slot.to_owned())); }
         assert_eq!(desk::SLOTS.len(), 9);
         state.tab = Tab::Model;
         assert_eq!(state.presence_context(), ("model".into(), None));
@@ -3433,7 +3433,8 @@ mod tests {
     fn a_slot_without_a_name_shows_only_its_tag() {
         let w = Words::new(crate::lang::Lang::Ru);
         assert_eq!(skill(&w, "NM5"), "Скорость");
-        assert_eq!(skill(&w, "FM4"), "Фримод");
+        assert_eq!(skill(&w, "FM2"), "Пресижн и чтение во фримоде");
+        assert_eq!(skill(&w, "FM4"), "");
         assert_eq!(skill(&w, "EZ1"), "");
         assert_eq!(skill(&w, "NM9"), "");
         assert_eq!(feature(&w, "no.such_path"), "no.such_path");
@@ -3484,18 +3485,18 @@ mod tests {
         let w = Words::new(crate::lang::Lang::En);
         let mut state = State::default();
         let map = desk::CorpusMap { beatmap_id: 7, verified: true, label: "NM1".into(), ..desk::CorpusMap::default() };
-        let cell = Cell { corpus: "own-v1".into(), year: 2024, stage: "Cup".into(), slot: "FM4".into(), maps: vec![map], ..Cell::default() };
+        let cell = Cell { corpus: "own-v1".into(), year: 2024, stage: "Cup".into(), slot: "FM3".into(), maps: vec![map], ..Cell::default() };
         state.desk.cells.push(cell.clone());
         assert!(state.next_map().is_none());
         state.update(Message::Revisit(cell, 7), &w);
-        let effects = state.update(Message::MapLabel("FM4".into()), &w);
-        assert!(matches!(&effects[0], Effect::Post(Post::Label { beatmap: Some(7), label, .. }) if label == "FM4"));
+        let effects = state.update(Message::MapLabel("FM3".into()), &w);
+        assert!(matches!(&effects[0], Effect::Post(Post::Label { beatmap: Some(7), label, .. }) if label == "FM3"));
         assert!(state.update(Message::MapLabel("DT2".into()), &w).is_empty());
         state.update(Message::Posted(Err("offline".into())), &w);
         assert_eq!(state.next_map().unwrap().1.label, "NM1");
-        state.update(Message::MapLabel("FM4".into()), &w);
+        state.update(Message::MapLabel("FM3".into()), &w);
         state.update(Message::Posted(Ok(())), &w);
-        assert_eq!(state.desk.cells[0].maps[0].label, "FM4");
+        assert_eq!(state.desk.cells[0].maps[0].label, "FM3");
         assert!(state.next_map().is_none());
     }
 
@@ -3510,8 +3511,8 @@ mod tests {
         assert!(state.inspected.is_none());
         let task = Task { kind: "review".into(), reason: "manual".into(), slot: Some("NM1".into()), map: desk::Map { beatmap_id: 8, ..Default::default() }, ..Default::default() };
         state.update(Message::Inspected(8, Ok(task)), &w);
-        let effects = state.update(Message::Decide("MOVE", Some("FM4".into())), &w);
-        assert!(matches!(&effects[0], Effect::Post(Post::Review { beatmap: 8, decision: "MOVE", slot: Some(slot), .. }) if slot == "FM4"));
+        let effects = state.update(Message::Decide("MOVE", Some("FM3".into())), &w);
+        assert!(matches!(&effects[0], Effect::Post(Post::Review { beatmap: 8, decision: "MOVE", slot: Some(slot), .. }) if slot == "FM3"));
     }
 
     #[test]

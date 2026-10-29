@@ -1,5 +1,3 @@
-//! Analytical ScoreV1 hold combo. Tick phase follows each grab, in map time.
-//! Client update scheduling is not reconstructed; see the corpus limitations.
 use super::{
     judge::{Combo, OrderedEvent, ResultKind},
     stable::{TraceEvent, TraceKind},
@@ -153,8 +151,6 @@ impl Builder {
     }
 
     pub(super) fn finish(mut self, events: &[OrderedEvent]) -> Option<StableCombo> {
-        // Never expand ticks into per-tick allocations, even for malformed maps
-        // with years-long holds. Values outside Combo's range stay unavailable.
         let total: u64 = self.lanes.iter().map(|l| l.total).sum();
         if !self.valid
             || self.active.iter().any(Option::is_some)
@@ -182,7 +178,6 @@ impl Builder {
         for action in self.actions {
             c.time = action.time;
             let earned = combo.ticks_at(c.time) + c.added;
-            // Ticks at the boundary precede the input/result at that instant.
             c.maximum = c.maximum.max(earned - c.reset_at);
             if action.add {
                 c.added += 1;

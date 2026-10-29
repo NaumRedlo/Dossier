@@ -1,6 +1,3 @@
-//! A bounded, diagnostic-only refinement of independent tail rounding.
-//! One exported input frame gets one time displacement for all its releases.
-//! This does not reconstruct original timing, note lock, or update scheduling.
 use dossier_sim::mania::judge::{Event, LazerRules, Part, ResultKind as R};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -24,10 +21,6 @@ impl Compatibility {
     }
 }
 
-/// `frames` must come from a lazer replay already validated by Playback.
-/// Distinct frames with equal rounded timestamps are kept distinct. If the same
-/// column releases twice at that timestamp, Event lacks enough provenance to
-/// attribute its release safely, so return unknown instead of merging frames.
 pub fn audit(
     events: &[Event],
     rules: LazerRules,
@@ -58,7 +51,6 @@ pub fn audit(
     }
     let mut groups: BTreeMap<usize, Vec<&Event>> = BTreeMap::new();
     for event in events {
-        // Keep the independent audit's scope: uncapped successful tails only.
         let Some(offset) = event.offset_ms else {
             continue;
         };
@@ -68,7 +60,6 @@ pub fn audit(
         {
             continue;
         }
-        // Constant-grade tails do not affect any candidate in the ±0.5 ms range.
         if [-0.5, 0.5]
             .into_iter()
             .all(|d| rules.result_for((offset + d) / 1.5) == Some(event.result))
@@ -87,9 +78,6 @@ pub fn audit(
     reachable(&choices, target, 50_000)
 }
 
-/// Classifiers are constant between grade boundaries. Check those boundaries
-/// and interval midpoints, including zero. Endpoints are deliberately inclusive:
-/// this remains an optimistic envelope of the export rounding uncertainty.
 fn options(group: &[&Event], rules: LazerRules) -> Vec<Change> {
     let mut cuts = vec![-0.5, 0.0, 0.5];
     for event in group {
@@ -129,8 +117,6 @@ fn options(group: &[&Event], rules: LazerRules) -> Vec<Change> {
     choices.into_iter().collect()
 }
 
-/// Exact reachability within this limited model, with conservative suffix bounds
-/// and a hard resource cap. Exhausting the budget is unknown, never incompatible.
 fn reachable(choices: &[Vec<Change>], target: Change, limit: usize) -> Compatibility {
     let mut lower = vec![[0; 6]; choices.len() + 1];
     let mut upper = lower.clone();
@@ -208,7 +194,6 @@ mod tests {
             audit(&events, rules, [(1900, 3), (2000, 0)], expected, observed),
             C::Incompatible
         );
-        // Either one may improve, so shared timing does not reject all changes.
         assert_eq!(
             audit(
                 &events,
@@ -225,7 +210,6 @@ mod tests {
     fn distinct_frames_at_the_same_rounded_time_are_not_merged() {
         let rules = LazerRules::native_no_mod(8.0).unwrap();
         let events = [tail(0, -25.0, R::Great), tail(1, 25.0, R::Great)];
-        // The late tail's negative shift precedes the early tail's positive shift.
         assert_eq!(
             audit(
                 &events,
@@ -297,7 +281,6 @@ mod tests {
             C::Compatible
         );
         let rules = LazerRules::native_no_mod(8.0).unwrap();
-        // Both are Perfect only in the interior [-0.25, 0.25].
         let a = tail(0, 24.5, R::Perfect);
         let b = tail(1, -24.5, R::Perfect);
         let opts = options(&[&a, &b], rules);

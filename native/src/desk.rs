@@ -594,7 +594,6 @@ pub struct Job {
     pub error: Option<String>,
 }
 
-/// Starts a training run and gives back its job, or `None` from a server that does not hand out jobs yet.
 pub fn train(account: &Account, reason: &str) -> Result<Option<String>, Failure> {
     let said: Value = call(account, reqwest::Method::POST, "/render/admin/duels/models/train", Some(json!({ "reason": reason })), None)?;
     Ok(said.get("job").and_then(Value::as_str).map(str::to_owned))

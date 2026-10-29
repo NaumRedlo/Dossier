@@ -1,12 +1,8 @@
-//! Experimental native lazer scoring, upstream revision `LazerRules::UPSTREAM`.
-//! HP/failure stopping, stable and mod score multipliers are not modelled here.
 use super::judge::{Combo, Event, Part, ResultKind as R};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LazerScore {
-    /// Fraction in [0, 1], not a percentage. Before the first result this is 1.
     pub accuracy: f64,
-    /// Normalised score before mod multipliers; excludes any failure policy.
     pub total_score_without_mods: u64,
 }
 impl Default for LazerScore {
@@ -28,8 +24,6 @@ pub(super) struct Accumulator {
 }
 impl Accumulator {
     pub(super) fn new(total: usize) -> Self {
-        // Simulate the all-Perfect denominator in judgement order, retaining
-        // upstream's sequential floating-point sum rather than regrouping it.
         let maximum_combo_portion = (1..=total).map(|n| 300.0 * combo_factor(n as u32)).sum();
         Self {
             total,
@@ -41,7 +35,6 @@ impl Accumulator {
         }
     }
     pub(super) fn apply(&mut self, event: &Event, combo: Combo) -> LazerScore {
-        // ComboBreak changes future combo weighting, not accuracy or score now.
         if event.part == Part::HoldBreak {
             return self.snapshot;
         }

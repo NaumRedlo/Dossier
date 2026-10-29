@@ -1,5 +1,3 @@
-//! Diagnostic ScoreV1 formula, not a production stable score implementation.
-//! Reference: osu!wiki Gameplay/Score/ScoreV1/osu!mania (retrieved 2026-10-16).
 use dossier_sim::mania::{
     judge::{Event, Part, ResultKind as R},
     stable::{TraceEvent, TraceKind},
@@ -46,8 +44,6 @@ fn award(bonus: u8, result: R, scale: f64) -> (u8, f64) {
     )
 }
 
-/// Models the wiki formula on our current event order. No expected score enters
-/// this calculation; scheduler, body-break effects and mod scoring are unverified.
 fn score_no_mod(events: &[Event], objects: usize) -> Option<u64> {
     if !valid_events(events, objects) {
         return None;
@@ -82,9 +78,6 @@ fn merge<K: Ord>(states: &mut BTreeMap<K, Bounds>, key: K, value: Bounds) {
         .or_insert(value);
 }
 
-/// Optimistic score bounds over all equal-time grade permutations. Frame and
-/// column constraints are deliberately relaxed. Being inside the bounds is not
-/// evidence of a reachable score or the original client order.
 fn order_bounds(
     events: &[Event],
     objects: usize,

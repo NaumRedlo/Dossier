@@ -194,8 +194,6 @@ pub enum Effect {
 
 pub const ABOUT_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// A training run the desk waits for. The server names it by a job and says when it ends; an older server without jobs
-/// only shows it by a longer list of versions, so then the wait gives up after `TRAINING_WAIT`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Training {
     pub job: Option<String>,
@@ -1419,7 +1417,6 @@ fn add_failure(w: &Words, why: &str) -> String {
     }
 }
 
-/// What held-out maps the model would really have let into duels, apart from how it sorted them.
 fn admitted_line(w: &Words, report: &serde_json::Value) -> Option<String> {
     let admitted = report.pointer("/test/admitted")?;
     let number = |key: &str| admitted.pointer(key).and_then(serde_json::Value::as_u64).unwrap_or_default();

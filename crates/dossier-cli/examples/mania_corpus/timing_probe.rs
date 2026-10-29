@@ -1,4 +1,3 @@
-//! Counterfactual export-rounding audit. Witnesses are possibilities, not recovered input.
 use dossier_replay::ReplayFrame;
 use dossier_sim::mania::{
     judge::{Event, Judge, LazerRules, Part, ResultKind as R},
@@ -118,8 +117,6 @@ fn choices(group: &Group<'_>, rules: LazerRules) -> Vec<f64> {
     }
     cuts.sort_by(f64::total_cmp);
     cuts.dedup();
-    // Interior representatives round back to the stored timestamp, regardless
-    // of the encoder's tie rule. Boundary-only possibilities are not exhausted.
     let mut probes = vec![0.0];
     probes.extend(cuts.windows(2).map(|w| (w[0] + w[1]) / 2.0));
     let mut seen = BTreeSet::new();
@@ -143,8 +140,6 @@ fn choices(group: &Group<'_>, rules: LazerRules) -> Vec<f64> {
         .collect()
 }
 
-/// Fill unconstrained frames at equal timestamps with the closest-to-zero
-/// displacement that preserves all fixed choices and original frame order.
 fn ordered_offsets(frames: &[ReplayFrame], fixed: &BTreeMap<usize, f64>) -> Option<Vec<f64>> {
     let mut offsets = vec![0.0; frames.len()];
     let mut start = 0;
@@ -176,8 +171,6 @@ fn matches(judge: &Judge, counts: [u32; 6], combo: u32, score: u64) -> bool {
             .is_some_and(|s| s.total_score_without_mods == score)
 }
 
-/// Tests a finite set of timing hypotheses against all three recorded totals.
-/// Failure to find a witness is not proof that export rounding is impossible.
 pub fn audit(
     timeline: &Timeline,
     frames: &[ReplayFrame],

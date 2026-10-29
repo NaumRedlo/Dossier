@@ -1,4 +1,3 @@
-//! Explicitly supported replay modifiers. Failure, audio and scoring policies are separate.
 use dossier_replay::{bits, Replay, Setting};
 
 use super::Error;
@@ -58,8 +57,6 @@ impl ReplayOptions {
                     }
                 }
                 "AC" if !options.accuracy_challenge => {
-                    // All AC settings affect the failure condition, not note grades.
-                    // Preserve its presence so callers cannot imply fail/HP support.
                     options.accuracy_challenge = true;
                 }
                 _ => return Err(Error::UnsupportedMods),

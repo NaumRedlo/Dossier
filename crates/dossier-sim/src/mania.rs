@@ -1,4 +1,3 @@
-//! Native mania playback in beatmap milliseconds. Judgement and scoring are separate layers.
 pub mod judge;
 mod mods;
 pub mod scoring;
@@ -41,7 +40,6 @@ pub struct Note {
 #[derive(Debug, Clone)]
 struct Lane {
     notes: Vec<Note>,
-    // Prefix maxima allow seeking past expired notes without losing long holds.
     ends: Vec<f64>,
 }
 
@@ -107,8 +105,6 @@ impl Timeline {
             .get(column as usize)
             .map(|lane| lane.notes.as_slice())
     }
-    /// Only geometry: positions are signed distances from the judgement line,
-    /// in screen heights. Positive values approach the line; negative values passed it.
     pub fn visible_at(&self, time_ms: f64, approach_ms: f64) -> Result<Vec<VisibleNote>, Error> {
         if !time_ms.is_finite() || !approach_ms.is_finite() || approach_ms <= 0.0 {
             return Err(Error::InvalidView);
@@ -145,7 +141,6 @@ pub struct KeyEvent {
     pub time_ms: i64,
     pub column: u8,
     pub pressed: bool,
-    /// Original decoded replay frame; simultaneous column changes share it.
     pub frame_index: usize,
 }
 #[derive(Debug, Clone)]
@@ -155,9 +150,6 @@ pub struct InputTrack {
     events: Vec<KeyEvent>,
 }
 impl InputTrack {
-    /// Stable prefixes replays with up to two skip markers at (256, -500).
-    /// Their X is not a key mask. Remove only those known prefix markers;
-    /// retain original timestamps/indices and reject malformed gameplay frames.
     pub fn from_replay(replay: &Replay, columns: u8) -> Result<Self, Error> {
         let stable = replay.game_version < 30_000_000;
         let mut last_time = i64::MIN;
@@ -167,9 +159,6 @@ impl InputTrack {
                 if stable && *index < 2 && frame.x == 256.0 && frame.y == -500.0 {
                     return false;
                 }
-                // Legacy pre-roll may briefly run backwards while no key is down.
-                // Only redundant idle frames before the first press can be removed
-                // losslessly. Never sort frames or discard a gameplay transition.
                 if stable && !gameplay_started && frame.x == 0.0 && frame.time_ms < last_time {
                     return false;
                 }
@@ -180,7 +169,6 @@ impl InputTrack {
             columns,
         )
     }
-    /// In mania's legacy replay encoding X is the column bitmask, not `Keys`.
     pub fn new(frames: &[ReplayFrame], columns: u8) -> Result<Self, Error> {
         Self::from_frames(frames.iter().enumerate(), columns)
     }
@@ -233,7 +221,6 @@ impl InputTrack {
     pub fn events(&self) -> &[KeyEvent] {
         &self.events
     }
-    /// Last state at this timestamp wins; sampling is independent of seek direction.
     pub fn keys_at(&self, time_ms: f64) -> u32 {
         if !time_ms.is_finite() {
             return 0;
@@ -268,19 +255,16 @@ impl Playback {
         }
         Ok(())
     }
-    /// Select the supported native stable ScoreV1 windows from replay modifiers.
     pub fn stable_rules(&self, od: f64) -> Result<stable::StableRules, Error> {
         if !self.options.stable {
             return Err(Error::UnsupportedMods);
         }
         stable::StableRules::native_with_mods(od, self.clock_rate(), self.options.hard_rock)
     }
-    /// Explicit stable ScoreV1 policy; taps and combined hold judgements.
     pub fn judge_stable_with(&self, rules: stable::StableRules) -> Result<judge::Judge, Error> {
         self.check_stable_rules(rules)?;
         rules.judge(&self.timeline, &self.input)
     }
-    /// Optional diagnostic path with the same modifier guard as normal judging.
     pub fn trace_stable_with(
         &self,
         rules: stable::StableRules,
@@ -288,8 +272,6 @@ impl Playback {
         self.check_stable_rules(rules)?;
         rules.judge_with_trace(&self.timeline, &self.input)
     }
-    /// Opt-in analytical lazer rules. This does not establish replay fidelity,
-    /// nor choose rules for stable or older lazer replay versions automatically.
     pub fn judge_with(&self, rules: judge::LazerRules) -> Result<judge::Judge, Error> {
         if self.options.hard_rock {
             return Err(Error::UnsupportedMods);
@@ -299,23 +281,18 @@ impl Playback {
         }
         judge::Judge::new(&self.timeline, &self.input, rules)
     }
-    /// Windows in beatmap milliseconds for the selected experimental lazer policy.
     pub fn lazer_rules(&self, od: f64) -> Result<judge::LazerRules, Error> {
         if self.options.hard_rock {
             return Err(Error::UnsupportedMods);
         }
         judge::LazerRules::native_at_rate(od, self.clock_rate())
     }
-    /// Playback/audio clock rate. Map and input timestamps remain unchanged.
     pub fn clock_rate(&self) -> f64 {
         self.options.clock_rate
     }
-    /// Note grades are supported for AC; its failure condition is not simulated.
     pub fn has_accuracy_challenge(&self) -> bool {
         self.options.accuracy_challenge
     }
-    /// Native-map geometry/input. Accepts stable NoMod/HR/DT and lazer NoMod/DT/AC.
-    /// Conversion, other modifiers and AC failure handling are not implemented.
     pub fn new(map: &Beatmap, replay: &Replay) -> Result<Self, Error> {
         if replay.mode != GameMode::Mania {
             return Err(Error::WrongMode);

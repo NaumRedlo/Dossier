@@ -1,4 +1,3 @@
-//! Read-only mania corpus audit. Never replaces expected results with observations.
 #[path = "mania_corpus/frame_rounding.rs"]
 mod frame_rounding;
 #[path = "mania_corpus/stable_audit.rs"]
@@ -18,11 +17,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// An optimistic diagnostic, NOT reconstructed original judgements. LegacyScoreEncoder
-/// rounds input timestamps to integral milliseconds. A tail scales its windows by 1.5,
-/// so a rounded release can cross a grade boundary even on an integral map timestamp.
-/// Treat candidates independently (including simultaneous releases); compatibility
-/// alone cannot prove that these were the original grades or original input times.
 fn tail_rounding_audit(
     events: &[Event],
     rules: LazerRules,
@@ -33,8 +27,6 @@ fn tail_rounding_audit(
     let mut downgrades = [0i64; 5];
     let mut candidates = 0;
     for event in events {
-        // Exclude misses, broken/missed-head capped tails, and all head/tap events:
-        // their state/ordering uncertainty requires more than this boundary check.
         if event.part != Part::Tail || event.result as usize >= ResultKind::Meh as usize {
             continue;
         }
@@ -55,7 +47,6 @@ fn tail_rounding_audit(
         if let Some(other) = alternative {
             let from = event.result as usize;
             let to = other as usize;
-            // Windows are wider than the uncertainty, so at most one boundary is crossed.
             if from.abs_diff(to) != 1 {
                 continue;
             }
@@ -366,9 +357,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             judge.final_score()
                         );
                         println!("kind\ttime_ms\tcolumn\tobject\tstart_ms\tend_ms\tpart\tresult\toffset_ms\ttransition\thead_offset_ms\tbroken");
-                        // Input and result records share a schema. Object indices are zero-based;
-                        // columns are one-based for human inspection. No expected object grades
-                        // are inferred from the aggregate replay counts.
                         for edge in playback.input.events() {
                             println!(
                                 "{}\t{}\t{}\t\t\t\t\t\t\t\t\t",
@@ -603,7 +591,6 @@ mod tests {
 
     #[test]
     fn rounded_release_can_also_downgrade_a_grade() {
-        // OD 5 Perfect tail boundary = 19.5 * 1.5 = 29.25 ms.
         let rules = LazerRules::native_no_mod(5.0).unwrap();
         assert_eq!(
             tail_rounding_audit(

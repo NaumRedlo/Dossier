@@ -1,5 +1,3 @@
-//! Experimental native stable ScoreV1 policy (NoMod, HR, DT and HRDT).
-//! Source: osu!wiki Gameplay/Judgement/osu!mania. ScoreV2 is a separate, unsupported policy.
 use std::collections::BTreeSet;
 
 use super::{
@@ -14,8 +12,6 @@ pub struct StableRules {
     hard_rock: bool,
 }
 
-/// Diagnostic transitions, never extra scored judgements. These report the
-/// simulator's decisions, not recovered events from the original game client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraceKind {
     HeadPressed,
@@ -35,10 +31,8 @@ pub struct TraceEvent {
     pub column: u8,
     pub time_ms: f64,
     pub kind: TraceKind,
-    /// The originally accepted head offset; re-grabbing does not replace it.
     pub head_offset_ms: Option<f64>,
     pub broken: bool,
-    /// Original triggering input frame; None for analytical expiry.
     pub frame_index: Option<usize>,
 }
 
@@ -46,8 +40,6 @@ impl StableRules {
     pub fn native_no_mod(od: f64) -> Result<Self, Error> {
         Self::native_with_mods(od, 1.0, false)
     }
-    /// Apply DT/HR to raw windows before truncation (the official Classic
-    /// ScoreV1 policy). Input and map timestamps stay in beatmap milliseconds.
     pub fn native_with_mods(od: f64, clock_rate: f64, hard_rock: bool) -> Result<Self, Error> {
         if !od.is_finite() || !(0.0..=10.0).contains(&od) {
             return Err(Error::InvalidDifficulty);
@@ -77,7 +69,6 @@ impl StableRules {
     pub fn hard_rock(self) -> bool {
         self.hard_rock
     }
-    /// Integer beatmap-time thresholds, compared against rounded hit error.
     pub fn window(self, result: ResultKind) -> f64 {
         self.windows[result as usize]
     }
@@ -97,7 +88,6 @@ impl StableRules {
         .into_iter()
         .find(|kind| error <= self.window(*kind))
     }
-    /// ScoreV1 has a head constraint in addition to the combined error budget.
     pub fn hold_result_for(self, head_offset_ms: f64, tail_offset_ms: f64) -> Option<ResultKind> {
         if !head_offset_ms.is_finite() || !tail_offset_ms.is_finite() {
             return None;
@@ -120,8 +110,6 @@ impl StableRules {
         )
     }
     fn deadline(self, time_ms: f64, hold: bool) -> f64 {
-        // Stable's final tap millisecond is excluded; hold heads retain it.
-        // Independent stable parity fixtures document this asymmetry (see docs).
         let window = self.window(ResultKind::Ok) - if hold { 0.0 } else { 1.0 };
         let boundary = time_ms + window + 0.5;
         if window as u32 % 2 == 0 {
@@ -135,8 +123,6 @@ impl StableRules {
         self.judge_observing(timeline, input, &mut |_| {})
     }
 
-    /// Runs exactly the same judge while recording its state transitions.
-    /// Ordinary judging does not allocate or retain this diagnostic stream.
     pub fn judge_with_trace(
         self,
         timeline: &Timeline,
@@ -273,9 +259,6 @@ impl<'a> StableLane<'a> {
             let overheld = self.grabbed == Some(index);
             let result = if overheld {
                 self.grabbed = None;
-                // ScoreV1 overholding substitutes a Meh-sized release error.
-                // This yields Good/Ok/Meh from the stored head error, including
-                // re-grabbed holds. It is not a doubled release window.
                 self.states[index]
                     .head_offset
                     .map_or(ResultKind::Meh, |head| {
@@ -311,7 +294,6 @@ impl<'a> StableLane<'a> {
             self.advance(at, out, observer);
             self.input_order = Some(edge.frame_index);
             if !edge.pressed {
-                // Non-overlapping holds allow at most one grabbed body per lane.
                 if let Some(index) = self.grabbed.take() {
                     let note = self.notes[index];
                     let state = &mut self.states[index];
@@ -346,8 +328,6 @@ impl<'a> StableLane<'a> {
                 }
                 continue;
             }
-            // Re-grabbing a started (or previously early-hit) hold is recovery,
-            // not another head judgement. A broken body stays capped at Meh.
             let from = self
                 .notes
                 .partition_point(|note| note.start_ms <= at)
@@ -355,8 +335,6 @@ impl<'a> StableLane<'a> {
             let next_head = self.heads.range(from..).next().copied();
             if let Some(&index) = self.tails.range(from..).next() {
                 let note = self.notes[index];
-                // Once the tail has passed, a recoverable old hold must not
-                // steal an early press intended for the following note.
                 let following_head = next_head.is_some_and(|i| {
                     i > index && self.rules.result_for(at - self.notes[i].start_ms).is_some()
                 });

@@ -1,5 +1,3 @@
-//! Experimental native-map lazer judgement. See docs/mania-simulation.md.
-//! Uses analytical deadlines, not client update-frame scheduling; no stable score claims.
 use std::collections::BTreeSet;
 
 use super::scoring::{Accumulator, LazerScore};
@@ -20,7 +18,6 @@ pub enum ResultKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Part {
     Tap,
-    /// Stable ScoreV1 combines head and release into one judgement.
     Hold,
     Head,
     Tail,
@@ -34,12 +31,9 @@ pub struct Event {
     pub time_ms: f64,
     pub part: Part,
     pub result: ResultKind,
-    /// None for an automatic/forced judgement; signed for an actual input edge.
-    /// For a combined stable Hold, this is the release offset from the tail.
     pub offset_ms: Option<f64>,
 }
 
-/// Explicit version choice; never inferred for older lazer or stable replays.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LazerRules {
     windows: [f64; 6],
@@ -50,8 +44,6 @@ impl LazerRules {
     pub fn native_no_mod(od: f64) -> Result<Self, Error> {
         Self::native_at_rate(od, 1.0)
     }
-    /// Apply the clock multiplier before flooring, as ManiaHitWindows does.
-    /// Timestamps remain beatmap milliseconds; callers must not rescale them.
     pub fn native_at_rate(od: f64, clock_rate: f64) -> Result<Self, Error> {
         if !clock_rate.is_finite() || !(0.5..=2.0).contains(&clock_rate) {
             return Err(Error::InvalidClockRate);
@@ -59,8 +51,6 @@ impl LazerRules {
         if !od.is_finite() || !(0.0..=10.0).contains(&od) {
             return Err(Error::InvalidDifficulty);
         }
-        // Difficulty is stored as a float in lazer. Keep its interpolation order:
-        // algebraic simplification changes floor() at boundaries (notably OD 9).
         let od = f64::from(od as f32);
         let factor = (od - 5.0) / 5.0;
         Ok(Self {
@@ -130,8 +120,6 @@ pub struct Judge {
     score_prefixes: Option<Vec<LazerScore>>,
 }
 
-/// Experimental combo at a point in the judged event stream.
-/// `maximum` is the largest achieved streak so far, not the map's possible FC.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Combo {
     pub current: u32,
@@ -140,8 +128,6 @@ pub struct Combo {
 
 impl Combo {
     fn apply(&mut self, event: &Event) {
-        // HoldBreak maps to lazer's ComboBreak: it resets combo without adding
-        // a basic judgement. Successful heads and tails each add one.
         if event.part == Part::HoldBreak || event.result == ResultKind::Miss {
             self.current = 0;
         } else {
@@ -162,12 +148,6 @@ impl Judge {
         Self::judge_edges(timeline, rules, &edges)
     }
 
-    /// Diagnostic counterfactual for native lazer input, not recovered timing.
-    /// One offset per original frame, shared by all its column changes. Offsets
-    /// are limited to the inclusive ±0.5 ms export uncertainty envelope. Frames
-    /// (including unchanged masks) must retain their chronological order.
-    /// Neither the source replay nor ordinary judging is modified. Callers must
-    /// select the correct lazer rules/mod policy, as for `new`.
     pub fn with_frame_offsets(
         timeline: &Timeline,
         frames: &[ReplayFrame],
@@ -177,14 +157,12 @@ impl Judge {
         if offsets.len() != frames.len() {
             return Err(Error::InvalidFrameOffsets);
         }
-        // Reuse strict mask/time validation before converting any input.
         InputTrack::new(frames, timeline.columns())?;
         let mut edges = vec![Vec::new(); timeline.columns() as usize];
         let mut previous_mask = 0u32;
         let mut previous_time = f64::NEG_INFINITY;
         let mut order = 0;
         for (index, (frame, offset)) in frames.iter().zip(offsets).enumerate() {
-            // At 2^51 milliseconds, f64 can no longer preserve quarter-ms probes.
             let time = frame.time_ms as f64 + offset;
             if !offset.is_finite()
                 || offset.abs() > 0.5
@@ -214,9 +192,6 @@ impl Judge {
     ) -> Result<Self, Error> {
         let mut events = Vec::new();
         for (column, lane) in timeline.lanes.iter().enumerate() {
-            // Duplicate taps remain distinct objects. OrderedHitPolicy permits
-            // early presses on each, but at their shared start only the last is
-            // hittable. Overlaps involving holds still need a separate policy.
             for pair in lane.notes.windows(2) {
                 let duplicate_taps =
                     pair[1].start_ms == pair[0].start_ms && !pair[0].hold && !pair[1].hold;
@@ -228,8 +203,6 @@ impl Judge {
             }
             LaneJudge::new(&lane.notes, rules).run(&edges[column], &mut events);
         }
-        // Separate replay frames may share an exported millisecond. Preserve
-        // their input order, including all forced results from the same edge.
         events.sort_by(|a, b| {
             a.event
                 .time_ms
@@ -260,9 +233,6 @@ impl Judge {
         Ok(judge)
     }
     pub(super) fn from_events(mut events: Vec<OrderedEvent>) -> Self {
-        // Stable's experimental merge uses object order within one replay frame;
-        // distinct equal-time frames retain their input order. See the corpus
-        // report for the evidence and remaining scheduling limitations.
         events.sort_by(|a, b| {
             a.event
                 .time_ms
@@ -272,8 +242,6 @@ impl Judge {
         });
         let mut judge =
             Self::from_chronological_events(events.into_iter().map(|e| e.event).collect());
-        // Combined stable Hold grades omit head/body combo events. Only a
-        // tap-only map has a complete combo timeline in this event stream.
         if judge.events.iter().all(|event| event.part == Part::Tap) {
             let mut combo = Combo::default();
             judge.combo_prefixes = Some(
@@ -298,7 +266,6 @@ impl Judge {
                 count
             })
             .collect();
-        // Stable's combined Hold grades do not encode its combo timing.
         Self {
             events,
             prefixes,
@@ -320,15 +287,10 @@ impl Judge {
         end.checked_sub(1)
             .map_or(Counts::default(), |index| self.prefixes[index])
     }
-    /// Includes automatic judgements after replay EOF; use counts_at for partial plays.
     pub fn final_counts(&self) -> Counts {
         self.prefixes.last().copied().unwrap_or_default()
     }
 
-    /// Experimental combo, with stateless backward seek. Stable holds use an
-    /// analytical 100 ms tick clock, not original client frame scheduling.
-    /// Unrepresentable stable tick totals return None, not a truncated count.
-    /// Equal-time judgements retain the policy's event ordering.
     pub fn combo_at(&self, time_ms: f64) -> Option<Combo> {
         if let Some(combo) = &self.stable_combo {
             return Some(combo.at(time_ms));
@@ -343,13 +305,10 @@ impl Judge {
         Some(end.checked_sub(1).map_or(Combo::default(), |i| prefixes[i]))
     }
 
-    /// Includes automatic judgements after replay EOF; not a partial-play combo.
     pub fn final_combo(&self) -> Option<Combo> {
         self.combo_at(f64::INFINITY)
     }
 
-    /// Lazer accuracy and score without mod multipliers, limited to events at
-    /// this time. None for stable; NaN/before-first-event gives the initial state.
     pub fn score_at(&self, time_ms: f64) -> Option<LazerScore> {
         let prefixes = self.score_prefixes.as_ref()?;
         if time_ms.is_nan() {
@@ -362,7 +321,6 @@ impl Judge {
         )
     }
 
-    /// Includes post-EOF automatic results, not failure/partial-play stopping.
     pub fn final_score(&self) -> Option<LazerScore> {
         self.score_prefixes
             .as_ref()
@@ -379,7 +337,6 @@ struct State {
 }
 pub(super) struct OrderedEvent {
     pub(super) event: Event,
-    // None denotes an analytical deadline, before input at that exact instant.
     pub(super) input_order: Option<usize>,
 }
 struct LaneJudge<'a> {
@@ -397,7 +354,6 @@ impl<'a> LaneJudge<'a> {
     fn new(notes: &'a [Note], rules: LazerRules) -> Self {
         let mut deadlines = Vec::new();
         for (i, note) in notes.iter().enumerate() {
-            // Successful window is inclusive. Miss at the next representable instant.
             deadlines.push((
                 (note.start_ms + rules.window(ResultKind::Meh)).next_up(),
                 i,
@@ -530,7 +486,6 @@ impl<'a> LaneJudge<'a> {
                 self.tail(index, at, ResultKind::Miss, None, out);
             }
         }
-        // Previously hit hold heads are not in pending, but their unjudged tails can be forced.
         let earlier: Vec<_> = self
             .tails
             .iter()
@@ -543,12 +498,8 @@ impl<'a> LaneJudge<'a> {
     }
     fn press(&mut self, at: f64, out: &mut Vec<OrderedEvent>) {
         let started = self.notes.partition_point(|note| note.start_ms <= at);
-        // OrderedHitPolicy: a previous head cannot be hit once the next note starts.
         let from = started.saturating_sub(1);
         let candidate = self.pending.range(from..).next().copied();
-        // A judged head does not consume the key press, but its hold can be
-        // re-grabbed, including before the head's scheduled start. Stop at the
-        // first pending head: if it consumes this press, later notes never see it.
         for index in from..candidate.unwrap_or(self.notes.len()) {
             let note = self.notes[index];
             if at < note.start_ms - self.rules.window(ResultKind::Miss) {

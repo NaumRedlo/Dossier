@@ -13,6 +13,7 @@ pub const PUBLISHER: &str = "MODEL_PUBLISHER";
 pub const OWNER: &str = "OWNER";
 pub const GRANTED: [&str; 3] = [REVIEWER, PUBLISHER, OPERATOR];
 pub const SLOTS: [&str; 9] = ["NM1", "NM2", "NM3", "NM4", "HD2", "HR2", "DT1", "DT2", "TB"];
+pub const RESERVE: [&str; 18] = ["NM5", "NM6", "HD1", "HD3", "HD4", "HR1", "HR3", "HR4", "DT3", "DT4", "FM1", "FM2", "FM3", "FM4", "EZ1", "EZ2", "FL1", "FL2"];
 pub const BANDS: [f32; 10] = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5];
 pub const TOP: f32 = 10.0;
 pub const EXCLUDED: &str = "NONE";
@@ -26,6 +27,8 @@ pub struct Presence {
     pub section: String,
     pub beatmap: Option<i64>,
     pub mine: bool,
+    pub slot: Option<String>,
+    pub band: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -36,7 +39,11 @@ pub struct PresenceUpdate {
 }
 
 pub fn presence(account: &Account, section: Option<&str>, beatmap: Option<i64>) -> Result<PresenceUpdate, Failure> {
-    call(account, reqwest::Method::POST, "/render/admin/duels/presence", Some(json!({"section": section, "beatmap": beatmap})), None)
+    let mut parts = section.unwrap_or_default().split(':');
+    let page = parts.next().filter(|_| section.is_some());
+    let slot = parts.next();
+    let band = parts.next().and_then(|value| value.parse::<usize>().ok());
+    call(account, reqwest::Method::POST, "/render/admin/duels/presence", Some(json!({"section": page, "beatmap": beatmap, "slot": slot, "band": band})), None)
 }
 
 pub fn inspect(account: &Account, beatmap: i64) -> Result<Task, Failure> {
@@ -136,6 +143,7 @@ pub struct Coverage {
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct Held {
+    pub reviewer: Option<String>,
     pub beatmap_id: i64,
     pub beatmapset_id: Option<i64>,
     pub stars: f32,
@@ -357,13 +365,14 @@ pub fn looked_up(beatmap: i64) -> Option<Value> {
 pub fn read_about(found: &Value) -> Option<About> {
     found.get("id").or_else(|| found.get("set")).or_else(|| found.get("beatmapset"))?;
     let none = Value::Object(serde_json::Map::new());
-    let set = found.get("set").or_else(|| found.get("beatmapset")).unwrap_or(&none);
+    let set = found.get("set").filter(|value| value.is_object()).or_else(|| found.get("beatmapset").filter(|value| value.is_object())).unwrap_or(&none);
     let text = |value: Option<&Value>| value.and_then(Value::as_str).unwrap_or_default().to_owned();
+    let named = |key: &str| [set.get(key), found.get(key)].into_iter().flatten().filter_map(Value::as_str).find(|s| !s.trim().is_empty()).unwrap_or_default().to_owned();
     let mapper = found.get("owners").and_then(Value::as_array).and_then(|owners| owners.first()).and_then(|owner| owner.get("username")).and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| text(set.get("creator")));
     Some(About {
         set: found.get("beatmapset_id").and_then(Value::as_i64).or_else(|| set.get("id").and_then(Value::as_i64)),
-        title: text(set.get("title").or_else(|| found.get("title"))),
-        artist: text(set.get("artist").or_else(|| found.get("artist"))),
+        title: named("title"),
+        artist: named("artist"),
         version: text(found.get("version")),
         mapper,
         stars: found.get("difficulty_rating").and_then(Value::as_f64).map(|value| value as f32),
@@ -492,7 +501,7 @@ pub fn read_pool(text: &str) -> Vec<(String, i64)> {
         let parts: Vec<_> = line.split_whitespace().collect();
         let Some(first) = parts.first() else { continue };
         let upper = first.to_uppercase();
-        let labelled = SLOTS.contains(&upper.as_str()) || ["NM5", "NM6", "HD1", "HD3", "HR1", "HR3", "DT3", "DT4", "FM1", "FM2", "FM3", "FM4"].contains(&upper.as_str());
+        let labelled = SLOTS.contains(&upper.as_str()) || RESERVE.contains(&upper.as_str());
         let link = if labelled { parts.get(1).copied().unwrap_or_default() } else { first };
         if link.contains("beatmapsets/") && !link.contains("#osu/") { continue; }
         let tail = link.rsplit(['/', '#']).find(|part| !part.is_empty()).unwrap_or_default();
@@ -595,8 +604,8 @@ pub fn training_job(account: &Account, job: &str) -> Result<Job, Failure> {
     call(account, reqwest::Method::GET, &format!("/render/admin/duels/models/training/{job}"), None, None)
 }
 
-pub fn discover(account: &Account, band: usize, reason: &str) -> Result<Value, Failure> {
-    call(account, reqwest::Method::POST, "/render/admin/duels/catalog/discover", Some(json!({ "band": band, "reason": reason })), None)
+pub fn discover(account: &Account, slot: &str, band: usize, reason: &str) -> Result<Value, Failure> {
+    call(account, reqwest::Method::POST, "/render/admin/duels/catalog/discover", Some(json!({ "slot": slot, "band": band, "reason": reason })), None)
 }
 
 pub fn cancel(account: &Account, duel: &str, reason: &str) -> Result<Value, Failure> {
@@ -643,6 +652,10 @@ mod tests {
         assert_eq!(read_about(&loved).map(|about| (about.status, about.standard)), Some(("loved".to_owned(), true)));
         let mania = serde_json::json!({ "mode": "mania", "set": { "title": "Keys", "status": "graveyard" } });
         assert_eq!(read_about(&mania).map(|about| (about.status, about.standard)), Some(("graveyard".to_owned(), false)));
+        let alternate = serde_json::json!({"id": 42, "set": null, "beatmapset": {"title": "Recovered"}});
+        assert_eq!(read_about(&alternate).unwrap().title, "Recovered");
+        let flat = serde_json::json!({"id": 42, "set": {"title": " "}, "title": "Flat title"});
+        assert_eq!(read_about(&flat).unwrap().title, "Flat title");
     }
 
     #[test]

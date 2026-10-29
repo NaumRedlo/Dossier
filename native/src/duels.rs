@@ -193,6 +193,8 @@ pub struct Bonus {
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct Duel {
     #[serde(default)]
+    pub viewer: Option<i64>,
+    #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub mode: String,
@@ -381,6 +383,8 @@ pub struct Standing {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct Me {
+    #[serde(default)]
+    pub player: Option<i64>,
     #[serde(default)]
     pub rating: Standing,
     #[serde(default)]

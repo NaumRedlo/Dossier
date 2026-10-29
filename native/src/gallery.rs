@@ -1403,10 +1403,20 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             let mut main = tabbed(Tab::Catalog);
             main.desk.band = Some(("NM3".into(), 1));
             main.desk.held = vec![
-                crate::desk::Held { beatmap_id: 5687673, beatmapset_id: Some(2612145), stars: 5.71, level: "human".into(), mapper: Some("Nevo".into()), title: Some("HOT LIMIT".into()), version: Some("Extreme".into()) },
-                crate::desk::Held { beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()), version: Some("Insane".into()) },
+                crate::desk::Held { reviewer: Some("NaumRedlo".into()), beatmap_id: 5687673, beatmapset_id: Some(2612145), stars: 5.71, level: "human".into(), mapper: Some("Nevo".into()), title: Some("HOT LIMIT".into()), version: Some("Extreme".into()) },
+                crate::desk::Held { reviewer: None, beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()), version: Some("Insane".into()) },
             ];
             main.desk.added = Some(5379506);
+            main
+        }),
+        ("main-community-balance-catalog-workers".to_owned(), {
+            let mut main = tabbed(Tab::Catalog);
+            main.desk.band = Some(("NM3".into(), 1));
+            main.desk.presence = vec![
+                crate::desk::Presence { player: 1, name: "NaumRedlo".into(), section: "catalog".into(), mine: true, slot: Some("NM3".into()), band: Some(1), ..Default::default() },
+                crate::desk::Presence { player: 2, name: "StarlightAlmi".into(), section: "catalog".into(), slot: Some("NM3".into()), band: Some(1), ..Default::default() },
+                crate::desk::Presence { player: 3, name: "Lopuhh".into(), section: "catalog".into(), slot: Some("NM2".into()), band: Some(2), ..Default::default() },
+            ];
             main
         }),
         ("main-community-balance-catalog-gaps".to_owned(), tabbed(Tab::Catalog)),
@@ -1658,6 +1668,20 @@ fn duel_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             let mut main = community(crate::community_screen::Section::Duels, None);
             main.duels = Box::new(staged_duels(false));
             main.duels.duel = Some(staged_duel("COMPLETED"));
+            main
+        }),
+        ("main-community-duel-cancelled".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            let mut duel = staged_duel("CANCELLED");
+            duel.outcome = Some("pool_unavailable".into());
+            duel.wins = Default::default();
+            duel.rounds.clear();
+            duel.pool = None;
+            duel.winner = None;
+            duel.rating = None;
+            duel.actions.clear();
+            main.duels.duel = Some(duel);
             main
         }),
         ("main-community-duel-watch".to_owned(), {
@@ -2446,7 +2470,7 @@ fn staged_duels(offer: bool) -> crate::duels_screen::State {
     let covers = (0..9).filter_map(|at| crate::main_screen::decoded(&folder.join(pictures[at % pictures.len()]), 640, None).map(|handle| (2000 + at as i64, handle))).collect();
     crate::duels_screen::State {
         covers,
-        me: Some(Me { rating: Standing { calibrating: false, played: 5, needed: 5, rating: Some(1612), rd: Some(168) }, observations: 40, won: 14, lost: 9 }),
+        me: Some(Me { player: Some(1), rating: Standing { calibrating: false, played: 5, needed: 5, rating: Some(1612), rd: Some(168) }, observations: 40, won: 14, lost: 9 }),
         live,
         mine,
         player: Some(1),

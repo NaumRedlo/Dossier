@@ -5,7 +5,7 @@ use iced::widget::{button, column, container, mouse_area, row, stack, Space};
 use iced::{color, Alignment, Background, Border, Color, Element, Length, Padding};
 
 use crate::duels::{Duel, Entry, Participant};
-use crate::duels_screen::{bold, clock, fa, outlined, person, phase_of, seconds_left, strong, words, Message, Phase, State, CLOCK, LOST, OUTLINE, ROW, SIDE_A, SIDE_B, WON};
+use crate::duels_screen::{bold, clock, fa, outlined, player_face, phase_of, seconds_left, strong, words, Message, Phase, State, CLOCK, LOST, OUTLINE, ROW, SIDE_A, SIDE_B, WON};
 use crate::glyphs::{glyph, Icon};
 use crate::lang::Words;
 use crate::theme::{self, FAINT, INK, MUTED};
@@ -79,9 +79,9 @@ fn head<'a>(w: &Words, duel: &Duel, caption: String, chips: bool) -> Element<'a,
     }
     let centre = column![bold(format!("{} : {}", duel.wins.a, duel.wins.b), 34.0, INK), words(caption, 13.0, FAINT)].spacing(2).align_x(Alignment::Center);
     let line = row![
-        container(row![person(&left_name, 42.0), left].spacing(14).align_y(Alignment::Center)).width(Length::Fill),
+        container(row![player_face(&left_name, a.map(|p| p.osu_user_id), 42.0), left].spacing(14).align_y(Alignment::Center)).width(Length::Fill),
         centre,
-        container(row![right, person(&right_name, 42.0)].spacing(14).align_y(Alignment::Center)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right),
+        container(row![right, player_face(&right_name, b.map(|p| p.osu_user_id), 42.0)].spacing(14).align_y(Alignment::Center)).width(Length::Fill).align_x(iced::alignment::Horizontal::Right),
     ]
     .align_y(Alignment::Center);
     let right_aligned = container(line).padding(Padding { top: 12.0, right: 20.0, bottom: 12.0, left: 20.0 }).width(Length::Fill).style(slab_faded());
@@ -95,6 +95,8 @@ pub(crate) fn slot_colour(slot: &str) -> Color {
         "HR" => [0xe6, 0x2c, 0x30],
         "DT" => [0x86, 0x4a, 0xe6],
         "FM" => [0xe0, 0x3c, 0x80],
+        "EZ" => [0x76, 0xbd, 0x62],
+        "FL" => [0xa0, 0x8c, 0xc5],
         _ => [0xd8, 0xd0, 0xcc],
     };
     Color::from_rgb8(rgb[0], rgb[1], rgb[2])
@@ -439,6 +441,9 @@ fn draft_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> (Element<'
         None => w.t("duels-pool-ready"),
     };
     let mut header = row![strong(prompt, 20.0, actor_colour), Space::new().width(Length::Fill)].spacing(14).align_y(Alignment::Center);
+    let sets = entries(duel).iter().filter_map(|entry| entry.beatmapset_id).collect::<Vec<_>>();
+    header = header.push(outlined(strong(w.t(if state.fetching { "duels-downloading" } else { "duels-download-all" }), theme::BODY, INK),
+        (!state.fetching && !sets.is_empty()).then_some(Message::Download(sets))));
     if let Some(clock) = left_clock(duel, now) {
         header = header.push(clock);
     }
@@ -544,7 +549,7 @@ fn players<'a>(w: &Words, duel: &Duel) -> Element<'a, Message> {
             "lost" => (w.t("duels-player-lost"), LOST),
             _ => (w.t("duels-player-preparing"), WAIT),
         };
-        container(row![person(&name, 34.0), strong(name.clone(), 16.0, side_colour(side)), Space::new().width(Length::Fill), strong(said, 14.0, colour)].spacing(12).align_y(Alignment::Center))
+        container(row![player_face(&name, person_.map(|p| p.osu_user_id), 34.0), strong(name.clone(), 16.0, side_colour(side)), Space::new().width(Length::Fill), strong(said, 14.0, colour)].spacing(12).align_y(Alignment::Center))
             .padding(Padding { top: 10.0, right: 16.0, bottom: 10.0, left: 16.0 })
             .width(Length::Fill)
             .style(slab_faded())
@@ -630,6 +635,20 @@ fn wide_button<'a>(said: String, main: bool, on: Option<Message>) -> Element<'a,
 }
 
 fn result_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> Element<'a, Message> {
+    if duel.state != "COMPLETED" {
+        let reason = match duel.outcome.as_deref() {
+            Some("pool_unavailable") => Some("duels-pool-unavailable"),
+            Some("room_unresponsive") => Some("duels-room-unresponsive"),
+            _ => None,
+        };
+        let mut message = column![bold(w.t("duels-no-result"), 32.0, INK)].spacing(18);
+        if let Some(reason) = reason {
+            message = message.push(words(w.t(reason), 17.0, MUTED));
+        }
+        message = message.push(ui::primary(w.t("duels-return"), Some(Message::Close)));
+        return container(container(message).padding(28).width(Length::Fill).max_width(640).style(slab_faded()))
+            .center_x(Length::Fill).center_y(Length::Fill).into();
+    }
     let moments = &state.moments;
     let t = if moments.phase == Some(Phase::Result) && moments.from.is_some_and(|from| from != Phase::Result) { crate::duels_screen::since(moments.phase_at) / crate::duels_screen::RESULT * 1.03 } else { 2.0 };
     let span = |from: f32, to: f32| ease((t - from) / (to - from));
@@ -683,7 +702,7 @@ fn result_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> Element<'
     let left = column![
         ui::fading(span(0.38, 0.5), || words(caption, 15.0, FAINT)),
         header_head,
-        ui::fading(span(0.5, 0.62), || row![person(&me_name, 32.0), strong(me_name.clone(), 15.0, side_colour(&mine)), words(w.t("duels-and"), 14.0, FAINT), person(&them_name, 32.0), strong(them_name.clone(), 15.0, side_colour(theirs))].spacing(10).align_y(Alignment::Center)),
+        ui::fading(span(0.5, 0.62), || row![player_face(&me_name, seat(duel, &mine).map(|p| p.osu_user_id), 32.0), strong(me_name.clone(), 15.0, side_colour(&mine)), words(w.t("duels-and"), 14.0, FAINT), player_face(&them_name, seat(duel, theirs).map(|p| p.osu_user_id), 32.0), strong(them_name.clone(), 15.0, side_colour(theirs))].spacing(10).align_y(Alignment::Center)),
         ui::fading(span(0.5, 0.6), || container(rows).padding(14).width(Length::Fill).style(slab_faded())),
     ]
     .spacing(16)
@@ -838,7 +857,7 @@ fn meeting_side<'a>(w: &Words, duel: &Duel, side: &str, k: f32) -> Element<'a, M
         };
         let tally = |value: u32, label: String, colour: Color| -> Element<'a, Message> { column![bold(value.to_string(), 26.0, colour), words(label, 14.0, FAINT)].spacing(2).align_x(align).into() };
         column![
-            person(&name, 128.0),
+            player_face(&name, person_.map(|p| p.osu_user_id), 128.0),
             bold(name.clone(), 46.0, side_colour(side)),
             rating,
             row![tally(record.won, w.t("duels-won"), GOOD), tally(record.lost, w.t("duels-lost"), LOST)].spacing(22),
@@ -959,7 +978,7 @@ fn round_transition<'a>(w: &Words, state: &State, duel: &Duel, now: i64, t: f32,
 }
 
 pub fn view<'a>(state: &State, duel: &Duel, w: &Words, now: i64, wide: f32) -> Element<'a, Message> {
-    let width = wide.max(300.0);
+    let width = wide.clamp(300.0, 1200.0);
     let phase = phase_of(&duel.state);
     let caption = match phase {
         Phase::Room => w.t("duels-caption-room"),
@@ -999,7 +1018,8 @@ pub fn view<'a>(state: &State, duel: &Duel, w: &Words, now: i64, wide: f32) -> E
     if let Some(why) = &state.failed {
         page = page.push(row![glyph(Icon::Warn, 16.0, LOST), words(w.with("duels-failed", &[("reason", why.clone())]), 14.0, MUTED)].spacing(8).align_y(Alignment::Center));
     }
-    let framed = container(page).padding(Padding { top: 8.0, right: 40.0, bottom: 24.0, left: 40.0 }).width(Length::Fill).height(Length::Fill);
+    let framed = container(container(page).width(Length::Fill).max_width(1200).height(Length::Fill))
+        .padding(Padding { top: 8.0, right: 40.0, bottom: 24.0, left: 40.0 }).center_x(Length::Fill).height(Length::Fill);
     match glow {
         Some((colour, left)) => stack![edge(colour, left), framed].width(Length::Fill).height(Length::Fill).into(),
         None => framed.into(),
@@ -1034,7 +1054,7 @@ pub fn away_strip<'a>(state: &State, w: &Words, now: i64) -> Option<Element<'a, 
     let b = seat(duel, "B").and_then(|person| person.name.clone()).unwrap_or_default();
     let mut line = row![
         glyph(Icon::Swords, 18.0, colour),
-        stack![row![person(&a, 28.0)], row![Space::new().width(20), person(&b, 28.0)]].width(48).height(28),
+        stack![row![player_face(&a, seat(duel, "A").map(|p| p.osu_user_id), 28.0)], row![Space::new().width(20), player_face(&b, seat(duel, "B").map(|p| p.osu_user_id), 28.0)]].width(48).height(28),
         bold(format!("{} : {}", duel.wins.a, duel.wins.b), 16.0, INK),
         strong(label, 15.0, colour),
     ]

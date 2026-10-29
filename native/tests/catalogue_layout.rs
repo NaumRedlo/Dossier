@@ -832,23 +832,23 @@ fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
 }
 
 #[test]
-fn narrow_balance_catalogue_keeps_full_rows_above_the_lower_panel() {
+fn narrow_balance_catalogue_keeps_the_selected_panel_on_the_right() {
     let backdrop = dossier_native::ui::backdrop_handle();
     for height in [600.0, 720.0] {
         let (_, mut main) = gallery::main_states(Lang::Ru).into_iter()
-            .find(|(name, _)| name == "main-community-balance-catalog-gaps").unwrap();
+            .find(|(name, _)| name == "main-community-balance-catalog").unwrap();
         main.width = 980.0;
         main.height = height;
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, height), gallery::main_frame(&main, &backdrop));
         let table = ui.find(iced::widget::Id::new("desk-catalog-table")).unwrap().bounds();
-        let totals = ui.find(iced::widget::Id::new("desk-catalog-totals")).unwrap().bounds();
         let aside = ui.find(iced::widget::Id::new("desk-catalog-aside")).unwrap().bounds();
-        assert!(table.height > 450.0, "all slot rows need their natural height: {table:?}");
-        assert!(totals.y + totals.height <= table.y + table.height, "the last row must stay inside the table: {totals:?}, {table:?}");
-        assert!((table.width - aside.width).abs() < 1.0, "stacked panels must use the same width: {table:?}, {aside:?}");
-        assert!(aside.y >= table.y + table.height, "panels must not overlap: {table:?}, {aside:?}");
-        let scroll = ui.find(iced::widget::Id::new("desk-catalog-scroll")).unwrap().bounds();
-        assert!(scroll.height < table.height + aside.height, "the panels must share a bounded page viewport: {scroll:?}");
+        assert!(aside.x >= table.x + table.width, "panel must stay to the right: {table:?}, {aside:?}");
+        assert!((table.y - aside.y).abs() < 1.0, "panels must start together: {table:?}, {aside:?}");
+        assert!(ui.find(main.words.t("desk-add-map-here")).is_ok(), "adding remains available in the side panel");
+        assert!(ui.find(main.words.t("desk-catalog-title")).is_err());
+        assert!(ui.find(main.words.with("desk-reviewed-by", &[("name", "NaumRedlo".into())])).is_ok());
+        let dir = std::path::Path::new("/private/tmp/dossier-balance-refinement-gpu");
+        gallery::write_snapshot(&ui.snapshot(&dossier_native::theme::theme()).unwrap(), &dir.join(format!("catalogue-980-{height}"))).unwrap();
     }
 }
 
@@ -878,4 +878,70 @@ fn balance_linked_maps_show_recovered_names_mod_stars_and_exact_status() {
             assert!(corner.contains(stars.center()), "mod stars must stay in the corner badge");
         }
     }
+}
+
+#[test]
+fn balance_journal_restores_names_for_maps_removed_from_batches() {
+    use dossier_native::{desk, desk_screen::{Effect, Message}};
+    let backdrop = dossier_native::ui::backdrop_handle();
+    for lang in [Lang::Ru, Lang::En] {
+        let (_, mut main) = gallery::main_states(lang).into_iter().find(|(name, _)| name == "main-community-balance-journal").unwrap();
+        main.width = 980.0;
+        main.height = 720.0;
+        main.desk.desk.journal = vec![desk::Entry { id: 1, action: "batch_exclude".into(), target: "0:Practice:4132505".into(), name: Some("Reviewer".into()), role: desk::REVIEWER.into(), ..Default::default() }];
+        assert!(main.desk.update(Message::PresenceTick, &main.words).contains(&Effect::About(4132505)));
+        main.desk.update(Message::About(4132505, Some(desk::About { title: "AugoEidEs".into(), version: "Distant light".into(), ..Default::default() })), &main.words);
+        let target = main.words.with("desk-batch-map", &[("title", "AugoEidEs".into()), ("batch", "Practice".into())]);
+        let line = main.words.with("desk-did-batch-exclude", &[("target", target)]);
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+        assert!(ui.find(line.as_str()).is_ok(), "the restored title is used in the journal row");
+        let dir = std::path::Path::new("/private/tmp/dossier-journal-fix").join(format!("{lang:?}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        gallery::write_snapshot(&ui.snapshot(&dossier_native::theme::theme()).unwrap(), &dir.join("journal")).unwrap();
+    }
+}
+
+
+#[test]
+fn balance_presence_animates_on_gpu_and_keeps_cells_clickable() {
+    use dossier_native::{community_screen, desk_screen, main_screen, Message};
+    let (_, mut main) = gallery::main_states(Lang::Ru).into_iter().find(|(name, _)| name == "main-community-balance-catalog-workers").unwrap();
+    main.width = 1600.0;
+    main.height = 1000.0;
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let dir = std::path::Path::new("/private/tmp/dossier-presence-motion-gpu");
+    let mut captures = Vec::new();
+    for phase in [0, 12] {
+        main.desk.busy_frame = phase;
+        let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+        let cell = ui.find(iced::widget::Id::new("desk-cell-NM2-2")).unwrap().bounds();
+        let aside = ui.find(iced::widget::Id::new("desk-catalog-aside")).unwrap().bounds();
+        assert!(aside.height <= 620.0, "presence must not stretch the catalogue panel: {aside:?}");
+        let file = gallery::write_snapshot(&ui.snapshot(&dossier_native::theme::theme()).unwrap(), &dir.join(format!("phase-{phase}"))).unwrap();
+        captures.push(std::fs::read(file).unwrap());
+        ui.point_at(community_point(cell, main.width));
+        ui.simulate(iced_test::simulator::click());
+        assert!(ui.into_messages().any(|message| matches!(message, Message::Main(main_screen::Message::Community(community_screen::Message::Desk(desk_screen::Message::Band(slot, 2)))) if slot == "NM2")), "the dashed border must not capture cell clicks");
+    }
+    assert_ne!(captures[0], captures[1], "presence dashes must move between frames");
+}
+
+
+#[test]
+fn balance_star_range_handles_drag_and_saving_keeps_one_loading_indicator() {
+    use dossier_native::{community_screen, desk_screen, main_screen, Message};
+    let (_, mut main) = gallery::main_states(Lang::Ru).into_iter().find(|(name, _)| name == "main-community-balance-dt").unwrap();
+    let backdrop = dossier_native::ui::backdrop_handle();
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+    let bounds = ui.find(iced::widget::Id::new("desk-star-range")).unwrap().bounds();
+    let point = community_point(iced::Rectangle { x: bounds.x + bounds.width * 0.6, y: bounds.y + bounds.height - 16.0, width: 1.0, height: 1.0 }, main.width);
+    ui.point_at(point);
+    ui.simulate(iced_test::simulator::click());
+    assert!(ui.into_messages().any(|message| matches!(message, Message::Main(main_screen::Message::Community(community_screen::Message::Desk(desk_screen::Message::StarsAt(_, true)))))));
+    main.desk.update(desk_screen::Message::Decide("APPROVE", None), &main.words);
+    main.desk.update(desk_screen::Message::Posted(Ok(())), &main.words);
+    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(main.width, main.height), gallery::main_frame(&main, &backdrop));
+    assert!(ui.find(main.words.t("desk-loading")).is_ok());
+    let dir = std::path::Path::new("/private/tmp/dossier-balance-refinement-gpu");
+    gallery::write_snapshot(&ui.snapshot(&dossier_native::theme::theme()).unwrap(), &dir.join("review-saving")).unwrap();
 }

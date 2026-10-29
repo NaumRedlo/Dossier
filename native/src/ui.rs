@@ -4125,14 +4125,24 @@ impl<Message> canvas::Program<Message> for Dashes {
 
     fn draw(&self, state: &March, renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
-        let (left, top, right, bottom) = (0.75, 0.75, bounds.width - 0.75, bounds.height - 0.75);
-        if right <= left || bottom <= top {
-            return vec![frame.into_geometry()];
-        }
-        let round = self.radius.min((right - left) / 2.0).min((bottom - top) / 2.0).max(0.0);
-        let flat = right - left - 2.0 * round;
-        let period = dash_period(2.0 * flat + 2.0 * (bottom - top - 2.0 * round) + std::f32::consts::TAU * round);
-        let lead = (state.shift % period).min(flat.max(0.0));
+        stroke_dashes(&mut frame, bounds.size(), self.radius, &[self.colour], state.shift);
+        vec![frame.into_geometry()]
+    }
+}
+
+pub(crate) fn stroke_dashes(frame: &mut Frame, size: Size, radius: f32, colours: &[Color], shift: f32) {
+    let (left, top, right, bottom) = (0.75, 0.75, size.width - 0.75, size.height - 0.75);
+    if right <= left || bottom <= top {
+        return;
+    }
+    let round = radius.min((right - left) / 2.0).min((bottom - top) / 2.0).max(0.0);
+    let flat = right - left - 2.0 * round;
+    let around = 2.0 * flat + 2.0 * (bottom - top - 2.0 * round) + std::f32::consts::TAU * round;
+    let count = colours.len().max(1) as f32;
+    let period = dash_period(around / count);
+    let cycle = period * count;
+    for (index, colour) in colours.iter().enumerate() {
+        let lead = ((shift + index as f32 * period) % cycle).min(flat.max(0.0));
         let path = Path::new(|path| {
             path.move_to(Point::new(left + round + lead, top));
             path.line_to(Point::new(right - round, top));
@@ -4145,8 +4155,7 @@ impl<Message> canvas::Program<Message> for Dashes {
             path.arc_to(Point::new(left, top), Point::new(left + round, top), round);
             path.line_to(Point::new(left + round + lead, top));
         });
-        frame.stroke(&path, canvas::Stroke { style: canvas::Style::Solid(self.colour), width: 1.0, line_dash: canvas::LineDash { segments: &[period / 2.0, period / 2.0], offset: 0 }, ..canvas::Stroke::default() });
-        vec![frame.into_geometry()]
+        frame.stroke(&path, canvas::Stroke { style: canvas::Style::Solid(*colour), width: 1.0, line_dash: canvas::LineDash { segments: &[period / 2.0, cycle - period / 2.0], offset: 0 }, ..canvas::Stroke::default() });
     }
 }
 

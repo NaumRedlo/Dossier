@@ -178,7 +178,7 @@ pub enum Stage {
 
 impl State {
     pub fn open(&mut self, player: Option<i64>) -> Vec<Effect> {
-        self.player = player;
+        self.player = self.me.as_ref().and_then(|me| me.player).or(player);
         if self.watching.is_some() {
             return self.update(Message::Unwatch, 0);
         }
@@ -263,6 +263,7 @@ impl State {
             Message::Loaded(Ok(snapshot)) => {
                 self.loading = false;
                 self.failed = None;
+                self.player = snapshot.me.player.or(self.player);
                 self.me = Some(snapshot.me);
                 self.live = snapshot.live;
                 self.mine = snapshot.mine;
@@ -336,6 +337,7 @@ impl State {
                 vec![Effect::Load]
             }
             Message::Read(Ok(duel)) => {
+                self.player = duel.viewer.or(self.player);
                 self.reading = false;
                 self.failed = None;
                 let mut effects = Vec::new();
@@ -671,7 +673,7 @@ impl State {
     }
 
     pub fn opponent<'a>(&self, duel: &'a Duel) -> Option<&'a crate::duels::Participant> {
-        duel.participants.iter().find(|person| Some(person.player) != self.player)
+        duel.participants.iter().find(|person| Some(person.player) != self.player && self.player.is_some())
     }
 
     pub fn lively(&self) -> bool {
@@ -845,7 +847,7 @@ fn action<'a>(w: &Words, state: &State, now: i64) -> Element<'a, Message> {
                 _ => (w.with("duels-busy", &[("name", name.clone())]), format!("{}:{}", duel.wins.a, duel.wins.b)),
             };
             let mut parts: Vec<Element<'a, Message>> = vec![
-                person(&name, 48.0),
+                player_face(&name, them.map(|person| person.osu_user_id), 48.0),
                 column![strong(heading, 18.0, INK), words(note, 14.0, FAINT)].spacing(3).width(Length::Fill).into(),
             ];
             if let Some(seconds) = left.filter(|_| stage != Stage::Busy) {
@@ -907,12 +909,11 @@ fn seats(duel: &Running) -> Vec<(String, Option<String>)> {
 }
 
 pub(crate) fn pair<'a>(duel: &Running, size: f32) -> Element<'a, Message> {
-    let people = seats(duel);
     let mut faces: Vec<Element<'a, Message>> = Vec::new();
-    for (at, (name, _)) in people.iter().enumerate() {
-        faces.push(row![Space::new().width(at as f32 * size * 0.72), person(name, size)].into());
+    for (at, seat) in duel.players.iter().enumerate() {
+        faces.push(row![Space::new().width(at as f32 * size * 0.72), player_face(seat.name.as_deref().unwrap_or_default(), seat.osu_id, size)].into());
     }
-    iced::widget::Stack::with_children(faces).width(size * (1.0 + 0.72 * (people.len().max(1) - 1) as f32)).height(size).into()
+    iced::widget::Stack::with_children(faces).width(size * (1.0 + 0.72 * (duel.players.len().max(1) - 1) as f32)).height(size).into()
 }
 
 pub(crate) fn names<'a>(w: &Words, duel: &Running, size: f32) -> Element<'a, Message> {
@@ -1008,6 +1009,21 @@ mod tests {
             deadlines: vec![Deadline { kind: "pair_confirm".into(), at: Some("2026-10-23T12:00:30Z".into()) }],
             ..Duel::default()
         }
+    }
+
+    #[test]
+    fn server_identity_wins_over_an_old_local_account_and_does_not_guess_an_opponent() {
+        let mut state = State::default();
+        let mut incoming = duel("INVITED", &["accept", "decline"]);
+        assert!(state.opponent(&incoming).is_none());
+        incoming.viewer = Some(2);
+        state.player = Some(1);
+        state.update(Message::Read(Ok(incoming.clone())), 100);
+        assert_eq!(state.player, Some(2));
+        assert_eq!(state.opponent(&incoming).map(|p| p.player), Some(1));
+        state.me = Some(Me { player: Some(2), ..Me::default() });
+        state.open(Some(1));
+        assert_eq!(state.player, Some(2));
     }
 
     #[test]

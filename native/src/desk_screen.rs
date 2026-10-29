@@ -11,6 +11,8 @@ use crate::theme::workspace;
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
+mod occupancy;
+
 const TRAINING_WAIT: std::time::Duration = std::time::Duration::from_secs(240);
 
 const GOOD: Color = theme::GRADE_A;
@@ -106,7 +108,7 @@ impl Kind {
 
     fn of(action: &str) -> Kind {
         match action {
-            "discover" | "auto_discover" => Kind::Maps,
+            "discover" | "discover_result" | "auto_discover" => Kind::Maps,
             "corpus_label" | "add_tournament" | "batch_rename" | "batch_delete" | "batch_exclude" | "batch_include" => Kind::Labels,
             "publish_model" | "rollback_model" | "train_model" | "delete_model" => Kind::Model,
             "cancel" | "manual_finalize" => Kind::Duels,
@@ -163,7 +165,7 @@ pub enum Post {
     Cancel { duel: String, reason: String },
     Grant { who: String, role: String, reason: String },
     Revoke { player: i64, role: String, reason: String },
-    Discover { band: usize, reason: String },
+    Discover { slot: String, band: usize, reason: String },
     Delete { version: String, reason: String },
     RenameBatch { name: String, year: i32, new_name: String, new_year: i32, reason: String },
     DeleteBatch { name: String, year: i32, beatmap: Option<i64>, reason: String },
@@ -225,7 +227,8 @@ pub enum Message {
     Inspected(i64, Result<Task, String>),
     PresenceTick,
     BusyFrame,
-    Stars(Option<usize>),
+    StarsAt(f32, bool),
+    StarsDone,
     Presence(Result<desk::PresenceUpdate, String>),
     Tab(Tab),
     Filter(Filter),
@@ -312,7 +315,9 @@ pub struct State {
     pub posting: bool,
     pub failed: Option<String>,
     pub filter: Filter,
-    pub stars: Option<usize>,
+    pub stars: Option<(f64, f64)>,
+    pub stars_high: bool,
+    pub pending_review: Option<i64>,
     pub busy_frame: u32,
     pub picked: Option<i64>,
     pub reason: String,
@@ -345,6 +350,7 @@ pub struct State {
     pub details: HashMap<(i64, String), desk::details::Details>,
     pub details_asked: HashMap<(i64, String), std::time::Instant>,
     pub looked: HashSet<i64>,
+    pub about_pending: HashSet<i64>,
     pub picking: bool,
     pub training: Option<Training>,
     pub training_lost: bool,
@@ -388,7 +394,7 @@ pub struct Tournament {
     pub stage: Option<String>,
 }
 
-const RESERVE: [&str; 12] = ["NM5", "NM6", "HD1", "HD3", "HR1", "HR3", "DT3", "DT4", "FM1", "FM2", "FM3", "FM4"];
+use desk::RESERVE;
 
 impl State {
     pub fn reserve(&self) -> Vec<String> {
@@ -415,9 +421,7 @@ impl State {
 
     fn matching_tasks(&self, filter: Filter) -> Vec<&Task> {
         self.inspected.iter().chain(self.desk.tasks.iter().filter(|task| self.inspected.as_ref().is_none_or(|held| held.map.beatmap_id != task.map.beatmap_id)))
-            .filter(|task| filter.holds(task) && self.stars.is_none_or(|band| task.map.stars.is_some_and(|stars| {
-                stars >= desk::BANDS[band] && stars < desk::BANDS.get(band + 1).copied().unwrap_or(f32::INFINITY) && stars <= desk::TOP
-            }))).collect()
+            .filter(|task| filter.holds(task) && self.stars.is_none_or(|(low, high)| task.map.stars.is_some_and(|stars| f64::from(stars) >= low && (high >= crate::carousel::STARS_TOP || f64::from(stars) <= high)))).collect()
     }
 
     fn tasks(&self) -> Vec<&Task> {
@@ -427,6 +431,18 @@ impl State {
         }).collect()
     }
 
+    pub(crate) fn catalog_slots(&self) -> Vec<String> {
+        let mut slots: Vec<_> = desk::SLOTS.iter().chain(RESERVE.iter()).map(|slot| (*slot).to_owned())
+            .chain(self.desk.coverage.iter().flat_map(|coverage| coverage.slots.iter().cloned())).collect();
+        slots.sort_by_key(|slot| (owc_order(slot), slot.clone()));
+        slots.dedup();
+        slots
+    }
+
+    pub fn presence_animating(&self) -> bool {
+        self.presence.iter().any(|person| !person.mine)
+    }
+
     pub fn presence_context(&self) -> (String, Option<i64>) {
         let map = match self.tab {
             Tab::Queue => self.inspecting.or_else(|| self.task().map(|task| task.map.beatmap_id)),
@@ -434,7 +450,11 @@ impl State {
             _ => None,
         };
         let tab = if self.tab == Tab::Batches { Tab::Label } else { self.tab };
-        (tab.key().trim_start_matches("desk-tab-").to_owned(), map)
+        let mut section = tab.key().trim_start_matches("desk-tab-").to_owned();
+        if tab == Tab::Catalog {
+            if let Some((slot, band)) = &self.band { section = format!("catalog:{slot}:{band}"); }
+        }
+        (section, map)
     }
 
     fn task(&self) -> Option<&Task> {
@@ -524,7 +544,9 @@ impl State {
         if self.missed_at.get(&beatmap).is_some_and(|at| at.elapsed() < ABOUT_RETRY) {
             return false;
         }
-        self.looked.insert(beatmap)
+        if self.about_pending.len() >= 4 || !self.looked.insert(beatmap) { return false; }
+        self.about_pending.insert(beatmap);
+        true
     }
 
     fn wanted(&mut self) -> Vec<Effect> {
@@ -543,14 +565,13 @@ impl State {
             } else {
                 self.held.iter().filter(|map| map.title.as_deref().is_none_or(|s| s.trim().is_empty() || s == map.beatmap_id.to_string())).map(|map| map.beatmap_id).collect()
             };
-            let pending = self.looked.iter().filter(|id| !self.abouts.contains_key(id)).count();
-            for id in ids.into_iter().filter(|id| !self.looked.contains(id)).take(4usize.saturating_sub(pending)).collect::<Vec<_>>() {
+            for id in ids {
                 if self.ask(id) { effects.push(Effect::About(id)); }
             }
             return effects;
         }
         if self.tab == Tab::Journal {
-            let ids: Vec<i64> = self.desk.journal.iter().filter(|entry| entry.action.starts_with("map_")).filter_map(|entry| entry.target.parse().ok()).collect();
+            let ids: Vec<i64> = self.journal_shown().into_iter().filter_map(journal_map_id).collect();
             return ids.into_iter().filter(|beatmap| self.ask(*beatmap)).map(Effect::About).collect();
         }
         if self.tab == Tab::Catalog && self.adding_map {
@@ -672,12 +693,17 @@ impl State {
                 }
             },
             Message::BusyFrame => { self.busy_frame = self.busy_frame.wrapping_add(1); Vec::new() }
-            Message::Stars(band) => {
-                if band.is_some_and(|band| band >= desk::BANDS.len()) { return Vec::new(); }
-                self.stars = band;
+            Message::StarsAt(fraction, first) => {
+                if !fraction.is_finite() { return Vec::new(); }
+                let value = (f64::from(fraction.clamp(0.0, 1.0)) * crate::carousel::STARS_TOP * 10.0).round() / 10.0;
+                let (mut low, mut high) = self.stars.unwrap_or((0.0, crate::carousel::STARS_TOP));
+                if first { self.stars_high = (value - high).abs() < (value - low).abs(); }
+                if self.stars_high { high = value.max(low); } else { low = value.min(high); }
+                self.stars = (low > 0.0 || high < crate::carousel::STARS_TOP).then_some((low, high));
                 self.picked = None;
                 Vec::new()
             }
+            Message::StarsDone => Vec::new(),
             Message::Presence(result) => {
                 self.presence_busy = false;
                 self.presence_failed = result.is_err();
@@ -740,6 +766,7 @@ impl State {
                 }
             }
             Message::About(beatmap, found) => {
+                self.about_pending.remove(&beatmap);
                 let Some(found) = found else {
                     self.missing.insert(beatmap);
                     self.looked.remove(&beatmap);
@@ -747,7 +774,13 @@ impl State {
                     return Vec::new();
                 };
                 self.missing.remove(&beatmap);
-                self.missed_at.remove(&beatmap);
+                if found.title.trim().is_empty() || found.title.trim() == beatmap.to_string() {
+                    self.looked.remove(&beatmap);
+                    self.missed_at.insert(beatmap, std::time::Instant::now());
+                } else {
+                    self.looked.insert(beatmap);
+                    self.missed_at.remove(&beatmap);
+                }
                 let set = found.set;
                 self.abouts.insert(beatmap, found);
                 self.covered([set])
@@ -812,7 +845,7 @@ impl State {
                 let mut effects = vec![Effect::Load];
                 match (self.map_slot.take(), added.task) {
                     (Some(slot), task) => {
-                        self.notice = Some(w.with("desk-map-added", &[("slot", slot.clone())]));
+                        self.notice = None;
                         if let Some(band) = task.and_then(|task| task.map.stars).map(desk::band_of) {
                             self.band = Some((slot, band));
                             self.held.clear();
@@ -838,8 +871,8 @@ impl State {
             Message::Open(beatmap) => vec![Effect::Open(map_page(beatmap))],
             Message::Discover => {
                 let Some((slot, band)) = self.band.clone() else { return Vec::new() };
-                let reason = w.with("desk-discover-reason", &[("slot", slot), ("band", band_name(w, band))]);
-                self.post(Post::Discover { band, reason })
+                let reason = w.with("desk-discover-reason", &[("slot", slot.clone()), ("band", band_name(w, band))]);
+                self.post(Post::Discover { slot, band, reason })
             }
             Message::Archived(found) => {
                 self.archive_picked = found.iter().find(|packed| packed.standard).map(|packed| packed.beatmap).into_iter().collect();
@@ -924,6 +957,13 @@ impl State {
                 self.post(Post::ExcludeBatch { name: batch.name, year: batch.year, beatmap, excluded, reason })
             }
             Message::Loaded(found) => {
+                if let Some(beatmap) = self.pending_review.take() {
+                    self.posting = false;
+                    if let Ok(desk) = &found {
+                        self.inspected = None;
+                        self.picked = desk.tasks.iter().any(|task| task.map.beatmap_id == beatmap).then_some(beatmap);
+                    }
+                }
                 self.refreshing = None;
                 self.loading = false;
                 match found {
@@ -994,21 +1034,24 @@ impl State {
                 Vec::new()
             }
             Message::Decide(decision, slot) => {
+                if self.posting || self.loading { return Vec::new(); }
                 let Some(task) = self.task() else { return Vec::new() };
                 let secondary = matches!(decision, "APPROVE" | "MOVE").then(|| self.secondary_for(task)).map(|pick| pick.filter(|pick| Some(pick) != slot.as_ref().or(task.slot.as_ref())));
                 let post = Post::Review { beatmap: task.map.beatmap_id, decision, slot, secondary, reason: self.reason.trim().to_owned() };
+                self.pending_review = Some(task.map.beatmap_id);
                 self.post(post)
             }
             Message::Posted(said) => {
                 self.posting = false;
                 if said.is_err() {
+                    self.pending_review = None;
                     self.training = None;
                     self.pending_label = None;
                     self.pending_batch = None;
                 }
                 match said {
                     Ok(()) => {
-                        self.inspected = None;
+                        if self.pending_review.is_none() { self.inspected = None; }
                         if let Some((target, beatmap, label)) = self.pending_label.take() {
                             for cell in &mut self.desk.cells {
                                 if cell.corpus == target.corpus && cell.year == target.year && cell.stage == target.stage && cell.slot == target.slot {
@@ -1025,11 +1068,12 @@ impl State {
                         self.moving = false;
                         self.confirming = false;
                         self.finalize_sure = false;
-                        self.picked = None;
+                        if self.pending_review.is_none() { self.picked = None; }
                         self.label = None;
                         self.match_id.clear();
                         self.game_id.clear();
                         self.loading = true;
+                        self.posting = self.pending_review.is_some();
                         let mut effects = vec![Effect::Load];
                         if let Some((slot, band)) = &self.band { effects.push(Effect::Cell(slot.clone(), *band)); }
                         effects
@@ -1039,7 +1083,7 @@ impl State {
                         Vec::new()
                     }
                     Err(why) => {
-                        self.failed = Some(if why == "BATCH_UNSUPPORTED" { w.t("desk-batch-unsupported") } else { why });
+                        self.failed = Some(if why == "MODEL_UNAVAILABLE" { w.t("desk-discovery-no-model") } else if why == "BATCH_UNSUPPORTED" { w.t("desk-batch-unsupported") } else { why });
                         Vec::new()
                     }
                 }
@@ -1535,7 +1579,7 @@ fn cover<'a>(state: &State, set: Option<i64>, wide: f32, high: f32, radius: f32)
         ..container::Style::default()
     });
     match set.and_then(|set| state.covers.get(&set)) {
-        Some(handle) => stack![base, image(handle.clone()).width(wide).height(high).content_fit(iced::ContentFit::Cover).border_radius(radius)].into(),
+        Some(handle) => stack![base, container(image(handle.clone()).width(wide - 2.0).height(high - 2.0).content_fit(iced::ContentFit::Cover).border_radius((radius - 1.0).max(0.0))).padding(1)].into(),
         None => base.into(),
     }
 }
@@ -1572,10 +1616,8 @@ fn tabs<'a>(w: &Words, state: &State, roles: &[String], k: f32) -> Element<'a, M
                 ..container::Style::default()
             }));
         }
-        let people = state.presence.iter().filter(|person| !person.mine && person.section == tab.key().trim_start_matches("desk-tab-")).count();
-        if people > 0 { inside = inside.push(meta_pill(format!("● {people}"), k)); }
-        let made = button(container(inside).center_y(40.0 * k)).padding([0.0, 14.0 * k]).on_press(Message::Tab(tab)).style(workspace::choice(on));
-        line = line.push(made);
+        let made = button(container(inside).center_y(40.0 * k)).padding([0.0, 14.0 * k]).on_press(Message::Tab(tab)).style(move |theme, status| { let mut style = workspace::choice(on)(theme, status); style.border.width = 0.0; style });
+        line = line.push(occupancy::mark(state, made.into(), on, 8.0, |person| person.section == tab.key().trim_start_matches("desk-tab-")));
     }
     container(container(line.wrap().vertical_spacing(6)).id(iced::widget::Id::new("desk-tabs"))).center_x(Length::Fill).into()
 }
@@ -1613,20 +1655,18 @@ fn queue_view<'a>(w: &Words, state: &'a State, now: i64, k: f32, wide: f32) -> E
         .spacing(12)
         .align_y(Alignment::Center);
         let fill = if on { LIT } else { ROW };
-        list = list.push(tile(fill, on.then_some((PICKED, 1.5)), inside.into(), Some(Message::Pick(task.map.beatmap_id))));
+        list = list.push(occupancy::mark(state, tile(fill, None, inside.into(), Some(Message::Pick(task.map.beatmap_id))), on, 12.0, |person| person.beatmap == Some(map.beatmap_id)));
     }
     if state.tasks().is_empty() {
         list = list.push(words(w.t(if state.loading { "desk-loading" } else { "desk-queue-empty" }), 14.0, FAINT));
     }
-    let options: Vec<String> = std::iter::once(w.t("desk-stars-all")).chain((0..desk::BANDS.len()).map(|band| band_name(w, band))).collect();
-    let selected = options[state.stars.map_or(0, |band| band + 1)].clone();
-    let choices = options.clone();
-    let ranges = iced::widget::pick_list(options, Some(selected), move |value| Message::Stars(choices.iter().position(|choice| *choice == value).and_then(|at| at.checked_sub(1))))
-        .font(theme::SANS).text_size(13).padding([7, 10]).width(Length::Fill)
-        .style(|_, status| iced::widget::pick_list::Style { text_color: INK, placeholder_color: MUTED, handle_color: MUTED,
-            background: Background::Color(if matches!(status, iced::widget::pick_list::Status::Hovered | iced::widget::pick_list::Status::Opened { .. }) { workspace::HOVER } else { workspace::ITEM }),
-            border: Border { radius: 8.0.into(), ..Default::default() } })
-        .menu_style(|_| iced::widget::overlay::menu::Style { text_color: INK, background: Background::Color(theme::GROUND), border: Border { radius: 8.0.into(), ..Default::default() }, selected_text_color: INK, selected_background: Background::Color(LIT), shadow: Default::default() });
+    let (low, high) = state.stars.unwrap_or((0.0, crate::carousel::STARS_TOP));
+    let edge = |value| if value >= crate::carousel::STARS_TOP { "∞".to_owned() } else { w.decimal(value, 1) };
+    let ranges = column![
+        row![words(w.t("filter-stars"), 13.0 * k, MUTED), Space::new().width(Length::Fill), tight(format!("{}–{}", edge(low), edge(high)), 13.0 * k, INK)],
+        iced::widget::canvas(crate::main_screen::select::StarBar { low, high, alpha: 1.0, on_at: Message::StarsAt, on_done: || Message::StarsDone }).width(Length::Fill).height(crate::main_screen::select::BAR_H),
+    ].spacing(4);
+    let ranges = container(ranges).id(iced::widget::Id::new("desk-star-range"));
     let aside = container(column![chips.wrap().vertical_spacing(6), ranges, scrollable(list).direction(ui::hidden_bar()).height(Length::Fill)].spacing(10)).padding(14).width(330.0 * k).height(Length::Fill).style(theme::slab);
     let detail: Element<'a, Message> = match state.task() {
         Some(task) => task_detail(w, state, task, k, wide),
@@ -1653,6 +1693,7 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
         .align_y(iced::alignment::Vertical::Bottom)
         .style(|_| container::Style { background: Some(crate::duel_view::veil_fill()), border: Border { radius: 14.0.into(), ..Border::default() }, ..container::Style::default() }),
     ];
+    let card = occupancy::mark(state, card.into(), true, 14.0, |person| person.beatmap == Some(map.beatmap_id));
     let mut difficulties = row![].spacing(6);
     if let Some(set) = map.beatmapset_id {
         let versions: Vec<_> = state.matching_tasks(state.filter).into_iter().filter(|other| other.map.beatmapset_id == Some(set)).collect();
@@ -1719,7 +1760,7 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
         facts = facts.push(fact(w.t("desk-length"), format!("{}:{:02}", seconds / 60, seconds % 60), k));
     }
     let reason = column![words(w.t("desk-reason"), 13.0 * k, MUTED), field_k(String::new(), &state.reason, Message::Reason, k)].spacing(6);
-    let decision = column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(column![answers, busy(w, state, k)]).padding(Padding { top: 6.0 * k, bottom: 10.0 * k, ..Padding::ZERO }), secondary_row(w, state, task, k), reason]
+    let decision = column![words(caption, 14.0 * k, FAINT), bold(question, 26.0 * k, INK), container(answers).padding(Padding { top: 6.0 * k, bottom: 10.0 * k, ..Padding::ZERO }), secondary_row(w, state, task, k), reason]
         .spacing(8)
         .width(Length::Fill);
     let played: Element<'a, Message> = match (map.mods.is_empty(), map.plain_stars) {
@@ -1935,17 +1976,19 @@ fn label_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
                 .style(|_| container::Style { background: Some(crate::duel_view::veil_fill()), border: Border { radius: 18.0.into(), ..Border::default() }, ..container::Style::default() });
             let set = map.beatmapset_id.or_else(|| about.and_then(|found| found.set));
             let picture: Element<'a, Message> = match set.and_then(|set| state.covers.get(&set)) {
-                Some(handle) => image(handle.clone()).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).border_radius(18.0).into(),
+                Some(handle) => container(image(handle.clone()).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).border_radius(17.0)).padding(1).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 18.0.into(), ..Border::default() }, ..Default::default() }).into(),
                 None => container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 18.0.into(), ..Border::default() }, ..container::Style::default() }).into(),
             };
             let mut keys = row![].spacing(8);
             for slot in desk::SLOTS.into_iter().chain(RESERVE) {
-                let made = button(container(tag(slot, k)).center_x(64.0 * k).center_y(theme::workspace::CONTROL * k)).padding(0).style(quiet(map.verified && map.label == slot, theme::CONTROL_RADIUS));
-                keys = keys.push(if state.posting { made } else { made.on_press(Message::MapLabel(slot.to_owned())) });
+                let made = button(container(tag(slot, k)).center_x(64.0 * k).center_y(theme::workspace::CONTROL * k)).padding(0).style(quiet(false, theme::CONTROL_RADIUS));
+                let made = if state.posting { made } else { made.on_press(Message::MapLabel(slot.to_owned())) };
+                keys = keys.push(occupancy::mark(state, made.into(), map.verified && map.label == slot, 8.0, |_| false));
             }
             let revisiting = state.revisiting.is_some();
             let rest = row![container(line_button_k(w.t("desk-fits-none"), (!state.posting).then(|| Message::MapLabel(desk::OTHER.to_owned())), k)).width(240.0 * k), container(line_button_k(w.t(if revisiting { "desk-resume-labels" } else { "desk-skip" }), (!state.posting).then_some(if revisiting { Message::ResumeLabels } else { Message::Skip }), k)).width(160.0 * k)].spacing(8).wrap();
-            let mut body = column![stack![picture, shown].height(300.0 * k), keys.wrap(), busy(w, state, k), rest].spacing(12).width(Length::Fill);
+            let hero = occupancy::mark(state, stack![picture, shown].height(300.0 * k).into(), true, 18.0, |person| person.beatmap == Some(map.beatmap_id));
+            let mut body = column![hero, keys.wrap(), busy(w, state, k), rest].spacing(12).width(Length::Fill);
             if revisiting {
                 body = body.push(words(w.t("desk-relabel-note"), 12.0 * k, MUTED));
             }
@@ -1975,7 +2018,7 @@ fn label_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
             let title = map.title.clone().unwrap_or_else(|| map.beatmap_id.to_string());
             let on = state.revisiting.as_ref().is_some_and(|(target, id)| *id == map.beatmap_id && target.stage == cell.stage && target.slot == cell.slot);
             let inside = row![one_line(title, 14.0 * k, INK, theme::SANS), tag(&map.label, k)].spacing(10).align_y(Alignment::Center);
-            saved = saved.push(button(container(inside).padding(8).width(Length::Fill)).padding(0).style(quiet(on, theme::CONTROL_RADIUS)).on_press_maybe((!state.posting).then(|| Message::Revisit((*cell).clone(), map.beatmap_id))));
+            saved = saved.push(occupancy::mark(state, button(container(inside).padding(8).width(Length::Fill)).padding(0).style(quiet(false, theme::CONTROL_RADIUS)).on_press_maybe((!state.posting).then(|| Message::Revisit((*cell).clone(), map.beatmap_id))).into(), on, 8.0, |person| person.beatmap == Some(map.beatmap_id)));
         }
         aside = aside.push(scrollable(saved).direction(ui::hidden_bar()).height(Length::Fill));
     }
@@ -2042,16 +2085,7 @@ fn tournament_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Messa
 pub use crate::desk::read_pool;
 
 fn owc_order(slot: &str) -> usize {
-    ["NM", "HD", "HR", "DT", "FM", "TB"].iter().position(|prefix| slot.starts_with(prefix)).unwrap_or(6)
-}
-
-fn swatch<'a>(fill: Color, frame: Option<Color>, said: String, k: f32) -> Element<'a, Message> {
-    let mark = container(Space::new()).width(14.0 * k).height(14.0 * k).style(move |_| container::Style {
-        background: Some(Background::Color(fill)),
-        border: Border { color: frame.unwrap_or(Color::TRANSPARENT), width: if frame.is_some() { 1.5 } else { 0.0 }, radius: 4.0.into() },
-        ..container::Style::default()
-    });
-    row![mark, words(said, 13.0 * k, FAINT)].spacing(6).align_y(Alignment::Center).into()
+    ["NM", "HD", "HR", "DT", "FM", "EZ", "FL", "TB"].iter().position(|prefix| slot.starts_with(prefix)).unwrap_or(6)
 }
 
 const ENOUGH: u32 = 5;
@@ -2115,7 +2149,7 @@ fn held_card<'a>(w: &Words, state: &'a State, map: &Held, k: f32) -> Element<'a,
         column![
             titled_map(shown.title.as_deref(), map.beatmap_id, 14.0 * k),
             one_line(byline, 12.0 * k, MUTED, theme::SANS),
-            row![stars_of(Some(map.stars), 12.0 * k), strong(w.t(&format!("desk-level-{}", map.level)), 12.0 * k, colour)].spacing(8).align_y(Alignment::Center),
+            row![stars_of(Some(map.stars), 12.0 * k), strong(if map.level == "human" { map.reviewer.as_ref().map_or_else(|| w.t("desk-level-human"), |name| w.with("desk-reviewed-by", &[("name", name.clone())])) } else { w.t(&format!("desk-level-{}", map.level)) }, 12.0 * k, colour)].spacing(8).align_y(Alignment::Center),
         ].spacing(3).width(Length::Fill),
     ].spacing(10).align_y(Alignment::Center);
     let edit = button(container(row![glyph(Icon::Sliders, 15.0 * k, INK), tight(w.t("desk-edit-short"), 13.0 * k, INK)].spacing(6).align_y(Alignment::Center)).center_x(Length::Fill).center_y(32.0 * k))
@@ -2124,11 +2158,12 @@ fn held_card<'a>(w: &Words, state: &'a State, map: &Held, k: f32) -> Element<'a,
         .style(quiet(false, theme::CONTROL_RADIUS))
         .on_press_maybe((!state.posting).then_some(Message::Inspect(map.beatmap_id)));
     let actions = row![container(listen_button(w, state, map.beatmap_id, 32.0 * k)).width(Length::Fill), edit, link_button(map.beatmap_id, 32.0 * k)].spacing(6).align_y(Alignment::Center);
-    container(column![top, actions].spacing(8)).padding(10).width(Length::Fill).style(move |_| container::Style {
+    let card = container(column![top, actions].spacing(8)).padding(10).width(Length::Fill).style(move |_| container::Style {
         background: Some(Background::Color(if fresh { LIT } else { ROW })),
-        border: Border { color: if fresh { PICKED } else { Color::TRANSPARENT }, width: if fresh { 1.5 } else { 0.0 }, radius: 12.0.into() },
+        border: Border { radius: 12.0.into(), ..Border::default() },
         ..container::Style::default()
-    }).into()
+    }).into();
+    occupancy::mark(state, card, fresh, 12.0, |person| person.beatmap == Some(map.beatmap_id))
 }
 
 fn cell_view<'a>(w: &Words, state: &'a State, coverage: &desk::Coverage, slot: &str, band: usize, k: f32) -> Element<'a, Message> {
@@ -2195,7 +2230,7 @@ fn gaps_view<'a>(w: &Words, state: &State, coverage: &desk::Coverage, k: f32) ->
 fn map_preview<'a>(w: &Words, state: &State, found: &desk::About, k: f32) -> Element<'a, Message> {
     let high = 150.0 * k;
     let picture: Element<'a, Message> = match found.set.and_then(|set| state.covers.get(&set)) {
-        Some(handle) => image(handle.clone()).width(Length::Fill).height(high).content_fit(iced::ContentFit::Cover).border_radius(12.0).into(),
+        Some(handle) => container(image(handle.clone()).width(Length::Fill).height(high - 2.0).content_fit(iced::ContentFit::Cover).border_radius(11.0)).padding(1).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..Default::default() }).into(),
         None => container(Space::new()).width(Length::Fill).height(high).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default() }).into(),
     };
     let mut facts = row![status_pill(w, &found.status, k), stars_of(found.stars, 12.0 * k)].spacing(8).align_y(Alignment::Center);
@@ -2246,7 +2281,7 @@ fn add_map_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message>
         (Some(_), None) => words(w.t("desk-map-press-enter"), 13.0 * k, FAINT),
     };
     let mut slots = row![].spacing(6).align_y(Alignment::Center);
-    for slot in desk::SLOTS {
+    for slot in state.catalog_slots().iter().map(String::as_str) {
         let on = state.map_slot.as_deref() == Some(slot);
         slots = slots.push(button(container(tag(slot, k)).center_y(34.0 * k)).padding([0.0, 5.0 * k]).style(quiet(on, 9.0)).on_press(Message::MapSlot(Some(slot.to_owned()))));
     }
@@ -2285,9 +2320,8 @@ fn add_map_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message>
     scrollable(body).direction(ui::hidden_bar()).height(Length::Fill).into()
 }
 
-fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'a, Message> {
+fn catalog_view<'a>(w: &Words, state: &'a State, _wide: f32, k: f32) -> Element<'a, Message> {
     let Some(coverage) = &state.desk.coverage else { return panel(words(w.t("desk-loading"), 15.0 * k, FAINT)) };
-    let stacked = wide < workspace::SPLIT_MIN;
     let totals = &coverage.totals;
     let group = |value: u32| w.lang().group(u64::from(value));
     let tiles = row![
@@ -2307,8 +2341,8 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
     head = head.push(container(tight(w.t("desk-catalog-sum"), 13.0 * k, FAINT)).center_x(sum_wide));
     let mut grid = column![head].spacing(5);
     let mut columns = vec![0u32; desk::BANDS.len()];
-    let (mut empty, mut few) = (0u32, 0u32);
-    for slot in desk::SLOTS {
+    let slots = state.catalog_slots();
+    for slot in slots.iter().map(String::as_str) {
         let on_row = chosen.is_some_and(|(held, _)| held == slot);
         let mut line = row![row![tag(slot, k), words(skill(w, slot), 13.0 * k, if on_row { INK } else { MUTED })].spacing(8).width(label_wide).align_y(Alignment::Center)].spacing(5).align_y(Alignment::Center);
         let mut sum = 0u32;
@@ -2316,7 +2350,6 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
             let count = count_of(coverage, slot, band);
             sum += count;
             columns[band] += count;
-            if count == 0 { empty += 1; } else if count < ENOUGH { few += 1; }
             let (fill, ink) = tone(count);
             let picked = chosen == Some((slot, band));
             let crossed = !picked && (on_row || chosen.is_some_and(|(_, at)| at == band));
@@ -2326,11 +2359,11 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
             } else {
                 bold(count.to_string(), 15.0 * k, ink)
             };
-            let made = button(container(shown).center_x(cell_wide).center_y(cell_high))
+            let made = button(container(shown).center_x(cell_wide).center_y(cell_high).id(iced::widget::Id::from(format!("desk-cell-{slot}-{band}"))))
                 .padding(0)
-                .style(cell_style(fill, ink, picked, crossed))
+                .style(cell_style(fill, ink, false, crossed))
                 .on_press(Message::Band(slot.to_owned(), band));
-            line = line.push(made);
+            line = line.push(occupancy::mark(state, made.into(), picked, 8.0, |person| person.section == "catalog" && person.slot.as_deref() == Some(slot) && person.band == Some(band)));
         }
         line = line.push(container(strong(group(sum), 14.0 * k, if on_row { INK } else { MUTED })).center_x(sum_wide).center_y(cell_high));
         grid = grid.push(line);
@@ -2341,23 +2374,8 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
     }
     foot = foot.push(container(strong(group(columns.iter().sum::<u32>()), 13.0 * k, INK)).center_x(sum_wide).center_y(28.0 * k));
     grid = grid.push(container(foot).id(iced::widget::Id::new("desk-catalog-totals")));
-    let legend = row![
-        swatch(tone(ENOUGH).0, None, w.t("desk-legend-enough"), k),
-        swatch(tone(2).0, None, w.t("desk-legend-few"), k),
-        swatch(tone(0).0, None, w.t("desk-legend-none"), k),
-        if coverage.secondary.values().flatten().any(|count| *count > 0) { words(w.t("desk-catalog-secondary"), 13.0 * k, FAINT) } else { Space::new().into() },
-        words(w.with("desk-catalog-gaps", &[("empty", empty.to_string()), ("few", few.to_string())]), 13.0 * k, if empty > 0 { BAD } else { MUTED }),
-    ]
-    .spacing(18)
-    .align_y(Alignment::Center);
-    let add = button(container(row![glyph(Icon::Plus, 16.0 * k, INK), strong(w.t("desk-add-map"), 14.0 * k, INK)].spacing(6).align_y(Alignment::Center)).center_y(34.0 * k))
-        .padding([0.0, 12.0 * k])
-        .style(quiet(state.adding_map, theme::CONTROL_RADIUS))
-        .on_press_maybe((!state.posting).then_some(Message::AddingMap(!state.adding_map)));
-    let heading = row![container(heading_k(k, w.t("desk-catalog-title"))).width(Length::Fill), container(add).id(iced::widget::Id::new("desk-add-map"))].spacing(12).align_y(Alignment::Center);
-    let table = container(column![heading, legend.wrap().vertical_spacing(6),
-        container(scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::hidden(), horizontal: scrollable::Scrollbar::default().spacing(6.0) }).height(Length::Shrink)).max_height(540.0 * k)].spacing(12))
-        .padding(workspace::INSET).width(Length::Fill).max_width(if stacked { f32::INFINITY } else { 890.0 * k }).id(iced::widget::Id::new("desk-catalog-table")).style(workspace::surface);
+    let table = container(scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::hidden(), horizontal: scrollable::Scrollbar::default().spacing(6.0) }).height(Length::Fill))
+        .padding(workspace::INSET).width(Length::Fill).height(Length::Fill).max_height(620.0 * k).id(iced::widget::Id::new("desk-catalog-table")).style(workspace::surface);
     let (aside, tall): (Element<'a, Message>, bool) = if state.adding_map {
         (add_map_view(w, state, k), true)
     } else {
@@ -2368,18 +2386,19 @@ fn catalog_view<'a>(w: &Words, state: &'a State, wide: f32, k: f32) -> Element<'
     };
     let aside: Element<'a, Message> = container(aside)
         .padding(18)
-        .width(if stacked { Length::Fill } else { Length::Fixed(320.0 * k) })
-        .height(if stacked && tall { Length::Fixed(if state.adding_map { 760.0 } else { 620.0 } * k) } else if tall { Length::Fill } else { Length::Shrink })
+        .width(320.0 * k)
+        .height(if tall { Length::Fill } else { Length::Shrink })
         .max_height(if state.adding_map { 760.0 } else { 620.0 } * k)
         .id(iced::widget::Id::new("desk-catalog-aside"))
         .style(workspace::surface)
         .into();
-    let content: Element<'a, Message> = if stacked {
-        scrollable(column![table, aside].spacing(workspace::GAP).width(Length::Fill))
-            .direction(ui::hidden_bar()).height(Length::Fill).id(iced::widget::Id::new("desk-catalog-scroll")).into()
-    } else {
-        row![table, aside].spacing(workspace::GAP).height(Length::Fill).into()
-    };
+    let aside = container(occupancy::mark(state, aside, state.band.is_some(), 12.0, |person| {
+        person.section == "catalog" && state.band.as_ref().is_some_and(|(slot, band)| person.slot.as_ref() == Some(slot) && person.band == Some(*band))
+    }))
+        .width(320.0 * k)
+        .height(if tall { Length::Fill } else { Length::Shrink })
+        .max_height(if state.adding_map { 760.0 } else { 620.0 } * k);
+    let content = row![table, aside].spacing(workspace::GAP).height(Length::Fill);
     container(column![tiles, content].spacing(12).height(Length::Fill)).max_width(1200.0).height(Length::Fill).into()
 }
 
@@ -2545,6 +2564,16 @@ fn people_list<'a>(w: &Words, state: &'a State, owner: bool, k: f32) -> Element<
     list.into()
 }
 
+fn journal_map_id(entry: &desk::Entry) -> Option<i64> {
+    let id = if entry.action.starts_with("map_") {
+        entry.target.parse().ok()
+    } else if matches!(entry.action.as_str(), "batch_delete" | "batch_exclude" | "batch_include") {
+        let (_, rest) = entry.target.split_once(':')?;
+        rest.rsplit_once(':')?.1.parse().ok()
+    } else { None };
+    id.filter(|id| *id > 0)
+}
+
 fn did(w: &Words, state: &State, entry: &desk::Entry) -> String {
     let key = format!("desk-did-{}", entry.action.replace('_', "-"));
     let after = |field: &str| entry.after.get(field).and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
@@ -2558,6 +2587,19 @@ fn did(w: &Words, state: &State, entry: &desk::Entry) -> String {
         let label = after("label");
         let label = if label == desk::EXCLUDED { w.t("desk-no-slot") } else { label };
         return w.with(&key, &[("year", year), ("stage", stage_name(w, stage).to_lowercase()), ("slot", slot), ("label", label)]);
+    }
+    if entry.action == "discover_result" {
+        let outcomes = entry.after.get("outcomes").and_then(serde_json::Value::as_object);
+        let count = |accept: fn(&str) -> bool| outcomes.map(|all| all.iter().filter(|(key, _)| accept(key)).filter_map(|(_, value)| value.as_u64()).sum::<u64>()).unwrap_or_default().to_string();
+        let band = entry.after.get("band").and_then(serde_json::Value::as_u64).filter(|band| *band < desk::BANDS.len() as u64).map(|band| band_name(w, band as usize)).unwrap_or_default();
+        let summary = w.with(&key, &[
+            ("slot", after("slot")), ("band", band),
+            ("assigned", count(|key| key.starts_with("proposed "))),
+            ("waiting", count(|key| matches!(key, "no_slot" | "unassigned" | "below_threshold" | "reserve_slot" | "unknown_slot"))),
+            ("known", count(|key| key == "known")),
+            ("failed", count(|key| matches!(key, "failed" | "download_failed" | "no_file" | "parse_failed" | "mirrors_unavailable"))),
+        ]);
+        return summary;
     }
     if entry.action == "auto_discover" {
         let (slot, band) = entry.target.split_once(':').unwrap_or((entry.target.as_str(), ""));
@@ -2705,7 +2747,7 @@ fn mark_of(action: &str) -> (Icon, Color) {
         "map_reject" => (Icon::Ban, BAD),
         "map_quarantine" => (Icon::Warn, UNSURE),
         "map_add" => (Icon::Plus, GOOD),
-        "discover" => (Icon::Search, MUTED),
+        "discover" | "discover_result" => (Icon::Search, MUTED),
         "auto_discover" => (Icon::Search, ACCENT),
         "corpus_label" | "add_tournament" | "batch_rename" => (Icon::Shapes, MUTED),
         "batch_delete" => (Icon::Ban, BAD),
@@ -2994,14 +3036,13 @@ fn busy<'a>(w: &Words, state: &State, k: f32) -> Element<'a, Message> {
 }
 
 fn workers<'a>(w: &Words, state: &State, k: f32) -> Element<'a, Message> {
-    let section = state.presence_context().0;
+    let context = state.presence_context().0;
+    let section = context.split(':').next().unwrap_or_default();
     let mut line = row![].spacing(8).align_y(Alignment::Center);
     for person in state.presence.iter().filter(|person| !person.mine && person.section == section) {
-        let mut shown = row![meta_pill(person.name.clone(), k)].spacing(6).align_y(Alignment::Center);
-        if let Some(beatmap) = person.beatmap {
-            shown = shown.push(meta_pill(format!("#{beatmap}"), k)).push(link_button(beatmap, 28.0 * k));
-        }
-        line = line.push(shown);
+        let colour = occupancy::colour(person.player);
+        let name = container(strong(person.name.clone(), 13.0 * k, colour)).padding([4, 9]).style(move |_| container::Style { border: Border { color: colour, width: 1.0, radius: 8.0.into() }, ..Default::default() });
+        line = line.push(name);
     }
     if state.refresh_failed { line = line.push(words(w.t("desk-refresh-failed"), 12.0 * k, MUTED)); }
     if state.presence_failed { line = line.push(words(w.t("desk-live-offline"), 12.0 * k, MUTED)); }
@@ -3025,12 +3066,6 @@ pub fn view<'a>(state: &'a State, roles: &[String], w: &Words, now: i64, wide: f
     if let Some(why) = &state.failed {
         page = page.push(strong(w.with("desk-failed", &[("why", why.clone())]), 14.0, BAD));
     }
-    if let Some(beatmap) = state.presence_context().1 {
-        let others: Vec<_> = state.presence.iter().filter(|person| !person.mine && person.beatmap == Some(beatmap)).map(|person| person.name.clone()).collect();
-        if !others.is_empty() {
-            page = page.push(words(w.with("desk-live-busy", &[("names", others.join(", "))]), 14.0, UNSURE));
-        }
-    }
     if state.inspecting.is_some() {
         page = page.push(words(w.t("desk-loading"), 14.0, MUTED));
     }
@@ -3045,6 +3080,22 @@ mod tests {
 
     fn presence(revision: &str) -> Message {
         Message::Presence(Ok(desk::PresenceUpdate { revision: Some(revision.into()), ..Default::default() }))
+    }
+
+    #[test]
+    fn catalogue_presence_tracks_cells_and_navigation_without_changing_duel_slots() {
+        let mut state = State::default();
+        state.tab = Tab::Catalog;
+        state.band = Some(("FM4".into(), 9));
+        assert_eq!(state.presence_context(), ("catalog:FM4:9".into(), None));
+        let slots = state.catalog_slots();
+        assert_eq!(slots.len(), 27);
+        for slot in ["HD4", "HR4", "DT4", "FM4", "EZ2", "FL2"] { assert!(slots.contains(&slot.to_owned())); }
+        assert_eq!(desk::SLOTS.len(), 9);
+        state.tab = Tab::Model;
+        assert_eq!(state.presence_context(), ("model".into(), None));
+        assert_ne!(occupancy::colour(1), occupancy::colour(2));
+        assert_ne!(occupancy::colour(2), occupancy::colour(3));
     }
 
     #[test]
@@ -3123,12 +3174,50 @@ mod tests {
             state.desk.tasks.push(Task { map: desk::Map { beatmap_id: id, beatmapset_id: set, stars: Some(stars), ..Default::default() }, ..Default::default() });
         }
         assert_eq!(state.tasks().len(), 4);
-        state.stars = Some(0);
+        state.stars = Some((5.0, 5.49));
         assert_eq!(state.tasks().iter().map(|task| task.map.beatmap_id).collect::<Vec<_>>(), [2, 3, 4, 5]);
         state.picked = Some(2);
         assert_eq!(state.task().unwrap().map.beatmap_id, 2);
         state.stars = None;
         assert_eq!(state.task().unwrap().map.beatmap_id, 2);
+    }
+
+    #[test]
+    fn star_handles_stay_ordered_and_full_range_includes_unknown_ratings() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        let mut state = State::default();
+        state.update(Message::StarsAt(0.4, true), &w);
+        assert_eq!(state.stars, Some((4.0, 10.0)));
+        state.update(Message::StarsAt(0.8, true), &w);
+        assert_eq!(state.stars, Some((4.0, 8.0)));
+        state.update(Message::StarsAt(0.2, false), &w);
+        assert_eq!(state.stars, Some((4.0, 4.0)));
+        state.update(Message::StarsAt(f32::NAN, true), &w);
+        assert_eq!(state.stars, Some((4.0, 4.0)));
+        state.update(Message::StarsAt(-1.0, true), &w);
+        state.update(Message::StarsAt(2.0, true), &w);
+        assert_eq!(state.stars, None);
+        state.desk.tasks.push(Task { map: desk::Map { beatmap_id: 1, ..Default::default() }, ..Default::default() });
+        assert_eq!(state.tasks().len(), 1);
+    }
+
+    #[test]
+    fn reviewed_card_stays_until_reload_and_a_failed_reload_releases_buttons() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        let mut state = State::default();
+        state.inspected = Some(Task { map: desk::Map { beatmap_id: 7, ..Default::default() }, ..Default::default() });
+        state.update(Message::Decide("APPROVE", Some("TB".into())), &w);
+        assert!(state.posting);
+        state.update(Message::Posted(Ok(())), &w);
+        assert_eq!(state.task().unwrap().map.beatmap_id, 7);
+        assert!(state.posting && state.loading);
+        state.update(Message::Loaded(Err("offline".into())), &w);
+        assert!(!state.posting && !state.loading);
+        assert_eq!(state.task().unwrap().map.beatmap_id, 7);
+        state.update(Message::Decide("APPROVE", Some("TB".into())), &w);
+        state.update(Message::Posted(Ok(())), &w);
+        state.update(Message::Loaded(Ok(Desk::default())), &w);
+        assert!(state.task().is_none() && !state.posting && !state.loading);
     }
 
     #[test]
@@ -3159,7 +3248,12 @@ mod tests {
         assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "MOVE", slot: Some("NM2".into()), secondary: Some(None), reason: String::new() })]);
         assert!(state.update(Message::Decide("REJECT", None), &w).is_empty());
         assert_eq!(state.update(Message::Posted(Ok(())), &w), [Effect::Load]);
-        assert!(!state.posting && !state.moving);
+        assert!(state.posting && !state.moving);
+        assert_eq!(state.task().unwrap().map.beatmap_id, 7);
+        assert!(state.update(Message::Decide("APPROVE", None), &w).is_empty());
+        let desk = state.desk.clone();
+        state.update(Message::Loaded(Ok(desk)), &w);
+        assert!(!state.posting && state.pending_review.is_none());
         let _ = state.update(Message::Reason("короткие группы".into()), &w);
         let effects = state.update(Message::Decide("APPROVE", None), &w);
         assert_eq!(effects, [Effect::Post(Post::Review { beatmap: 7, decision: "APPROVE", slot: None, secondary: Some(None), reason: "короткие группы".into() })]);
@@ -3224,7 +3318,8 @@ mod tests {
         let w = Words::new(crate::lang::Lang::Ru);
         assert_eq!(skill(&w, "NM5"), "Скорость");
         assert_eq!(skill(&w, "FM4"), "Скорость во фримоде");
-        assert_eq!(skill(&w, "EZ1"), "");
+        assert_eq!(skill(&w, "EZ1"), "Easy");
+        assert_eq!(skill(&w, "NM9"), "");
         assert_eq!(feature(&w, "no.such_path"), "no.such_path");
     }
 
@@ -3480,4 +3575,32 @@ mod tests {
         assert_eq!(state.shown_map(&changed).stars, Some(7.1), "preserve stars received from the server");
     }
 
+    #[test]
+    fn journal_resolves_batch_maps_and_retries_incomplete_names_without_flooding_mirrors() {
+        let w = Words::new(crate::lang::Lang::En);
+        let mut state = State { tab: Tab::Journal, ..Default::default() };
+        state.desk.journal = (1..=8).map(|id| desk::Entry {
+            id, action: "batch_exclude".into(), target: format!("0:Practice:{id}"), ..Default::default()
+        }).collect();
+        assert_eq!(state.wanted(), (1..=4).map(Effect::About).collect::<Vec<_>>());
+        assert!(state.wanted().is_empty());
+        let incomplete = desk::About { version: "Insane".into(), ..Default::default() };
+        assert_eq!(state.update(Message::About(1, Some(incomplete)), &w), vec![Effect::About(5)]);
+        assert!(!state.looked.contains(&1));
+        assert_eq!(state.about(1).unwrap().version, "Insane", "retain useful partial metadata");
+        assert_eq!(state.update(Message::About(2, None), &w), vec![Effect::About(6)], "cooling-down requests do not block later entries");
+        for id in 3..=8 {
+            state.update(Message::About(id, Some(desk::About { title: format!("Song {id}"), ..Default::default() })), &w);
+        }
+        assert!(state.about_pending.is_empty() && state.wanted().is_empty());
+        for id in [1, 2] { state.missed_at.insert(id, std::time::Instant::now() - ABOUT_RETRY); }
+        assert_eq!(state.wanted(), vec![Effect::About(1), Effect::About(2)]);
+        state.update(Message::About(1, Some(desk::About { title: "Recovered song".into(), ..Default::default() })), &w);
+        assert!(did(&w, &state, &state.desk.journal[0]).contains("Recovered song"));
+        assert!(!did(&w, &state, &state.desk.journal[0]).contains("#1"));
+        let whole = desk::Entry { action: "batch_delete".into(), target: "0:2026".into(), ..Default::default() };
+        assert_eq!(journal_map_id(&whole), None, "a numeric batch name is not a map ID");
+        let renamed = desk::Entry { action: "batch_rename".into(), target: "0:Practice:2026".into(), ..Default::default() };
+        assert_eq!(journal_map_id(&renamed), None);
+    }
 }

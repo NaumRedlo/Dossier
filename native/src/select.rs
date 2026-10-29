@@ -557,7 +557,7 @@ impl Main {
             return container(line).padding(Padding { top: 0.0, right: PANEL_OUT, bottom: 0.0, left: PANEL_OUT }).width(Length::Fill).into();
         }
         let filter = &self.filter;
-        let bar = canvas(StarBar { low: filter.low, high: filter.high, alpha: ui::fade() }).width(Length::Fill).height(BAR_H);
+        let bar = canvas(StarBar { low: filter.low, high: filter.high, alpha: ui::fade(), on_at: Message::StarsAt, on_done: || Message::StarsDone }).width(Length::Fill).height(BAR_H);
         let stars = |value: f64| if value >= carousel::STARS_TOP { "∞".to_owned() } else { w.decimal(value, 1) };
         let caption = |key: &str| text(w.t(key)).font(theme::MONO).size(12.0).color(ui::faded(MUTED));
         let stars_row = column![
@@ -1182,10 +1182,12 @@ impl<M> canvas::Program<M> for CarouselShade {
     }
 }
 
-struct StarBar {
-    low: f64,
-    high: f64,
-    alpha: f32,
+pub(crate) struct StarBar<M> {
+    pub low: f64,
+    pub high: f64,
+    pub alpha: f32,
+    pub on_at: fn(f32, bool) -> M,
+    pub on_done: fn() -> M,
 }
 
 const SPECTRUM: [(f32, (u8, u8, u8)); 10] = [
@@ -1201,21 +1203,21 @@ const SPECTRUM: [(f32, (u8, u8, u8)); 10] = [
     (1.0, (0, 0, 0)),
 ];
 
-impl canvas::Program<Message> for StarBar {
+impl<M> canvas::Program<M> for StarBar<M> {
     type State = bool;
 
-    fn update(&self, held: &mut bool, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<Message>> {
+    fn update(&self, held: &mut bool, event: &iced::Event, bounds: Rectangle, cursor: mouse::Cursor) -> Option<canvas::Action<M>> {
         let fraction = |position: Point| (position.x - bounds.x - TRACK_KNOB - 2.0) / (bounds.width - 2.0 * (TRACK_KNOB + 2.0)).max(1.0);
         match event {
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let position = cursor.position_in(bounds).map(|p| Point::new(p.x + bounds.x, p.y))?;
                 *held = true;
-                Some(canvas::Action::publish(Message::StarsAt(fraction(position), true)).and_capture())
+                Some(canvas::Action::publish((self.on_at)(fraction(position), true)).and_capture())
             }
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) if *held => Some(canvas::Action::publish(Message::StarsAt(fraction(*position), false)).and_capture()),
+            iced::Event::Mouse(mouse::Event::CursorMoved { position }) if *held => Some(canvas::Action::publish((self.on_at)(fraction(*position), false)).and_capture()),
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if *held => {
                 *held = false;
-                Some(canvas::Action::publish(Message::StarsDone).and_capture())
+                Some(canvas::Action::publish((self.on_done)()).and_capture())
             }
             _ => None,
         }

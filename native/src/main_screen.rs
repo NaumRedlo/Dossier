@@ -1430,7 +1430,7 @@ impl Main {
         }
         if !self.gallery && !self.hidden && !self.minimized && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance && !self.duels.roles.is_empty() {
             parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::PresenceTick))));
-            if self.desk.posting || self.desk.loading || self.desk.inspecting.is_some() {
+            if self.desk.posting || self.desk.loading || self.desk.inspecting.is_some() || self.desk.presence_animating() {
                 parts.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::BusyFrame))));
             }
         }
@@ -1896,7 +1896,7 @@ impl Main {
                         Post::Cancel { duel, reason } => crate::desk::cancel(&account, &duel, &reason),
                         Post::Grant { who, role, reason } => crate::desk::grant(&account, &who, &role, &reason),
                         Post::Revoke { player, role, reason } => crate::desk::revoke(&account, player, &role, &reason),
-                        Post::Discover { band, reason } => crate::desk::discover(&account, band, &reason),
+                        Post::Discover { slot, band, reason } => crate::desk::discover(&account, &slot, band, &reason),
                         Post::Delete { version, reason } => crate::desk::delete_model(&account, &version, &reason),
                         Post::RenameBatch { name, year, new_name, new_year, reason } => crate::desk::rename_batch(&account, &name, year, &new_name, new_year, &reason),
                         Post::DeleteBatch { name, year, beatmap, reason } => crate::desk::delete_batch(&account, &name, year, beatmap, &reason),
@@ -3358,8 +3358,8 @@ impl Main {
                         return at.map_or_else(Task::none, |at| self.update(Message::Community(C::Person(Some(at)))));
                     }
                     C::Duels(inner) => {
-                        if let Some(player) = self.account.as_ref().and_then(|me| me.player) {
-                            self.duels.player = Some(player);
+                        if self.duels.player.is_none() {
+                            self.duels.player = self.account.as_ref().and_then(|me| me.player);
                         }
                         let mut effects = Vec::new();
                         if matches!(inner, crate::duels_screen::Message::Frame) && self.duel_preview.as_ref().is_some_and(|preview| preview.ended()) {

@@ -461,7 +461,11 @@ pub enum Launch {
     Direct,
     CrossOver { wine: PathBuf, bottle: String },
     Wine { loader: PathBuf, prefix: PathBuf },
+    Yawl { wrapper: PathBuf, pid: u32, wine: PathBuf, env: Vec<(String, String)> },
 }
+
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+const NOT_CARRIED: [&str; 5] = ["WINELOADERNOEXEC", "WINEPRELOADRESERVE", "WINESERVERSOCKET", "WINEDEBUG", "YAWL_VERBS"];
 
 pub fn client_pid(listed: &str) -> Option<u32> {
     listed.lines().find_map(|line| {
@@ -533,13 +537,34 @@ fn wine_loader(environ: &[u8]) -> Option<PathBuf> {
     })
 }
 
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn yawl_wrapper(environ: &[u8]) -> Option<PathBuf> {
+    let wrapper = environ.split(|byte| *byte == 0).filter_map(|pair| std::str::from_utf8(pair).ok()).find_map(|pair| pair.strip_prefix("WINE=")).filter(|value| !value.is_empty()).map(PathBuf::from)?;
+    let named_yawl = |path: &Path| path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with("yawl"));
+    (wrapper.is_file() && (named_yawl(&wrapper) || std::fs::canonicalize(&wrapper).is_ok_and(|real| named_yawl(&real)))).then_some(wrapper)
+}
+
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn entered(pid: u32, environ: &[u8], mapped: &[String]) -> Option<Launch> {
+    let wrapper = yawl_wrapper(environ)?;
+    let wine = wine_root(mapped)?.join("bin").join("wine");
+    let env = environ.split(|byte| *byte == 0)
+        .filter_map(|pair| std::str::from_utf8(pair).ok())
+        .filter_map(|pair| pair.split_once('='))
+        .filter(|(key, _)| !key.is_empty() && !NOT_CARRIED.contains(key))
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect();
+    Some(Launch::Yawl { wrapper, pid, wine, env })
+}
+
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn launch() -> Option<Launch> {
+    let own = std::fs::read_link("/proc/self/ns/mnt").ok();
     for entry in std::fs::read_dir("/proc").ok()?.flatten() {
         let dir = entry.path();
-        if !entry.file_name().to_str().is_some_and(|name| name.bytes().all(|b| b.is_ascii_digit())) {
+        let Some(pid) = entry.file_name().to_str().filter(|name| name.bytes().all(|b| b.is_ascii_digit())).and_then(|name| name.parse::<u32>().ok()) else {
             continue;
-        }
+        };
         let Ok(command) = std::fs::read(dir.join("cmdline")) else {
             continue;
         };
@@ -548,6 +573,14 @@ pub fn launch() -> Option<Launch> {
             continue;
         }
         let environ = std::fs::read(dir.join("environ")).unwrap_or_default();
+        if yawl_wrapper(&environ).is_some() {
+            let apart = std::fs::read_link(dir.join("ns/mnt")).ok().is_some_and(|mnt| own.as_ref() != Some(&mnt));
+            let mapped = if apart { std::fs::read_to_string(dir.join("maps")).unwrap_or_default().lines().filter_map(|line| line.find('/').map(|at| line[at..].to_owned())).collect() } else { Vec::new() };
+            if let Some(found) = entered(pid, &environ, &mapped) {
+                return Some(found);
+            }
+            continue;
+        }
         let named = |key: &str| environ.split(|byte| *byte == 0).filter_map(|pair| std::str::from_utf8(pair).ok()).find_map(|pair| pair.strip_prefix(key).map(PathBuf::from));
         let loader = wine_loader(&environ);
         if let Some(prefix) = named("WINEPREFIX=").filter(|prefix| prefix.join("drive_c").is_dir()) {
@@ -591,6 +624,11 @@ fn launched(launch: &Launch, program: &Path) -> Command {
         Launch::Wine { loader, prefix } => {
             let mut command = Command::new(loader);
             command.env("WINEPREFIX", prefix).env("WINEDEBUG", "-all").arg(program);
+            command
+        }
+        Launch::Yawl { wrapper, pid, wine, env } => {
+            let mut command = Command::new(wrapper);
+            command.env_clear().envs(env.iter().map(|(key, value)| (key, value))).env("YAWL_VERBS", format!("enter={pid}")).env("WINEDEBUG", "-all").arg(wine).arg(program);
             command
         }
     };
@@ -1024,6 +1062,43 @@ mod tests {
         assert_eq!(wine_loader(format!("WINE={}\0", wine.display()).as_bytes()), Some(wine));
         assert_eq!(wine_loader(b"WINE=\0WINELOADER=\0"), None);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_client_in_a_yawl_container_gets_witness_in_that_container_with_the_client_s_environment() {
+        let scratch = tempfile::Builder::new().prefix("dossier-yawl-").tempdir().unwrap();
+        let dir = scratch.path();
+        let yawl = dir.join("yawl-winello");
+        let plain = dir.join("wine");
+        std::fs::write(&yawl, b"test").unwrap();
+        std::fs::write(&plain, b"test").unwrap();
+        let environ = |wine: &Path| format!("WINE={}\0WINEPREFIX=/home/none/prefix\0WINEFSYNC=1\0WINELOADERNOEXEC=1\0WINESERVERSOCKET=13\0WINEDEBUG=+loaddll\0LD_LIBRARY_PATH=/usr/lib/pressure-vessel/overrides/lib\0", wine.display()).into_bytes();
+        let mapped = vec!["/usr/lib/x86_64-linux-gnu/libc.so.6".to_owned(), "/home/none/wine-osu/lib/wine/x86_64-unix/ntdll.so".to_owned()];
+        let Some(Launch::Yawl { wrapper, pid, wine, env }) = entered(4242, &environ(&yawl), &mapped) else {
+            panic!("a client under yawl is not entered");
+        };
+        assert_eq!((wrapper.as_path(), pid, wine), (yawl.as_path(), 4242, PathBuf::from("/home/none/wine-osu/bin/wine")));
+        assert!(env.contains(&("WINEFSYNC".into(), "1".into())) && env.contains(&("WINEPREFIX".into(), "/home/none/prefix".into())));
+        assert!(env.contains(&("LD_LIBRARY_PATH".into(), "/usr/lib/pressure-vessel/overrides/lib".into())), "the container's own paths are kept");
+        assert!(!env.iter().any(|(key, _)| ["WINELOADERNOEXEC", "WINESERVERSOCKET", "WINEDEBUG"].contains(&key.as_str())), "what Wine set for the client itself is not carried");
+        assert_eq!(entered(4242, &environ(&yawl), &[]), None, "a process of the wrapper without Wine in it is not entered");
+        assert_eq!(entered(4242, &environ(&plain), &mapped), None, "a plain Wine is not a container");
+        assert_eq!(yawl_wrapper(&environ(&dir.join("yawl-missing"))), None);
+        #[cfg(unix)]
+        {
+            let renamed = dir.join("osu-runner");
+            std::fs::write(dir.join("yawl"), b"test").unwrap();
+            std::os::unix::fs::symlink(dir.join("yawl"), &renamed).unwrap();
+            assert_eq!(yawl_wrapper(&environ(&renamed)), Some(renamed), "a wrapper of another name that is yawl is known");
+        }
+        let program = Path::new("/home/none/.dossier/bin/witness.exe");
+        let launch = entered(4242, &environ(&yawl), &mapped).unwrap();
+        let started = command(&launch, program, "");
+        assert_eq!(started.get_program(), yawl.as_os_str());
+        assert_eq!(started.get_args().take(3).map(PathBuf::from).collect::<Vec<_>>(), vec![PathBuf::from("/home/none/wine-osu/bin/wine"), program.to_path_buf(), PathBuf::from("--serve")]);
+        let set = |key: &str| started.get_envs().find(|(name, _)| *name == key).and_then(|(_, value)| value).map(|value| value.to_string_lossy().into_owned());
+        assert_eq!((set("YAWL_VERBS"), set("WINEDEBUG"), set("WINEFSYNC")), (Some("enter=4242".into()), Some("-all".into()), Some("1".into())));
+        scratch.close().unwrap();
     }
 
     #[test]

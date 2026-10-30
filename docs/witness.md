@@ -169,9 +169,11 @@ setting saved then is read as the new one.)
   through CrossOver's own `wine --bottle`, any other prefix with its loader and
   `WINEPREFIX` — so no Wine is started for a client that is not there. On Linux,
   Dossier uses an existing `WINELOADER` from the game process environment, then
-  an existing `WINE` (including osu-winello/yawl wrappers), before falling back
-  to `wine` on PATH. A spawn failure shows the loader and OS error in settings;
-  it is distinct from a build that lacks the Witness binary.
+  an existing `WINE`, before falling back to `wine` on PATH. A client whose
+  `WINE` is a yawl wrapper (osu-winello's `yawl-winello`) runs in a Steam
+  Runtime container, and Witness is started inside that same container (see
+  below). A spawn failure shows the loader and OS error in settings; it is
+  distinct from a build that lacks the Witness binary.
 - Witness speaks on its standard output, one JSON object a line: `waiting`,
   `attached`, `loading`, `state` (the screen and the map under the cursor),
   `playing` once a second, `kept` with the replay itself as hex, `gone`, and
@@ -200,17 +202,58 @@ both the updated application and the updated `witness.exe`.
 An overlay gets one launch attempt per Witness session or explicit enable action.
 If it exits or its input pipe breaks, subsequent frames do not restart it every
 five seconds. Toggle the overlay off and on to retry; inspect
-`~/.dossier/witness-overlay.log` for its output. This limits retries; it does not
-repair stdin forwarding by a Wine wrapper or container.
+`~/.dossier/witness-overlay.log` for its output.
+
+### Inside osu-winello's container
+
+osu-winello starts the client through yawl, which runs Wine in a Steam Runtime
+container (pressure-vessel). Started through the same wrapper, Witness got a
+container of its own, and that went wrong in three ways (checked 2026-10-30
+with yawl 0.8.2):
+
+- A new container does not pass standard input on. The overlay reads its
+  frames there, so it saw them end at once and left ("the frames ended").
+- Dossier gave it only `WINEPREFIX`, not the client's `WINEFSYNC`, `WINEESYNC`
+  and `WINENTSYNC`, while all processes of one prefix share one server.
+- The process Dossier held was yawl, not Witness, so stopping it left Witness
+  running. In the reports the client vanished seconds after it started
+  whenever the prefix's server lived in another container (a Witness started
+  before the client or kept from an earlier session), and never when the
+  client had started the server itself. That fits, but nothing has shown it is
+  the cause.
+
+So when the client's `WINE` is a yawl wrapper (by its name or what it links
+to), Dossier starts Witness with yawl's `enter=<pid>` (yawl 0.6.6 and later):
+yawl joins the client's namespaces and runs the program in place. Witness
+gets:
+
+- the process that is the client inside the container. The wrapper's own
+  process on the host and pressure-vessel's names `osu!.exe` too and are
+  passed over, and so is a process in the container without Wine mapped in it;
+- the client's own Wine, `bin/wine` under the folder that holds the client's
+  `lib/wine/`;
+- the client's environment as it is, so the same sync, paths and display,
+  without what Wine set for the client process itself (`WINELOADERNOEXEC`,
+  `WINEPRELOADRESERVE`, and `WINESERVERSOCKET`, the number of a server socket
+  the client inherited when another Wine process started it, which Witness
+  does not have) and with `WINEDEBUG=-all`.
+
+Standard input reaches the program, Witness starts in a tenth of a second
+instead of the seconds a container takes, the process Dossier holds is
+Witness itself, and Witness never starts a server outside the client's
+container. The overlay is started the same way.
 
 Verify on the tester's Linux installation:
 
-1. Start osu-winello without a system Wine installation and check that Witness
-   attaches using the game's loader and prefix.
-2. Close and reopen the game three times. Check that the old Witness exits and
-   that each new client gets a fresh instance.
-3. Enable the overlay once. If it exits, verify that it stays stopped until an
-   explicit retry or a new session; retain the overlay log.
+1. Start osu-winello without a system Wine installation and without a `wine`
+   of one's own on PATH, and check that Witness attaches inside the game's
+   container (its `witness.exe` process shares the game's `/proc/<pid>/ns/mnt`).
+2. Close and reopen the game three times, with Witness switched on before the
+   game starts. Check that the old Witness exits, that each new client gets a
+   fresh instance, and that the game stays up.
+3. Enable the overlay. Check that it stays up and shows its plates; if it
+   exits, verify that it stays stopped until an explicit retry or a new
+   session, and retain the overlay log.
 4. Check the reported game crash and Bancho rejection separately, recording
    whether Witness and the overlay were enabled. Neither cause is established
    by the launcher fixes or the automated tests.

@@ -1170,6 +1170,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sys-locale",
+ "tempfile",
  "trash",
  "tray-icon",
  "tungstenite",

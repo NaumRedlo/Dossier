@@ -91,6 +91,8 @@ pub enum Message {
     NewsThreads(Result<Vec<crate::news::Thread>, String>),
     NewsPosts(String, Result<Vec<crate::news::Post>, String>),
     NewsPicture(String, Option<image::Handle>),
+    NewsMoving(String, Moving),
+    PicturesMove,
     NewsFrost(String, crate::community_screen::Frost),
     LiveArrive,
     CommunityArrived(Result<crate::community::wire::Community, crate::bot::Refused>),
@@ -656,6 +658,7 @@ pub struct Main {
     pub news: crate::news::News,
     news_loaded: bool,
     pub news_pictures: HashMap<String, image::Handle>,
+    pub moving_pictures: HashMap<String, Moving>,
     pub news_frosts: HashMap<String, crate::community_screen::Frost>,
     news_asked: std::collections::HashSet<String>,
     news_picture_failures: HashMap<String, Instant>,
@@ -948,6 +951,7 @@ impl Main {
             news: crate::news::News::default(),
             news_loaded: false,
             news_pictures: HashMap::new(),
+            moving_pictures: HashMap::new(),
             news_frosts: HashMap::new(),
             news_asked: std::collections::HashSet::new(),
             news_picture_failures: HashMap::new(),
@@ -1510,6 +1514,9 @@ impl Main {
             if self.witness_delivery.pending() > 0 {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
             }
+        }
+        if !self.moving_pictures.is_empty() && !self.gallery && !self.hidden && !self.minimized && self.overlay == Overlay::Community {
+            parts.push(iced::time::every(MOVING_EVERY).map(|_| Message::PicturesMove));
         }
         if crate::mapper_faces::waiting() && self.overlay == Overlay::Community {
             parts.push(iced::time::every(Duration::from_millis(300)).map(|_| Message::FacesArrived));
@@ -3787,6 +3794,21 @@ impl Main {
                         Task::none()
                     }
                 }
+            }
+            Message::NewsMoving(url, moving) => {
+                self.moving_pictures.insert(url, moving);
+                Task::none()
+            }
+            Message::PicturesMove => {
+                let now = moving_clock();
+                for (url, moving) in &mut self.moving_pictures {
+                    let at = moving.at(now);
+                    if at != moving.shown {
+                        moving.shown = at;
+                        self.news_pictures.insert(url.clone(), moving.frames[at].clone());
+                    }
+                }
+                Task::none()
             }
             Message::NewsPicture(url, handle) => {
                 match handle {
@@ -6069,6 +6091,11 @@ impl Main {
                             return;
                         }
                     }
+                    if let Some(moving) = bytes.as_deref().filter(|_| side <= 256).and_then(|bytes| moving_bytes(bytes, side)) {
+                        if !push(Message::NewsMoving(url.clone(), moving)) {
+                            return;
+                        }
+                    }
                     let handle = bytes.and_then(|bytes| match side {
                         crate::community::BACKDROP => backdrop_bytes(&bytes, side),
                         crate::community::POSTER => poster_bytes(&bytes),
@@ -7258,6 +7285,60 @@ pub fn covered_bytes(bytes: &[u8], width: u32, height: u32) -> Option<image::Han
     let picture = ::image::load_from_memory(bytes).ok()?;
     let picture = picture.resize_to_fill(width, height, ::image::imageops::FilterType::Lanczos3).to_rgba8();
     Some(image::Handle::from_rgba(width, height, picture.into_raw()))
+}
+
+pub const MOVING_FRAMES: usize = 60;
+pub const MOVING_EVERY: Duration = Duration::from_millis(40);
+const MOVING_DECODED: usize = MOVING_FRAMES * 4;
+
+#[derive(Debug, Clone)]
+pub struct Moving {
+    pub frames: Vec<image::Handle>,
+    pub ends_ms: Vec<u32>,
+    pub shown: usize,
+}
+
+impl Moving {
+    pub fn at(&self, ms: u64) -> usize {
+        let Some(&total) = self.ends_ms.last().filter(|total| **total > 0) else {
+            return 0;
+        };
+        let into = (ms % u64::from(total)) as u32;
+        self.ends_ms.iter().position(|end| into < *end).unwrap_or(0)
+    }
+}
+
+fn moving_clock() -> u64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+fn frame_ms(frame: &::image::Frame) -> u32 {
+    let (numer, denom) = frame.delay().numer_denom_ms();
+    let ms = if denom == 0 { 0 } else { numer / denom };
+    if ms <= 10 { 100 } else { ms }
+}
+
+pub fn moving_bytes(bytes: &[u8], side: u32) -> Option<Moving> {
+    use ::image::AnimationDecoder;
+    if !bytes.starts_with(b"GIF8") {
+        return None;
+    }
+    let decoder = ::image::codecs::gif::GifDecoder::new(std::io::Cursor::new(bytes)).ok()?;
+    let frames: Vec<::image::Frame> = decoder.into_frames().take(MOVING_DECODED).collect::<Result<_, _>>().ok()?;
+    if frames.len() < 2 {
+        return None;
+    }
+    let every = frames.len().div_ceil(MOVING_FRAMES);
+    let mut moving = Moving { frames: Vec::new(), ends_ms: Vec::new(), shown: 0 };
+    let mut total = 0;
+    for chunk in frames.chunks(every) {
+        let picture = ::image::DynamicImage::ImageRgba8(chunk[0].buffer().clone()).resize_to_fill(side, side, ::image::imageops::FilterType::Triangle).to_rgba8();
+        moving.frames.push(image::Handle::from_rgba(side, side, picture.into_raw()));
+        total += chunk.iter().map(frame_ms).sum::<u32>();
+        moving.ends_ms.push(total);
+    }
+    Some(moving)
 }
 
 pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {

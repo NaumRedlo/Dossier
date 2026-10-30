@@ -1789,7 +1789,9 @@ pub(crate) fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, M
             .on_press(Message::Person(None));
         let status: Element<'a, Message> = if ground.person_loading { ui::turning(TURNING) } else { Space::new().width(0.0).into() };
         let head = row![status, ui::grow(), close].spacing(10).align_y(iced::Center);
-        container(column![head, crate::dossier::columns(ground, &whose, wide - 44.0, ground.person_t)].spacing(10)).padding(Padding { top: 12.0, right: 22.0, bottom: 16.0, left: 22.0 }).width(Length::Fill).height(Length::Fill).into()
+        let cover = crate::dossier::cover_of(ground, whose.person, &whose.card);
+        let page = container(column![head, crate::dossier::columns(ground, &whose, wide - 44.0, ground.person_t)].spacing(10)).padding(Padding { top: 12.0, right: 22.0, bottom: 16.0, left: 22.0 }).width(Length::Fill).height(Length::Fill).into();
+        crate::dossier::backdropped(cover, wide, 20.0, page)
     });
     let mut look = stage_look();
     look.veil = Color::TRANSPARENT;

@@ -581,6 +581,70 @@ fn cover_picture(handle: Option<&iced::widget::image::Handle>, wide: f32, tint: 
     })
 }
 
+pub const BACKDROP_HIGH: f32 = 460.0;
+
+fn backdrop_picture(handle: &iced::widget::image::Handle, wide: f32, round: f32) -> Option<iced::widget::image::Handle> {
+    use iced::widget::image::Handle;
+    type Key = (iced::advanced::image::Id, u32, u32);
+    thread_local! { static BACKDROPS: std::cell::RefCell<Vec<(Key, Handle)>> = const { std::cell::RefCell::new(Vec::new()) }; }
+    let width = (wide.max(1.0) / 2.0).round().max(1.0) as u32;
+    let height = (BACKDROP_HIGH / 2.0) as u32;
+    let key = (handle.id(), width, round as u32);
+    BACKDROPS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((_, picture)) = cache.iter().find(|(old, _)| *old == key) { return Some(picture.clone()); }
+        let source = match handle {
+            Handle::Rgba { width, height, pixels, .. } => image::RgbaImage::from_raw(*width, *height, pixels.to_vec()),
+            Handle::Bytes(_, bytes) => image::load_from_memory(bytes).ok().map(|image| image.to_rgba8()),
+            Handle::Path(_, path) => image::open(path).ok().map(|image| image.to_rgba8()),
+        }.filter(|image| image.width() > 0 && image.height() > 0)?;
+        let filled = image::DynamicImage::ImageRgba8(source).resize_to_fill(width, height, image::imageops::FilterType::Triangle).to_rgba8();
+        let soft = image::imageops::blur(&filled, BACKDROP_SOFT);
+        let base = theme::SLAB_SOLID;
+        let radius = round / 2.0;
+        let mut pixels = image::RgbaImage::new(width, height);
+        for (x, y, pixel) in pixels.enumerate_pixels_mut() {
+            let t = (y as f32 + 0.5) / height as f32;
+            let fade = 1.0 - { let u = (t / 0.92).clamp(0.0, 1.0); u * u * (3.0 - 2.0 * u) };
+            let across = (x as f32 + 0.5) / width as f32;
+            let sides = (across.min(1.0 - across) / BACKDROP_SIDES).clamp(0.0, 1.0);
+            let top = (t / BACKDROP_TOP).clamp(0.0, 1.0);
+            let fade = fade * sides * sides * (3.0 - 2.0 * sides) * top;
+            let corner_x = (radius - (x as f32 + 0.5)).max(x as f32 + 0.5 - (width as f32 - radius)).max(0.0);
+            let corner_y = (radius - (y as f32 + 0.5)).max(0.0);
+            let edge = if corner_x > 0.0 && corner_y > 0.0 { (radius - corner_x.hypot(corner_y) + 0.5).clamp(0.0, 1.0) } else { 1.0 };
+            let art = soft.get_pixel(x, y).0;
+            *pixel = image::Rgba([
+                (art[0] as f32 * (1.0 - BACKDROP_SHADE) + base.r * 255.0 * BACKDROP_SHADE) as u8,
+                (art[1] as f32 * (1.0 - BACKDROP_SHADE) + base.g * 255.0 * BACKDROP_SHADE) as u8,
+                (art[2] as f32 * (1.0 - BACKDROP_SHADE) + base.b * 255.0 * BACKDROP_SHADE) as u8,
+                (255.0 * fade * edge).round() as u8,
+            ]);
+        }
+        let picture = Handle::from_rgba(width, height, pixels.into_raw());
+        if cache.len() >= 8 { cache.remove(0); }
+        cache.push((key, picture.clone()));
+        Some(picture)
+    })
+}
+
+const BACKDROP_SOFT: f32 = 6.0;
+const BACKDROP_SHADE: f32 = 0.7;
+const BACKDROP_SIDES: f32 = 0.08;
+const BACKDROP_TOP: f32 = 0.06;
+
+pub fn cover_of<'a>(ground: &Ground<'a>, person: &crate::community::Person, card: &crate::community::wire::Card) -> Option<&'a iced::widget::image::Handle> {
+    ground.pictures.get(&card.cover_url).or_else(|| ground.pictures.get(&person.cover))
+}
+
+pub fn backdropped<'a>(cover: Option<&iced::widget::image::Handle>, wide: f32, round: f32, page: Element<'a, Message>) -> Element<'a, Message> {
+    let Some(picture) = cover.and_then(|cover| backdrop_picture(cover, wide, round)) else {
+        return page;
+    };
+    let back = iced::widget::image(picture).width(Length::Fill).height(BACKDROP_HIGH).content_fit(iced::ContentFit::Fill).opacity(ui::fade());
+    stack![container(back).width(Length::Fill).height(Length::Fill), page].into()
+}
+
 fn profile_cover<'a>(handle: Option<&iced::widget::image::Handle>, wide: f32, tint: Color) -> Element<'a, Message> {
     iced::widget::image(cover_picture(handle, wide, tint)).width(Length::Fill).height(196.0)
         .content_fit(iced::ContentFit::Fill).opacity(ui::fade()).into()
@@ -591,7 +655,7 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a
     let w = ground.words;
     let side = 156.0;
     let face = chronicle::ring(ground, you, side, 1.0, 3.0);
-    let cover = ground.pictures.get(&card.cover_url).or_else(|| ground.pictures.get(&you.cover));
+    let cover = cover_of(ground, you, card);
     let avatar = container(face).width(Length::Fill).height(196.0).center_x(Length::Fill).center_y(196.0);
     let banner = container(stack![profile_cover(cover, wide - 2.0, screen::avatar_colour(&you.name)), avatar].width(Length::Fill).height(196.0))
         .padding(Padding::ZERO.top(1.0).left(1.0).right(1.0)).id("profile-cover");
@@ -1383,13 +1447,30 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let Some(card) = ground.card.cloned().or_else(|| ground.catalog.card_of()) else {
         return container(ui::mono_small(w.t("nothing-yet"), FAINT)).center(Length::Fill).into();
     };
+    let cover = cover_of(ground, person, &card);
     let whose = Whose { at, person, card, me: ground.catalog.me.as_ref() };
-    container(columns(ground, &whose, ground.width - 80.0, ground.section_t)).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into()
+    let page = container(columns(ground, &whose, ground.width - 80.0, ground.section_t)).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into();
+    backdropped(cover, ground.width, 0.0, page)
 }
 
 #[cfg(test)]
 mod chart_tests {
     use super::*;
+
+    #[test]
+    fn the_profile_backdrop_is_the_dimmed_cover_fading_away_at_the_bottom_and_the_sides() {
+        let handle = iced::widget::image::Handle::from_rgba(64, 32, [255, 255, 255, 255].repeat(64 * 32));
+        let Some(iced::widget::image::Handle::Rgba { width, height, pixels, .. }) = backdrop_picture(&handle, 400.0, 0.0) else {
+            panic!("a backdrop of raw pixels");
+        };
+        let alpha = |x: u32, y: u32| pixels[((y * width + x) * 4 + 3) as usize];
+        let red = |x: u32, y: u32| pixels[((y * width + x) * 4) as usize];
+        assert!(alpha(width / 2, height / 5) > 150, "the upper middle shows the cover");
+        assert!(red(width / 2, height / 5) < 140, "and it is dimmed");
+        assert_eq!(alpha(width / 2, height - 1), 0, "it is gone at the bottom");
+        assert!(alpha(0, height / 5) < 4, "and at the sides");
+        assert!(alpha(width / 2, 0) < 40, "and it rises from the top edge");
+    }
 
     #[test]
     fn a_bright_profile_cover_fades_to_the_card_and_stays_inside_its_bounds() {

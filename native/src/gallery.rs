@@ -1265,6 +1265,20 @@ fn community_states(
         }),
         ("main-community-titles".to_owned(), community(crate::community_screen::Section::Titles, None)),
         ("main-community-profile".to_owned(), community(crate::community_screen::Section::Profile, None)),
+        ("main-community-profile-cover".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Profile, None);
+            let cover = "cover://staged".to_owned();
+            if let Some(handle) = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main").join("bg-freedom.jpg")).ok().and_then(|bytes| crate::main_screen::fitted_bytes(&bytes, crate::community::COVER)) {
+                main.news_pictures.insert(cover.clone(), handle);
+            }
+            if let Some(me) = main.community.as_mut().and_then(|catalog| catalog.me.as_mut()) {
+                me.person.cover = cover.clone();
+            }
+            if let Some(you) = main.community.as_mut().and_then(|catalog| catalog.people.iter_mut().find(|person| person.you)) {
+                you.cover = cover;
+            }
+            main
+        }),
         ("main-community-reading".to_owned(), {
             let mut main = community(crate::community_screen::Section::Feed, None);
             main.community_reading = main.news.stories.first().cloned().map(crate::community_screen::Reading::Story);

@@ -1784,3 +1784,32 @@ fn duel_clock_updates_without_fetching_or_user_activity() {
     main.duels.searching = None;
     assert!(!main.duels.clock_running());
 }
+
+fn gif_of(frames: usize, delay_ms: u32) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = ::image::codecs::gif::GifEncoder::new(&mut bytes);
+        for at in 0..frames {
+            let shade = (at * 40 % 256) as u8;
+            let picture = ::image::RgbaImage::from_pixel(8, 8, ::image::Rgba([shade, 0, 0, 255]));
+            encoder.encode_frame(::image::Frame::from_parts(picture, 0, 0, ::image::Delay::from_numer_denom_ms(delay_ms, 1))).expect("a frame");
+        }
+    }
+    bytes
+}
+
+#[test]
+fn an_animated_avatar_keeps_its_frames_and_turns_them_by_their_delays() {
+    let moving = super::moving_bytes(&gif_of(3, 100), 16).expect("an animated picture");
+    assert_eq!(moving.frames.len(), 3);
+    assert_eq!(moving.ends_ms, [100, 200, 300]);
+    assert_eq!([moving.at(0), moving.at(150), moving.at(299), moving.at(300), moving.at(450)], [0, 1, 2, 0, 1]);
+    let long = super::moving_bytes(&gif_of(150, 30), 16).expect("a long animation");
+    assert!(long.frames.len() <= super::MOVING_FRAMES, "{}", long.frames.len());
+    assert_eq!(long.ends_ms.last(), Some(&4_500), "taking every third frame keeps the whole length");
+    assert!(super::moving_bytes(&gif_of(1, 100), 16).is_none(), "one frame is a still picture");
+    let mut png = Vec::new();
+    ::image::RgbaImage::from_pixel(4, 4, ::image::Rgba([1, 2, 3, 255])).write_to(&mut std::io::Cursor::new(&mut png), ::image::ImageFormat::Png).expect("a png");
+    assert!(super::moving_bytes(&png, 16).is_none());
+    assert_eq!(super::moving_bytes(&gif_of(4, 0), 16).expect("zero delays").ends_ms, [100, 200, 300, 400], "a zero delay plays like a browser plays it");
+}

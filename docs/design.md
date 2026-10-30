@@ -906,6 +906,13 @@ in `docs/witness.md`.
   poster and the pools' slots (NM, HD, HR, DT; the pool's FM and TB are not
   game mods and keep their chips). The pictures are in the application, so
   nothing is fetched and the gallery's frames show them.
+- Since 2026-10-30 the player's osu! cover lies behind the whole profile,
+  one's own and another's: blurred, dimmed toward the slab colour and fading
+  out at the sides, at the top edge and over the first 460 points down, so
+  the cards stay readable; without a cover the page is as before. Avatars
+  that osu! serves as GIFs move wherever they are shown while the Community
+  is open: up to sixty frames are kept, a longer animation keeping every
+  second or third frame and its whole length, and the frames turn every 40 ms.
 - *Профиль* is the dossier (2026-09-24): the ringed avatar with the level
   and its progress, the title worn, whether the person is online, the
   country with its rank, the years in osu!, the streak and the duels, *Открыть

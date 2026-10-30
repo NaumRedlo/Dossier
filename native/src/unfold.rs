@@ -72,7 +72,7 @@ pub fn resting(card: Rectangle) -> Rectangle {
     let scale = 0.96;
     let width = card.width * scale;
     let height = card.height * scale;
-    Rectangle { x: card.x + (card.width - width) / 2.0, y: card.y + (card.height - height) / 2.0 + 18.0, width, height }
+    Rectangle { x: card.x + (card.width - width) / 2.0, y: card.y + (card.height - height) / 2.0, width, height }
 }
 
 impl<Message> Unfold<'_, Message> {
@@ -367,10 +367,11 @@ mod tests {
     }
 
     #[test]
-    fn without_a_panel_the_stage_rises_from_a_little_below() {
+    fn without_a_panel_the_stage_grows_in_place() {
         let card = Rectangle::new(iced::Point::new(0.0, 0.0), Size::new(1000.0, 800.0));
         let start = resting(card);
         assert!(start.width < card.width && start.y > card.y);
+        assert!((start.center_y() - card.center_y()).abs() < 0.01);
         assert!((start.center_x() - card.center_x()).abs() < 0.01);
     }
 }

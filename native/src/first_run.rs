@@ -491,10 +491,10 @@ impl FirstRun {
         };
         let k = self.reveal.interpolate(0.0, 1.0, self.now);
         let card = match self.step {
-            Step::Checks => ui::fading(k, || ui::rising(k, self.checks_card())),
+            Step::Checks => ui::fading(k, || self.checks_card()),
             _ => ui::card(
                 ui::ledger(&self.steps_ledger(), None),
-                Some(ui::fading(k, || ui::rising(k, self.step_body()))),
+                Some(ui::fading(k, || self.step_body())),
             ),
         };
         let column = column![

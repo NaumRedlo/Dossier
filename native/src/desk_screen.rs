@@ -2427,10 +2427,7 @@ fn add_map_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message>
         slots = slots.push(button(container(tag(slot, k)).center_y(34.0 * k)).padding([0.0, 5.0 * k]).style(quiet(on, 9.0)).on_press(Message::MapSlot(Some(slot.to_owned()))));
     }
     slots = slots.push(chip_k(w.t("desk-map-slot-model"), state.map_slot.is_none(), Message::MapSlot(None), k));
-    let close = button(container(glyph(Icon::Close, 16.0 * k, INK)).center_x(32.0 * k).center_y(32.0 * k))
-        .padding(0)
-        .style(quiet(false, theme::CONTROL_RADIUS))
-        .on_press_maybe((!state.posting).then_some(Message::AddingMap(false)));
+    let close = ui::close_square((!state.posting).then_some(Message::AddingMap(false)), ui::CLOSE_SIDE * k);
     let warning = |said: String, colour: Color| -> Element<'a, Message> {
         row![glyph(Icon::Warn, 16.0 * k, colour), container(words(said, 13.0 * k, colour)).width(Length::Fill)].spacing(8).align_y(Alignment::Center).into()
     };

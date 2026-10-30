@@ -167,7 +167,7 @@ impl Main {
                 _ => 1.0,
             };
             let tile = ui::fading(ui::fade() * alive, || {
-                ui::grown(self.notification_card(notice, None, BELL_W - 32.0), Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - alive) * 24.0)
+                ui::grown(self.notification_card(notice, None, BELL_W - 32.0), Point::new(1.0, 0.5), 0.0, 1.0)
             });
             let going = self.leaving.contains_key(&notice.id);
             tiles.push(ui::collapsing(container(tile).padding(Padding::ZERO.bottom(8.0)), if going { alive } else { 1.0 }));
@@ -208,7 +208,7 @@ impl Main {
             }
             bottom = bottom.push(crate::billing::outlined(w.t("close"), Some(Message::HideError)));
             let card = ui::glass_warm(container(lines.push(bottom)).padding(26), self.glass_picture(), iced::Size::new(self.width, self.height));
-            let card = ui::grown(iced::widget::opaque(card), Point::new(0.5, 0.0), -(1.0 - k) * 12.0, 0.96 + 0.04 * k);
+            let card = ui::grown(iced::widget::opaque(card), Point::new(0.5, 0.0), 0.0, 0.96 + 0.04 * k);
             stack![
                 iced::widget::opaque(mouse_area(ui::veil(theme::SCRIM)).on_press(Message::HideError)),
                 container(container(card).width(theme::COLUMN).padding(Padding::ZERO.top(180.0)))
@@ -277,7 +277,7 @@ impl Main {
             let sensed = ui::fading(ui::fade() * k, || {
                 ui::grown(mouse_area(iced::widget::opaque(self.notification_card(notice, Some(toast), width)))
                     .on_enter(Message::ToastHover(toast.id, true)).on_exit(Message::ToastHover(toast.id, false)),
-                    Point::new(1.0, 0.5), 0.0, 1.0).shifted((1.0 - k) * 24.0)
+                    Point::new(1.0, 0.5), 0.0, 1.0)
             });
             cards = cards.push(ui::collapsing(container(sensed).padding(Padding::ZERO.bottom(10.0)), k));
         }
@@ -286,9 +286,7 @@ impl Main {
 
     pub(super) fn notification_card(&self, notice: &notices::Notice, toast: Option<&Toast>, width: f32) -> Element<'_, Message> {
         let bad = notice.mark == notices::Mark::Bad;
-        let close = button(iced::widget::canvas(ui::Cross { colour: MUTED }).width(20.0).height(20.0))
-            .padding(0).style(ui::button_faded(theme::notice_action(false)))
-            .on_press(if toast.is_some() { Message::ToastClose(notice.id) } else { Message::DismissNotice(notice.id) });
+        let close = ui::close_corner(Some(if toast.is_some() { Message::ToastClose(notice.id) } else { Message::DismissNotice(notice.id) }), 26.0, 12.0, 10.0, 8.0);
         let title_limit = ((width - 92.0) / 7.0).floor().max(12.0) as usize;
         let title = ui::clipped(container(text(notice_preview(&notice.words, title_limit)).font(theme::SANS_SEMI).size(13.0)
             .wrapping(text::Wrapping::None).color(ui::faded(INK))).width(Length::Fill).height(20.0).center_y(20.0));

@@ -1084,7 +1084,7 @@ impl Main {
             column![named, text(ui::shortened(got.map_line(), 62)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))].spacing(2),
             ui::grow(),
             self.sender_aside(got),
-            ui::control_button(ui::Control::Close, 18.0, Some(Outer::ClosePlayer), false),
+            ui::close_corner(Some(Outer::ClosePlayer), ui::CLOSE_SIDE, 18.0, 7.0, 17.0),
         ]
         .spacing(12)
         .align_y(iced::Center);
@@ -1104,7 +1104,7 @@ impl Main {
         let card = container(inside).width(screen_w + 2.0 * PICTURE_INSET).height(screen_h + STAGE_TOP + STAGE_UNDER);
         let backdrop = mouse_area(ui::veil(theme::CINEMA_SCRIM)).on_press(Outer::ClosePlayer);
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
-        let card = ui::grown(card, iced::Point::new(0.5, 0.5), -(1.0 - opened) * 14.0, 0.965 + 0.035 * opened);
+        let card = ui::grown(card, iced::Point::new(0.5, 0.5), 0.0, 0.965 + 0.035 * opened);
         stack![backdrop, container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)].width(Length::Fill).height(Length::Fill).into()
     }
 

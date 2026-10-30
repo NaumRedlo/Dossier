@@ -298,9 +298,9 @@ pub(super) fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<
         }
         line.push(primary_button(words.t(if collection { "catalogue-new" } else { "pools-new" }), Message::New)).into()
     };
-    let mut page = column![ui::appearing(ui::appear(head_t, 0), 10.0, head)].spacing(18);
+    let mut page = column![ui::appearing(ui::appear(head_t, 0), head)].spacing(18);
     if let Some(refused) = &state.refused {
-        page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || refusal_line(refused, words)));
+        page = page.push(ui::appearing(ui::appear(t, 1), || refusal_line(refused, words)));
     }
     if !collection {
         return showcase(state, page, words, thumbs, width, t, clocks);
@@ -318,17 +318,17 @@ pub(super) fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<
         if shape.changed { parts.push((Col::End(132.0), words.t("ledger-changed"))); }
         ledger_head(parts)
     };
-    let mut drafts = column![ui::appearing(ui::appear(t, 1), 8.0, drafts_head)];
-    drafts = drafts.push(ledger_line()).push(ui::appearing(ui::appear(t, 2), 8.0, || new_row(words, collection)));
+    let mut drafts = column![ui::appearing(ui::appear(t, 1), drafts_head)];
+    drafts = drafts.push(ledger_line()).push(ui::appearing(ui::appear(t, 2), || new_row(words, collection)));
     for (at, pool) in state.list.iter().filter(|pool| pool.collection == collection).enumerate() {
-        drafts = drafts.push(ledger_line()).push(ui::appearing(ui::appear(t, 3 + at), 8.0, || draft_row(state, pool, words, thumbs, &shape, clocks.today, drafts_room)));
+        drafts = drafts.push(ledger_line()).push(ui::appearing(ui::appear(t, 3 + at), || draft_row(state, pool, words, thumbs, &shape, clocks.today, drafts_room)));
     }
     page = page.push(ledger_box(drafts.into()));
     if collection {
         if let Some(collections) = &state.collections {
-            page = page.push(ui::appearing(ui::appear(t, 3), 8.0, || ui::label(words.t("catalogue-game-collections"), MUTED)));
+            page = page.push(ui::appearing(ui::appear(t, 3), || ui::label(words.t("catalogue-game-collections"), MUTED)));
             for (at, found) in collections.iter().enumerate() {
-                page = page.push(ui::appearing(ui::appear(t, 3 + at), 8.0, || quiet_button(found.name.clone(), Message::ImportCollection(at))));
+                page = page.push(ui::appearing(ui::appear(t, 3 + at), || quiet_button(found.name.clone(), Message::ImportCollection(at))));
             }
         }
     }
@@ -340,20 +340,20 @@ pub(super) fn shelf<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<
         parts.push((Col::End(132.0), quiet_button(words.t("catalogue-refresh"), Message::Catalogue(collection))));
         container(cells(parts)).padding([2.0, LEDGER_PAD]).into()
     };
-    let mut published = column![ui::appearing(ui::appear(t, 4), 8.0, published_head)];
+    let mut published = column![ui::appearing(ui::appear(t, 4), published_head)];
     if state.catalogue_loading {
-        published = published.push(ledger_line()).push(ui::appearing(ui::appear(t, 5), 8.0, || container(faded_text(words.t("catalogue-loading"), 13.0, MUTED)).padding([14.0, LEDGER_PAD]).into()));
+        published = published.push(ledger_line()).push(ui::appearing(ui::appear(t, 5), || container(faded_text(words.t("catalogue-loading"), 13.0, MUTED)).padding([14.0, LEDGER_PAD]).into()));
     }
     if state.publications.is_empty() && !state.catalogue_loading {
-        published = published.push(ledger_line()).push(ui::appearing(ui::appear(t, 5), 8.0, || container(faded_text(words.t("catalogue-empty"), 13.0, MUTED)).padding([14.0, LEDGER_PAD]).into()));
+        published = published.push(ledger_line()).push(ui::appearing(ui::appear(t, 5), || container(faded_text(words.t("catalogue-empty"), 13.0, MUTED)).padding([14.0, LEDGER_PAD]).into()));
     }
     for (at, item) in state.publications.iter().filter(|item| (item.kind == "collection") == collection).enumerate() {
         let seen = t.min(clocks.of(&item.id));
-        published = published.push(ledger_line()).push(ui::appearing(ui::appear(seen, 5 + at), 8.0, || published_row(state, item, words, thumbs, &shape, collection, published_room)));
+        published = published.push(ledger_line()).push(ui::appearing(ui::appear(seen, 5 + at), || published_row(state, item, words, thumbs, &shape, collection, published_room)));
     }
     page = page.push(ledger_box(published.into()));
     if let Some(error) = &state.catalogue_error {
-        page = page.push(ui::appearing(ui::appear(t, 5), 8.0, || catalogue_error(error, words)));
+        page = page.push(ui::appearing(ui::appear(t, 5), || catalogue_error(error, words)));
     }
     if state.catalogue_more {
         page = page.push(quiet_button(words.t("catalogue-more"), Message::CatalogueMore));
@@ -621,29 +621,29 @@ pub(super) fn collections_showcase<'a>(state: &'a State, mut page: iced::widget:
     let caption = |key: &str| -> Element<'a, Message> { container(ui::section(words.t(key))).padding(Padding { top: 6.0, ..Padding::ZERO }).into() };
     let note = |key: &str| -> Element<'a, Message> { container(faded_text(words.t(key), 14.0, MUTED)).padding([6, 2]).into() };
     let mine: Vec<&Pool> = state.list.iter().filter(|pool| pool.collection && pool.saved.is_none()).collect();
-    page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || caption("shelf-own-collections")));
+    page = page.push(ui::appearing(ui::appear(t, 1), || caption("shelf-own-collections")));
     if mine.is_empty() {
-        page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || note("shelf-empty-collections")));
+        page = page.push(ui::appearing(ui::appear(t, 1), || note("shelf-empty-collections")));
     }
     let cards = mine.iter().enumerate().map(|(at, pool)| {
         let mark = match pool.published_revision {
             0 => word_plate(words.t("shelf-draft")),
             _ => word_plate(words.t("shelf-mark-published")),
         };
-        ui::appearing(ui::appear(t, 2 + at / across), 10.0, || pool_card(state, shown_of(pool, words, words.day(pool.changed_at, clocks.today)), mark, None, Some(Message::Open(pool.id.clone())), wide, words, thumbs))
+        ui::appearing(ui::appear(t, 2 + at / across), || pool_card(state, shown_of(pool, words, words.day(pool.changed_at, clocks.today)), mark, None, Some(Message::Open(pool.id.clone())), wide, words, thumbs))
     }).collect();
     page = page.push(tiled(cards, across));
     if let Some(found) = state.collections.as_ref().filter(|found| !found.is_empty()) {
-        page = page.push(ui::appearing(ui::appear(t, 3), 8.0, || caption("catalogue-game-collections")));
-        let tiles = found.iter().enumerate().take(GAME_MOST).map(|(at, found)| ui::appearing(ui::appear(t, 3 + at / across), 8.0, || game_tile(found, at, words, thumbs, wide))).collect();
+        page = page.push(ui::appearing(ui::appear(t, 3), || caption("catalogue-game-collections")));
+        let tiles = found.iter().enumerate().take(GAME_MOST).map(|(at, found)| ui::appearing(ui::appear(t, 3 + at / across), || game_tile(found, at, words, thumbs, wide))).collect();
         page = page.push(tiled(tiles, across));
     }
-    page = page.push(ui::appearing(ui::appear(t, 4), 8.0, || row![caption("catalogue-published"), ui::grow(), quiet_button(words.t("catalogue-refresh"), Message::Catalogue(true))].align_y(iced::Center).into()));
+    page = page.push(ui::appearing(ui::appear(t, 4), || row![caption("catalogue-published"), ui::grow(), quiet_button(words.t("catalogue-refresh"), Message::Catalogue(true))].align_y(iced::Center).into()));
     let items: Vec<&crate::bot::Publication> = state.publications.iter().filter(|item| item.kind == "collection").collect();
     if state.catalogue_loading && items.is_empty() {
-        page = page.push(ui::appearing(ui::appear(t, 5), 8.0, || note("catalogue-loading")));
+        page = page.push(ui::appearing(ui::appear(t, 5), || note("catalogue-loading")));
     } else if items.is_empty() {
-        page = page.push(ui::appearing(ui::appear(t, 5), 8.0, || note("catalogue-empty")));
+        page = page.push(ui::appearing(ui::appear(t, 5), || note("catalogue-empty")));
     }
     let cards = items.iter().enumerate().map(|(at, item)| {
         let hashes = published_hashes(item);
@@ -660,11 +660,11 @@ pub(super) fn collections_showcase<'a>(state: &'a State, mut page: iced::widget:
         let foot = row![container(owner).width(Length::Fill), action].spacing(8).align_y(iced::Center);
         let mark = if item.code.is_empty() { Space::new().into() } else { plate(text(item.code.clone()).font(theme::MONO_BOLD).size(12.0).color(ui::faded(INK)).into()) };
         let seen = t.min(clocks.of(&item.id));
-        ui::appearing(ui::appear(seen, 5 + at / across), 10.0, || pool_card(state, shown, mark, Some(foot.into()), item.mine.then(|| Message::OpenPublication(item.id.clone())), wide, words, thumbs))
+        ui::appearing(ui::appear(seen, 5 + at / across), || pool_card(state, shown, mark, Some(foot.into()), item.mine.then(|| Message::OpenPublication(item.id.clone())), wide, words, thumbs))
     }).collect();
     page = page.push(tiled(cards, across));
     if let Some(error) = &state.catalogue_error {
-        page = page.push(ui::appearing(ui::appear(t, 5), 8.0, || catalogue_error(error, words)));
+        page = page.push(ui::appearing(ui::appear(t, 5), || catalogue_error(error, words)));
     }
     if state.catalogue_more {
         page = page.push(quiet_button(words.t("catalogue-more"), Message::CatalogueMore));
@@ -746,10 +746,10 @@ pub(super) fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, 
         Shelf::Mine => {
             let mine: Vec<&Pool> = state.list.iter().filter(|pool| !pool.collection && pool.saved.is_none()).collect();
             match mine.split_first() {
-                None => page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || note("shelf-empty-mine"))),
+                None => page = page.push(ui::appearing(ui::appear(t, 1), || note("shelf-empty-mine"))),
                 Some((first, rest)) => {
-                    page = page.push(ui::appearing(ui::appear(t, 1), 10.0, || hero(state, first, words, thumbs, width, clocks.today)));
-                    let cards = rest.iter().enumerate().map(|(at, pool)| ui::appearing(ui::appear(t, 2 + at / across), 10.0, || pool_card(state, shown_of(pool, words, words.day(pool.changed_at, clocks.today)), mark_of(pool), None, Some(Message::Open(pool.id.clone())), wide, words, thumbs))).collect();
+                    page = page.push(ui::appearing(ui::appear(t, 1), || hero(state, first, words, thumbs, width, clocks.today)));
+                    let cards = rest.iter().enumerate().map(|(at, pool)| ui::appearing(ui::appear(t, 2 + at / across), || pool_card(state, shown_of(pool, words, words.day(pool.changed_at, clocks.today)), mark_of(pool), None, Some(Message::Open(pool.id.clone())), wide, words, thumbs))).collect();
                     page = page.push(tiled(cards, across));
                 }
             }
@@ -774,20 +774,20 @@ pub(super) fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, 
                 }
             };
             if saved.is_empty() {
-                page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || note("shelf-empty-saved")));
+                page = page.push(ui::appearing(ui::appear(t, 1), || note("shelf-empty-saved")));
             }
             let cards = saved.iter().enumerate().map(|(at, pool)| {
                 let foot = saved_foot(state, pool, words);
-                ui::appearing(ui::appear(t, 1 + at / across), 10.0, || pool_card(state, shown_of(pool, words, words.day(pool.changed_at, clocks.today)), mark_of(pool), Some(foot), Some(Message::Open(pool.id.clone())), wide, words, thumbs))
+                ui::appearing(ui::appear(t, 1 + at / across), || pool_card(state, shown_of(pool, words, words.day(pool.changed_at, clocks.today)), mark_of(pool), Some(foot), Some(Message::Open(pool.id.clone())), wide, words, thumbs))
             }).collect();
             page = page.push(tiled(cards, across));
         }
         Shelf::Published => {
             let items: Vec<&crate::bot::Publication> = state.publications.iter().filter(|item| item.kind == "pool").collect();
             if state.catalogue_loading && items.is_empty() {
-                page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || note("catalogue-loading")));
+                page = page.push(ui::appearing(ui::appear(t, 1), || note("catalogue-loading")));
             } else if items.is_empty() {
-                page = page.push(ui::appearing(ui::appear(t, 1), 8.0, || note("catalogue-empty")));
+                page = page.push(ui::appearing(ui::appear(t, 1), || note("catalogue-empty")));
             }
             let cards = items.iter().enumerate().filter_map(|(at, item)| {
                 let pool = serde_json::to_vec(&item.content).ok().and_then(|bytes| pool_share::from_file(&bytes, 0).ok())?;
@@ -809,11 +809,11 @@ pub(super) fn showcase<'a>(state: &'a State, mut page: iced::widget::Column<'a, 
                 let foot = row![publisher, action].spacing(8).align_y(iced::Center);
                 let mark = if item.code.is_empty() { Space::new().into() } else { plate(text(item.code.clone()).font(theme::MONO_BOLD).size(12.0).color(ui::faded(INK)).into()) };
                 let seen = t.min(clocks.of(&item.id));
-                Some(ui::appearing(ui::appear(seen, 1 + at / across), 10.0, || pool_card(state, shown, mark, Some(foot.into()), item.mine.then(|| Message::OpenPublication(item.id.clone())), wide, words, thumbs)))
+                Some(ui::appearing(ui::appear(seen, 1 + at / across), || pool_card(state, shown, mark, Some(foot.into()), item.mine.then(|| Message::OpenPublication(item.id.clone())), wide, words, thumbs)))
             }).collect();
             page = page.push(tiled(cards, across));
             if let Some(error) = &state.catalogue_error {
-                page = page.push(ui::appearing(ui::appear(t, 2), 8.0, || catalogue_error(error, words)));
+                page = page.push(ui::appearing(ui::appear(t, 2), || catalogue_error(error, words)));
             }
             if state.catalogue_more {
                 page = page.push(quiet_button(words.t("catalogue-more"), Message::CatalogueMore));

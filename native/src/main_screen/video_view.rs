@@ -362,7 +362,7 @@ impl Main {
                     .on_enter(Message::ControlsHover(true))
                     .on_exit(Message::ControlsHover(false))
                     .on_press(Message::ControlsHover(true));
-                container(ui::grown(held, iced::Point::new(0.5, 1.0), -(1.0 - out) * 12.0, 1.0))
+                container(ui::grown(held, iced::Point::new(0.5, 1.0), 0.0, 1.0))
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_y(iced::alignment::Vertical::Bottom)
@@ -411,7 +411,7 @@ impl Main {
         }
         let title = title
             .push(ui::control_button(ui::Control::Mini, 18.0, Some(Message::PlayerMinimize), false))
-            .push(ui::control_button(ui::Control::Close, 18.0, Some(Message::ClosePlayer), false));
+            .push(ui::close_corner(Some(Message::ClosePlayer), ui::CLOSE_SIDE, 18.0, 7.0, 17.0));
         let mut inside = column![
             container(title)
                 .height(STAGE_TOP)
@@ -432,7 +432,7 @@ impl Main {
         let card = container(inside).width(screen_w + 2.0 * PICTURE_INSET).height(screen_h + STAGE_TOP + under_h);
         let backdrop = mouse_area(ui::veil(theme::CINEMA_SCRIM)).on_press(Message::ClosePlayer);
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
-        let card = ui::grown(card, iced::Point::new(0.5, 0.5), -(1.0 - opened) * 14.0, 0.965 + 0.035 * opened);
+        let card = ui::grown(card, iced::Point::new(0.5, 0.5), 0.0, 0.965 + 0.035 * opened);
         stack![backdrop, container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)]
             .width(Length::Fill)
             .height(Length::Fill)
@@ -475,7 +475,7 @@ impl Main {
             .spacing(6)
             .align_x(iced::Center)
             .width(ASK_WIDE);
-            let risen = ui::grown(middle, iced::Point::new(0.5, 0.5), (1.0 - k) * -10.0, 0.97 + 0.03 * k);
+            let risen = ui::grown(middle, iced::Point::new(0.5, 0.5), 0.0, 0.97 + 0.03 * k);
             stack![
                 mouse_area(ui::veil(theme::DEEP_SCRIM)).on_press(Message::KeepVideo),
                 container(risen).width(Length::Fill).height(Length::Fill).center(Length::Fill),

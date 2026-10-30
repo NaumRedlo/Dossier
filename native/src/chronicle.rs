@@ -738,14 +738,14 @@ fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], t: f32, from: usize, draw
         if last != Some(day) {
             let index = from + out.len();
             let counts = day_counts(list, day, &day_of);
-            let divider = spaced(ui::appearing(ui::appear(t, index), 10.0, || day_divider(ground, event.at, counts)));
+            let divider = spaced(ui::appearing(ui::appear(t, index), || day_divider(ground, event.at, counts)));
             out.push(if settled_days.contains(&day) { divider } else { opening(divider, open) });
             last = Some(day);
         }
         let k = open.min(ui::appear(t, from + out.len()));
         let made = if k >= 0.999 { draw(event) } else { ui::fading(ui::fade() * k, || draw(event)) };
         if let Some(made) = made {
-            out.push(opening(spaced(ui::lifted(made, k, if open >= 0.999 { 10.0 } else { 0.0 })), open));
+            out.push(opening(spaced(made), open));
         }
     }
     out
@@ -942,12 +942,12 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     );
     let lately = ground.section_t.min(ground.stream_t);
     let below = |made: Element<'a, Message>| -> Element<'a, Message> { container(made).padding(Padding::ZERO.bottom(PAGE_GAP)).into() };
-    let mut page = column![below(ui::appearing(ui::appear(ground.section_t, 0), 10.0, || top.into()))];
+    let mut page = column![below(ui::appearing(ui::appear(ground.section_t, 0), || top.into()))];
 
     let table = Table::for_width(wide - 12.0);
     let loading = all.is_empty() && matches!(ground.fetch, screen::Fetch::Loading);
     if list.is_empty() && !loading {
-        let empty = ui::appearing(ui::appear(lately, 1), 10.0, || empty_rows(ground, all.is_empty(), table));
+        let empty = ui::appearing(ui::appear(lately, 1), || empty_rows(ground, all.is_empty(), table));
         return column![page, container(empty).center_x(Length::Fill).center_y(Length::Fill).padding(Padding { top: 0.0, right: 10.0, bottom: 96.0, left: 2.0 })]
             .padding(Padding { top: 2.0, right: 0.0, bottom: 0.0, left: 0.0 })
             .width(Length::Fill)
@@ -1242,9 +1242,9 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         for (at, part) in lane.keys.iter().enumerate() {
             let k = ui::appear(t, stack + at);
             let card = match part {
-                Part::Me => ui::appearing(k, 12.0, || ui::smooth(me_card(ground, across))),
-                Part::Strip => ui::appearing(k, 12.0, || ui::smooth(strip_card(ground))),
-                Part::Channels => ui::appearing(k, 12.0, || ui::smooth(channels_card(ground))),
+                Part::Me => ui::appearing(k, || ui::smooth(me_card(ground, across))),
+                Part::Strip => ui::appearing(k, || ui::smooth(strip_card(ground))),
+                Part::Channels => ui::appearing(k, || ui::smooth(channels_card(ground))),
                 Part::Timeline => continue,
             };
             pieces.push((*part, card));

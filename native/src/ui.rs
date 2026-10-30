@@ -987,13 +987,6 @@ pub fn well_box<'a, Message: 'a>(inside: Element<'a, Message>, height: f32) -> E
         .into()
 }
 
-pub fn rising<'a, Message: 'a>(k: f32, inside: Element<'a, Message>) -> Element<'a, Message> {
-    container(inside)
-        .padding(iced::Padding::ZERO.top((1.0 - k.clamp(0.0, 1.0)) * 10.0))
-        .width(Length::Fill)
-        .into()
-}
-
 pub fn grow<'a, Message: 'a>() -> Element<'a, Message> {
     Space::new().width(Length::Fill).into()
 }
@@ -1601,19 +1594,14 @@ pub struct Grown<'a, Message> {
     content: Element<'a, Message>,
     anchor: Point,
     lift: f32,
-    shift: f32,
     scale: f32,
 }
 
 pub fn grown<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, anchor: Point, lift: f32, scale: f32) -> Grown<'a, Message> {
-    Grown { content: content.into(), anchor, lift, shift: 0.0, scale }
+    Grown { content: content.into(), anchor, lift, scale }
 }
 
 impl<Message> Grown<'_, Message> {
-    pub fn shifted(mut self, shift: f32) -> Self {
-        self.shift = shift;
-        self
-    }
 }
 
 impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Grown<'_, Message> {
@@ -1695,12 +1683,12 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Grown<'_, Mes
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        if self.lift == 0.0 && self.shift == 0.0 && (self.scale - 1.0).abs() < 0.001 {
+        if self.lift == 0.0 && (self.scale - 1.0).abs() < 0.001 {
             self.content.as_widget().draw(tree, renderer, theme, style, layout, cursor, viewport);
             return;
         }
         use iced::advanced::Renderer as _;
-        let transformation = iced::Transformation::translate(self.shift, 0.0) * about(layout.bounds(), self.anchor, self.lift, self.scale);
+        let transformation = about(layout.bounds(), self.anchor, self.lift, self.scale);
         renderer.with_transformation(transformation, |renderer| {
             self.content.as_widget().draw(tree, renderer, theme, style, layout, cursor, viewport);
         });
@@ -4678,22 +4666,12 @@ pub fn appear(t: f32, index: usize) -> f32 {
     1.0 - (1.0 - x).powi(3)
 }
 
-pub fn appearing<'a, M: 'a>(k: f32, rise: f32, build: impl FnOnce() -> Element<'a, M>) -> Element<'a, M> {
-    let content = if k >= 0.999 { build() } else { fading(fade() * k, build) };
-    lifted(content, k, rise)
+pub fn appearing<'a, M: 'a>(k: f32, build: impl FnOnce() -> Element<'a, M>) -> Element<'a, M> {
+    if k >= 0.999 { build() } else { fading(fade() * k, build) }
 }
 
-pub fn lifted<'a, M: 'a>(content: Element<'a, M>, k: f32, rise: f32) -> Element<'a, M> {
-    Element::new(Lift { content, dx: 0.0, dy: if k >= 0.999 { 0.0 } else { (1.0 - k) * rise } })
-}
-
-pub fn slid<'a, M: 'a>(content: Element<'a, M>, k: f32, run: f32) -> Element<'a, M> {
-    Element::new(Lift { content, dx: if k >= 0.999 { 0.0 } else { (1.0 - k) * run }, dy: 0.0 })
-}
-
-pub fn sliding_in<'a, M: 'a>(k: f32, run: f32, build: impl FnOnce() -> Element<'a, M>) -> Element<'a, M> {
-    let content = if k >= 0.999 { build() } else { fading(fade() * k, build) };
-    slid(content, k, run)
+pub fn nudged<'a, M: 'a>(content: Element<'a, M>, dx: f32, dy: f32) -> Element<'a, M> {
+    Element::new(Lift { content, dx, dy })
 }
 
 pub struct Lift<'a, Message> {
@@ -4896,7 +4874,6 @@ pub fn under_staying<'a, Message: Clone + 'a>(anchor: impl Into<Element<'a, Mess
 
 const UNDER_EDGE: f32 = 8.0;
 const DROP_TIME: f32 = 0.18;
-const DROP_RISE: f32 = 10.0;
 
 #[derive(Debug, Default)]
 struct Dropping {
@@ -5042,13 +5019,9 @@ impl<Message: Clone> iced::advanced::Overlay<Message, Theme, Renderer> for Under
             return;
         }
         let bounds = layout.bounds();
-        let below = bounds.y >= self.anchor.y;
-        let shift = (1.0 - eased) * DROP_RISE * if below { -1.0 } else { 1.0 };
-        renderer.with_translation(iced::Vector::new(0.0, shift), |renderer| {
-            self.sheet.as_widget().draw(self.tree, renderer, theme, style, layout, cursor, &bounds);
-            renderer.with_layer(bounds, |renderer| {
-                renderer.fill_quad(iced::advanced::renderer::Quad { bounds, border: iced::Border { radius: 14.0.into(), ..iced::Border::default() }, ..iced::advanced::renderer::Quad::default() }, Color { a: 1.0 - eased, ..theme::GROUND });
-            });
+        self.sheet.as_widget().draw(self.tree, renderer, theme, style, layout, cursor, &bounds);
+        renderer.with_layer(bounds, |renderer| {
+            renderer.fill_quad(iced::advanced::renderer::Quad { bounds, border: iced::Border { radius: 14.0.into(), ..iced::Border::default() }, ..iced::advanced::renderer::Quad::default() }, Color { a: 1.0 - eased, ..theme::GROUND });
         });
     }
 
@@ -5089,21 +5062,20 @@ pub struct Glow {
     pub edge: Color,
     pub wash: Color,
     pub shadow: Color,
-    pub lift: f32,
     pub scale: f32,
 }
 
 impl Glow {
     pub fn card(radius: f32) -> Glow {
-        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.08), wash: Color::TRANSPARENT, shadow: Color::from_rgba(0.0, 0.0, 0.0, 0.45), lift: 3.0, scale: 1.0 }
+        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.08), wash: Color::TRANSPARENT, shadow: Color::from_rgba(0.0, 0.0, 0.0, 0.45), scale: 1.0 }
     }
 
     pub fn row(radius: f32) -> Glow {
-        Glow { radius, edge: Color::TRANSPARENT, wash: Color::from_rgba(1.0, 1.0, 1.0, 0.035), shadow: Color::TRANSPARENT, lift: 0.0, scale: 1.0 }
+        Glow { radius, edge: Color::TRANSPARENT, wash: Color::from_rgba(1.0, 1.0, 1.0, 0.035), shadow: Color::TRANSPARENT, scale: 1.0 }
     }
 
     pub fn tile(radius: f32) -> Glow {
-        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.06), wash: Color::from_rgba(1.0, 1.0, 1.0, 0.025), shadow: Color::TRANSPARENT, lift: 0.0, scale: 1.0 }
+        Glow { radius, edge: Color::from_rgba(1.0, 1.0, 1.0, 0.06), wash: Color::from_rgba(1.0, 1.0, 1.0, 0.025), shadow: Color::TRANSPARENT, scale: 1.0 }
     }
 
     pub fn edge(mut self, colour: Color) -> Glow {
@@ -5113,11 +5085,6 @@ impl Glow {
 
     pub fn shadow(mut self, colour: Color) -> Glow {
         self.shadow = colour;
-        self
-    }
-
-    pub fn lift(mut self, lift: f32) -> Glow {
-        self.lift = lift;
         self
     }
 
@@ -5137,6 +5104,34 @@ pub fn calm(style: impl Fn(&Theme, button::Status) -> button::Style + 'static) -
 pub struct Hover<'a, Message> {
     content: Element<'a, Message>,
     glow: Glow,
+}
+
+pub const CLOSE_SIDE: f32 = 34.0;
+
+fn close_style(radius: iced::border::Radius) -> impl Fn(&Theme, button::Status) -> button::Style {
+    let k = fade();
+    move |_, status| {
+        let wash = match status {
+            button::Status::Hovered => 0.035,
+            button::Status::Pressed => 0.06,
+            _ => 0.012,
+        };
+        button::Style { background: Some(iced::Background::Color(Color::from_rgba(1.0, 1.0, 1.0, wash * k))), text_color: INK, border: iced::Border { radius, ..iced::Border::default() }, ..button::Style::default() }
+    }
+}
+
+fn close_mark<'a, Message: Clone + 'a>(side: f32, radius: iced::border::Radius, press: Option<Message>) -> Element<'a, Message> {
+    let mark = crate::glyphs::glyph(crate::glyphs::Icon::Close, (side * 0.42).round(), MUTED);
+    button(container(mark).center_x(side).center_y(side)).padding(0).style(close_style(radius)).on_press_maybe(press).into()
+}
+
+pub fn close_square<'a, Message: Clone + 'a>(press: Option<Message>, side: f32) -> Element<'a, Message> {
+    close_mark(side, theme::CONTROL_RADIUS.into(), press)
+}
+
+pub fn close_corner<'a, Message: Clone + 'a>(press: Option<Message>, side: f32, round: f32, right: f32, top: f32) -> Element<'a, Message> {
+    let radius = iced::border::Radius { top_left: 0.0, top_right: round, bottom_right: 0.0, bottom_left: theme::CONTROL_RADIUS };
+    nudged(close_mark(side, radius, press), right, -top)
 }
 
 pub fn tip<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, words: String) -> Element<'a, Message> {
@@ -5257,8 +5252,7 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hover<'_, Mes
             return;
         }
         let glow = self.glow;
-        let rise = iced::Vector::new(0.0, -glow.lift * lit);
-        let bounds = layout.bounds() + rise;
+        let bounds = layout.bounds();
         let quad = |border: iced::Border, shadow: iced::Shadow| iced::advanced::renderer::Quad { bounds, border, shadow, snap: true };
         if glow.shadow.a > 0.0 {
             renderer.fill_quad(
@@ -5269,14 +5263,13 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hover<'_, Mes
         if glow.wash.a > 0.0 {
             renderer.fill_quad(quad(iced::Border { radius: glow.radius.into(), ..iced::Border::default() }, iced::Shadow::default()), iced::Background::Color(Color { a: glow.wash.a * lit, ..glow.wash }));
         }
-        if glow.lift > 0.0 || glow.scale > 1.0 {
+        if glow.scale > 1.0 {
             let centre = bounds.center();
-            let transformation = iced::Transformation::translate(centre.x, centre.y - glow.lift * lit)
+            let transformation = iced::Transformation::translate(centre.x, centre.y)
                 * iced::Transformation::scale(1.0 + (glow.scale - 1.0) * lit)
                 * iced::Transformation::translate(-centre.x, -centre.y);
-            let seen = *viewport - rise;
             renderer.with_transformation(transformation, |renderer| {
-                self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, &seen);
+                self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
             });
         } else {
             self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);

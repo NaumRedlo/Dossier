@@ -63,7 +63,6 @@ const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
-const CREST_RISE: f32 = 8.0;
 const THUMB: (u32, u32) = (176, 100);
 const POOL_COVER: (u32, u32) = (768, 432);
 const SCENE_WIDTH: u32 = 960;
@@ -4806,7 +4805,7 @@ impl Main {
             let title = row![
                 text(w.t("skins")).font(theme::SANS_SEMI).size(20.0).color(ui::faded(INK)),
                 ui::grow(),
-                ui::control_button(ui::Control::Close, 18.0, Some(Message::ShowSkins(false)), false),
+                ui::close_square(Some(Message::ShowSkins(false)), ui::CLOSE_SIDE),
             ]
             .align_y(iced::Center);
             let title = column![title, text(w.t("skin-reorder-hint")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))].spacing(4);
@@ -4921,7 +4920,7 @@ impl Main {
         };
         let early = self.arrive.interpolate(0.0, 1.0, self.now) * (1.0 - self.cinema.interpolate(0.0, 1.0, self.now)) * awake;
         let crest = ui::fading(early, ui::brand);
-        let crest: Element<'_, Message> = pin(crest).x(CREST_HOME.0).y(CREST_HOME.1 + (1.0 - early) * CREST_RISE).into();
+        let crest: Element<'_, Message> = pin(crest).x(CREST_HOME.0).y(CREST_HOME.1).into();
         let sheet = self.overlay_fade.interpolate(0.0, 1.0, self.now);
         let showing = self.overlay != Overlay::None || self.overlay_fade.is_animating(self.now);
         let late = ((k - 0.7) / 0.3).clamp(0.0, 1.0);
@@ -7446,7 +7445,7 @@ pub fn mod_badge<'a, Message: 'a>(acronym: &str) -> Element<'a, Message> {
 
 pub fn mod_badge_sized<'a, Message: 'a>(acronym: &str, size: f32) -> Element<'a, Message> {
     let alpha = ui::fade();
-    ui::hover(crate::modicons::badge(acronym, size, 1.0), ui::Glow::tile(size / 2.0).edge(Color { a: 0.35 * alpha, ..theme::ON_ACCENT }).lift(1.0).scale(1.06))
+    ui::hover(crate::modicons::badge(acronym, size, 1.0), ui::Glow::tile(size / 2.0).edge(Color { a: 0.35 * alpha, ..theme::ON_ACCENT }).scale(1.06))
 }
 
 pub fn decoded(path: &Path, max_width: u32, cover: Option<(u32, u32)>) -> Option<image::Handle> {

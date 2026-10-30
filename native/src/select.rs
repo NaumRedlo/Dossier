@@ -64,7 +64,6 @@ pub const STATS_H: f32 = 84.0;
 pub const ACTIONS_H: f32 = 32.0;
 pub const GROW_MOST: f32 = 1.5;
 pub const TOLD_FLOOR: f32 = 0.15;
-pub const TOLD_RISE: f32 = 10.0;
 pub const GROW_WIDTH: f32 = 720.0;
 pub const ARC_SPAN: f32 = 72.0;
 pub const SIDE: f32 = 32.0;
@@ -495,7 +494,7 @@ impl Main {
         let search_k = self.search_amount();
         let left: Element<'_, Message> = if search_k > 0.001 || self.search_shown() {
             let search = ui::fading(ui::fade() * search_k, || self.filters(&laid));
-            let search = ui::grown(search, Point::new(0.5, 0.0), 0.0, 0.97 + 0.03 * search_k).shifted(-8.0 * (1.0 - search_k));
+            let search = ui::grown(search, Point::new(0.5, 0.0), 0.0, 0.97 + 0.03 * search_k);
             let search = container(search).padding(Padding { top: TOP, right: 0.0, bottom: 0.0, left: 0.0 }).width(wide);
             stack![list, search].width(wide).height(Length::Fill).into()
         } else {
@@ -968,7 +967,6 @@ impl Main {
         });
         let rating = self.ratings.known.get(&entry.replay_hash).copied();
         let told = ui::fade() * (TOLD_FLOOR + (1.0 - TOLD_FLOOR) * self.told.interpolate(0.0, 1.0, self.now));
-        let rise = TOLD_RISE * grow * (1.0 - self.told.interpolate(0.0, 1.0, self.now));
         let (head, stats) = ui::fading(told, || {
             let mut name = row![text(entry.player.clone()).font(theme::SANS_SEMI).size(24.0 * grow).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(10).align_y(iced::Center);
             for acronym in entry.mods.iter().filter(|acronym| crate::modicons::shown(acronym)) {
@@ -983,7 +981,7 @@ impl Main {
                 })),
             ]
             .spacing(12);
-            let identity = container(column![name, song, when].spacing(2.0 * grow)).padding(iced::Padding { top: rise, bottom: 0.0, left: 0.0, right: 0.0 }).width(Length::Fill);
+            let identity = container(column![name, song, when].spacing(2.0 * grow)).width(Length::Fill);
             let head = row![self.rank_tile(entry.grade, RANK_LARGE * grow, self.glowing()), identity].spacing(16).align_y(iced::Center).width(wide);
             (head, self.stats_panel(entry, rating, wide, grow, narrow))
         });

@@ -100,12 +100,8 @@ fn chip<'a>(words: String, colour: Color) -> Element<'a, Message> {
         .into()
 }
 
-fn close<'a>() -> Element<'a, Message> {
-    button(container(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).width(36.0).height(36.0).center(36.0))
-        .padding(0)
-        .style(ui::button_faded(theme::bare))
-        .on_press(Message::Unread)
-        .into()
+fn close<'a>(right: f32, top: f32) -> Element<'a, Message> {
+    ui::close_corner(Some(Message::Unread), ui::CLOSE_SIDE, 16.0, right, top)
 }
 
 pub(crate) fn named(line: &str) -> (String, String, String) {
@@ -369,7 +365,7 @@ pub(crate) fn score<'a>(ground: &Ground<'a>, scored: &'a Scored) -> Element<'a, 
     let letter = container(text(shown.grade.clone()).font(theme::SANS_SEMI).size(104.0).wrapping(text::Wrapping::None).color(ui::faded(shade))).padding(Padding::ZERO.right(4.0));
     let top = stack![
         cover_back(ground, scored),
-        container(row![ui::grow(), close()]).padding(Padding { top: 8.0, right: 10.0, bottom: 0.0, left: 0.0 }),
+        container(row![ui::grow(), close(10.0, 8.0)]).padding(Padding { top: 8.0, right: 10.0, bottom: 0.0, left: 0.0 }),
         container(row![letter, titles].spacing(24).align_y(iced::Bottom)).height(HEAD).align_y(iced::Bottom).padding(Padding { top: 0.0, right: SIDE, bottom: 22.0, left: SIDE }),
     ]
     .height(HEAD);
@@ -549,7 +545,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
     let k = ui::fade();
     let catalog = ground.catalog;
     let Some(title) = catalog.title_of(code) else {
-        return container(row![caption(code.to_owned()), ui::grow(), close()]).padding(20).into();
+        return container(row![caption(code.to_owned()), ui::grow(), close(20.0, 20.0)]).padding(20).into();
     };
     let holders = screen::scoped_holders(ground, code);
     let tint = title.rarity.colour();
@@ -616,7 +612,7 @@ pub(crate) fn title<'a>(ground: &Ground<'a>, code: &str, who: Option<i64>) -> El
         );
     }
     let mut right = column![
-        row![ui::section(w.t(if ground.title_scope == screen::TitleScope::Server { "title-holders-server" } else { "title-holders" })), ui::grow(), close()].align_y(iced::Center),
+        row![ui::section(w.t(if ground.title_scope == screen::TitleScope::Server { "title-holders-server" } else { "title-holders" })), ui::grow(), close(18.0, 14.0)].align_y(iced::Center),
         edged(scrollable(list).direction(ui::hidden_bar()).height(Length::Fill)),
     ]
     .spacing(10);

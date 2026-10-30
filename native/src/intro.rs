@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
-use iced::widget::{column, container, float, mouse_area, opaque, stack, Space};
-use iced::{mouse, Background, Color, Element, Length, Point, Rectangle, Renderer, Theme, Vector};
+use iced::widget::{column, container, mouse_area, opaque, stack, Space};
+use iced::{mouse, Background, Color, Element, Length, Point, Rectangle, Renderer, Theme};
 
 use crate::{theme, ui};
 
@@ -14,7 +14,6 @@ pub const LEAST: Duration = Duration::from_millis(1800);
 pub const MOST: Duration = Duration::from_secs(10);
 pub const OUT: f32 = 0.7;
 pub const LOGO: f32 = 2.2;
-pub const RISE: f32 = 10.0;
 pub const SPINNER: f32 = 44.0;
 pub const SPINNER_GAP: f32 = 48.0;
 const TRAIL: usize = 28;
@@ -73,8 +72,7 @@ impl Intro {
             background: Some(Background::Color(Color { a: veil, ..theme::GROUND })),
             ..container::Style::default()
         });
-        let rise = (1.0 - logo) * RISE;
-        let mark = float(ui::fading(logo, || ui::brand_scaled(LOGO))).translate(move |_, _| Vector::new(0.0, rise));
+        let mark = ui::fading(logo, || ui::brand_scaled(LOGO));
         let turning = Canvas::new(Spinner { seconds: self.age(), alpha: spin }).width(SPINNER).height(SPINNER);
         let middle = column![mark, Space::new().height(SPINNER_GAP), turning].align_x(iced::Center);
         let middle = container(middle).width(Length::Fill).height(Length::Fill).center(Length::Fill);

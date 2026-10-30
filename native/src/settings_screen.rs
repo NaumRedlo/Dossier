@@ -263,7 +263,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             .enumerate()
             .map(|(at, tile)| (*tile, card(ground, *tile, arrival(ground.came, at, tiles.len()))))
             .collect();
-        Element::from(ui::grown(crate::board::board(pieces, 10.0, Message::Moved).solid(theme::SLAB_SOLID), iced::Point::new(0.5, 0.0), 0.0, 1.0).shifted((1.0 - swap) * 26.0 * ground.swap_from))
+        Element::from(ui::grown(crate::board::board(pieces, 10.0, Message::Moved).solid(theme::SLAB_SOLID), iced::Point::new(0.5, 0.0), 0.0, 1.0))
     });
     let grid = container(board).padding(Padding { top: 16.0, right: 40.0, bottom: 28.0, left: 40.0 });
     let rolled = iced::widget::scrollable(grid)

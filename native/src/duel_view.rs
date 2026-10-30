@@ -173,14 +173,13 @@ struct Motion {
     fill: f32,
     fill_colour: Color,
     shade: f32,
-    rise: f32,
     glare: f32,
     grip: bool,
 }
 
 impl Default for Motion {
     fn default() -> Self {
-        Motion { fill: 0.0, fill_colour: Color::TRANSPARENT, shade: 1.0, rise: 0.0, glare: 0.0, grip: false }
+        Motion { fill: 0.0, fill_colour: Color::TRANSPARENT, shade: 1.0, glare: 0.0, grip: false }
     }
 }
 
@@ -242,18 +241,14 @@ fn moving_card<'a>(state: &State, entry: &Entry, frame: Option<(Color, bool)>, d
         Some(message) => button(body).padding(0).style(|_, _| button::Style::default()).on_press(message).into(),
         None => body,
     };
-    let rise = motion.rise;
     if !lively {
-        if rise > 0.0 {
-            return iced::widget::float(pressable).translate(move |_, _| iced::Vector::new(0.0, -4.0 * rise)).into();
-        }
         return pressable;
     }
     let mut watched = mouse_area(pressable).on_enter(Message::Hover(Some(entry.beatmap_id))).on_exit(Message::Hover(None));
     if motion.grip {
         watched = watched.on_press(Message::Grip(entry.slot.clone())).on_release(Message::Release).interaction(iced::mouse::Interaction::Pointer);
     }
-    iced::widget::float(watched).scale(1.0 + 0.03 * lift + 0.02 * beat).translate(move |_, _| iced::Vector::new(0.0, -4.0 * rise)).into()
+    iced::widget::float(watched).scale(1.0 + 0.03 * lift + 0.02 * beat).into()
 }
 
 fn grid<'a>(cells: Vec<Element<'a, Message>>) -> Element<'a, Message> {
@@ -497,11 +492,6 @@ fn draft_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> (Element<'
             }
             let k = ease((t - start) / 0.45);
             motion.shade = k;
-            if !banned {
-                motion.rise = k;
-            }
-        } else if taken.is_some() && !banned {
-            motion.rise = 1.0;
         }
         let frame = if motion.fill > 0.0 { Some((motion.fill_colour, true)) } else { frame };
         moving_card(state, entry, frame, banned || entry.slot == "TB", free, None, motion)
@@ -867,8 +857,7 @@ fn meeting_side<'a>(w: &Words, duel: &Duel, side: &str, k: f32) -> Element<'a, M
         .spacing(18)
         .align_x(align)
     });
-    let rise = (1.0 - k) * 18.0;
-    let placed = container(iced::widget::float(block).translate(move |_, _| iced::Vector::new(0.0, rise))).width(Length::Fill).padding(Padding { top: 120.0, left: 70.0, right: 70.0, bottom: 0.0 });
+    let placed = container(block).width(Length::Fill).padding(Padding { top: 120.0, left: 70.0, right: 70.0, bottom: 0.0 });
     if left { placed.into() } else { placed.align_x(iced::alignment::Horizontal::Right).into() }
 }
 
@@ -970,8 +959,8 @@ fn round_transition<'a>(w: &Words, state: &State, duel: &Duel, now: i64, t: f32,
     let status_k = ease((t - 1.85) / 0.5);
     let below = column![
         Space::new().height(HERO_HIGH),
-        iced::widget::float(ui::fading(players_k, || players(w, duel))).translate(move |_, _| iced::Vector::new(0.0, (1.0 - players_k) * 16.0)),
-        iced::widget::float(ui::fading(status_k, || centred(round_status(w, state, duel, now)))).translate(move |_, _| iced::Vector::new(0.0, (1.0 - status_k) * 16.0)),
+        ui::fading(players_k, || players(w, duel)),
+        ui::fading(status_k, || centred(round_status(w, state, duel, now))),
     ]
     .spacing(12);
     let mut all: Vec<Element<'a, Message>> = vec![below.into()];
@@ -995,8 +984,7 @@ pub fn view<'a>(state: &State, duel: &Duel, w: &Words, now: i64, wide: f32) -> E
             let met = crate::duels_screen::since(state.moments.met_at);
             let room_k = if met < crate::duels_screen::MEET { ease((met - 4.05) / 0.6) } else { 1.0 };
             let room = ui::fading(room_k, || column![head(w, duel, caption, true), Space::new().height(Length::Fill), room_view(w, state, duel, now), Space::new().height(Length::Fill)].spacing(14));
-            let rise = (1.0 - room_k) * 24.0;
-            let room: Element<'a, Message> = iced::widget::float(room).translate(move |_, _| iced::Vector::new(0.0, rise)).into();
+            let room: Element<'a, Message> = room.into();
             if met < crate::duels_screen::MEET {
                 stack![meeting_view(w, duel, met), room].width(Length::Fill).height(Length::Fill).into()
             } else {

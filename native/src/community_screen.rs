@@ -922,7 +922,7 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
         };
         body.push(container(ui::primary(w.t("read-outside"), Some(Message::Open(reading.url().to_owned())))).padding(Padding::ZERO.top(8.0)).into());
         let head = column![
-            row![ui::label(source.clone(), FAINT), ui::grow(), button(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).padding([2, 8]).style(ui::button_faded(theme::bare)).on_press(Message::Unread)].align_y(iced::Center),
+            row![ui::label(source.clone(), FAINT), ui::grow(), ui::close_corner(Some(Message::Unread), ui::CLOSE_SIDE, 16.0, 26.0, 22.0)].align_y(iced::Center),
             text(ui::settled(&title)).font(theme::SANS_SEMI).size(theme::TITLE).color(ui::faded(INK)),
             ui::mono_small(meta, FAINT),
         ]
@@ -1065,7 +1065,7 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                 Someone::Member(at, person) => (if person.outside { None } else { place_of(*at) }, is_friend(person)),
                 Someone::Friend(_) => (None, true),
             };
-            ui::appearing(ui::appear(t, index / across), 12.0, || someone_card(ground, one, place, friend))
+            ui::appearing(ui::appear(t, index / across), || someone_card(ground, one, place, friend))
         }).collect();
         grid(cards, across, 12.0)
     };
@@ -1497,7 +1497,7 @@ fn board_row<'a>(ground: &Ground<'a>, list: &Standings, place: Option<usize>, wh
         .width(Length::Fill)
         .style(ui::button_faded(ui::calm(row_style(person.you, None))))
         .on_press(Message::Person(Some(who)));
-    ui::hover(card, ui::Glow::card(14.0).edge(Color { a: if person.you { 0.35 } else { 0.1 }, ..if person.you { ACCENT } else { Color::WHITE } }).shadow(Color::from_rgba(0.0, 0.0, 0.0, 0.35)).lift(2.0))
+    ui::hover(card, ui::Glow::card(14.0).edge(Color { a: if person.you { 0.35 } else { 0.1 }, ..if person.you { ACCENT } else { Color::WHITE } }).shadow(Color::from_rgba(0.0, 0.0, 0.0, 0.35)))
 }
 
 pub(crate) fn segmented<'a>(parts: Vec<(String, bool, Message)>) -> Element<'a, Message> {
@@ -1566,7 +1566,7 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let catalog = ground.catalog;
     let list = standings(catalog, ground.board, ground.standing);
     let adaptive = ground.standing == Standing::Adaptive;
-    let top = ui::appearing(ui::appear(ground.section_t, 0), 10.0, || {
+    let top = ui::appearing(ui::appear(ground.section_t, 0), || {
         let mut chips = row![].spacing(6);
         for board in Board::ALL {
             chips = chips.push(ui::hover(
@@ -1621,7 +1621,7 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
                     _ => 222.0,
                 };
                 let order = [2usize, 1, 0][*place - 1];
-                stand = stand.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), order), 16.0, || podium_card(ground, &list, *place, *who, *value, high)));
+                stand = stand.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), order), || podium_card(ground, &list, *place, *who, *value, high)));
             }
             None => stand = stand.push(Space::new().width(Length::FillPortion(1)).height(0.0)),
         }
@@ -1629,12 +1629,12 @@ fn boards<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     page = page.push(stand);
     let mut rows = column![].spacing(8);
     for (at, (who, value)) in list.order.iter().enumerate().skip(3) {
-        rows = rows.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at), 10.0, || board_row(ground, &list, Some(at + 1), *who, *value)));
+        rows = rows.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at), || board_row(ground, &list, Some(at + 1), *who, *value)));
     }
     let you_out = catalog.people.iter().position(|p| p.you && !p.outside).filter(|you| !list.order.iter().any(|(who, _)| who == you));
     if let Some(you) = you_out {
         let last = list.order.len();
-        rows = rows.push(container(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), last), 10.0, || board_row(ground, &list, None, you, 0.0))).padding(Padding::ZERO.top(8.0)));
+        rows = rows.push(container(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), last), || board_row(ground, &list, None, you, 0.0))).padding(Padding::ZERO.top(8.0)));
     }
     page = page.push(rows);
     rolled(page.into())
@@ -1661,7 +1661,7 @@ fn comparing<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             button(inside).padding([6, 12]).style(ui::button_faded(ui::calm(theme::filter_chip(false)))).on_press(Message::CompareAdd(person.id)).into()
         })
         .collect();
-    let mut page = column![ui::appearing(ui::appear(ground.section_t, 0), 10.0, || container(search).center_x(Length::Fill).into())].spacing(14).width(Length::Fill).max_width(920.0);
+    let mut page = column![ui::appearing(ui::appear(ground.section_t, 0), || container(search).center_x(Length::Fill).into())].spacing(14).width(Length::Fill).max_width(920.0);
     if !offered.is_empty() {
         page = page.push(container(ui::wrap(offered, 6.0)).center_x(Length::Fill));
     }
@@ -1706,7 +1706,7 @@ fn comparing<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             let value = column![text(cell).font(theme::SANS_SEMI).size(15.0).color(ui::faded(colour)).wrapping(text::Wrapping::None), bar].spacing(5).align_x(iced::Center);
             line = line.push(container(value).width(Length::FillPortion(2)).center_x(Length::FillPortion(2)));
         }
-        table = table.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at + 1), 10.0, || container(line).padding([10, 16]).style(ui::box_faded(theme::slab)).into()));
+        table = table.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at + 1), || container(line).padding([10, 16]).style(ui::box_faded(theme::slab)).into()));
     }
     page = page.push(table);
     rolled(page.into())
@@ -1764,7 +1764,7 @@ fn titles<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         }
         let at = shown;
         shown += 1;
-        list = list.push(ui::appearing(ui::appear(t, at * 2), 12.0, || {
+        list = list.push(ui::appearing(ui::appear(t, at * 2), || {
             let head = text(w.t(rarity.key())).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(rarity.colour()));
             let cards: Vec<Element<'a, Message>> = defs.iter().map(|title| title_card(ground, title)).collect();
             column![head, grid(cards, columns_for(ground, 360.0), GRID_GAP)].spacing(10).into()
@@ -1783,10 +1783,7 @@ pub(crate) fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, M
         let card = own_card.or_else(|| ground.person_card.cloned()).unwrap_or_else(|| crate::dossier::card_from(person));
         let me = ground.person_dossier.or_else(|| if person.you { ground.catalog.me.as_ref() } else { None });
         let whose = crate::dossier::Whose { at, person, card, me };
-        let close = button(container(text("✕").font(theme::SANS_SEMI).size(theme::LEAD).color(ui::faded(MUTED))).width(32.0).height(32.0).center(32.0))
-            .padding(0)
-            .style(ui::button_faded(theme::bare))
-            .on_press(Message::Person(None));
+        let close = ui::close_corner(Some(Message::Person(None)), ui::CLOSE_SIDE, 20.0, 22.0, 12.0);
         let status: Element<'a, Message> = if ground.person_loading { ui::turning(TURNING) } else { Space::new().width(0.0).into() };
         let head = row![status, ui::grow(), close].spacing(10).align_y(iced::Center);
         let cover = crate::dossier::cover_of(ground, whose.person, &whose.card);

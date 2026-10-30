@@ -796,7 +796,7 @@ fn places<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Mes
             .width(Length::FillPortion(1))
             .style(ui::button_faded(ui::calm(outline)))
             .on_press(Message::Board(board)),
-            ui::Glow::tile(10.0).lift(2.0),
+            ui::Glow::tile(10.0),
         ));
     }
     let mut grid = column![].spacing(6);
@@ -854,7 +854,7 @@ fn metrics<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) -> Ele
                 .width(Length::FillPortion(1))
                 .style(ui::button_faded(ui::calm(metric_style(ground.metric == metric))))
                 .on_press(Message::Metric(metric)),
-            ui::Glow::tile(12.0).lift(2.0),
+            ui::Glow::tile(12.0),
         )).width(Length::FillPortion(1)).id(iced::widget::Id::from(format!("dossier-metric-{index}"))));
         if (index + 1) % per_row == 0 {
             tiles = tiles.push(line);
@@ -1423,14 +1423,14 @@ pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) ->
         for (at, block) in lane.keys.iter().enumerate() {
             let k = ui::appear(t, at + usize::from(index >= 2));
             let piece = match block {
-                Block::Identity => ui::appearing(k, 14.0, || identity(ground, whose, wide)),
-                Block::Places => ui::appearing(k, 14.0, || places(ground, whose, t)),
-                Block::Grades => ui::appearing(k, 14.0, || grades(ground, &whose.card)),
-                Block::Titles => ui::appearing(k, 14.0, || titles(ground, whose)),
-                Block::Activity => ui::appearing(k, 14.0, || activity(ground, whose, wide)),
-                Block::Metrics => ui::appearing(k, 14.0, || metrics(ground, whose, wide, t)),
-                Block::Chart => ui::appearing(k, 14.0, || chart(ground, whose, t)),
-                Block::Best => ui::appearing(k, 14.0, || best_plays(ground, whose, wide, t)),
+                Block::Identity => ui::appearing(k, || identity(ground, whose, wide)),
+                Block::Places => ui::appearing(k, || places(ground, whose, t)),
+                Block::Grades => ui::appearing(k, || grades(ground, &whose.card)),
+                Block::Titles => ui::appearing(k, || titles(ground, whose)),
+                Block::Activity => ui::appearing(k, || activity(ground, whose, wide)),
+                Block::Metrics => ui::appearing(k, || metrics(ground, whose, wide, t)),
+                Block::Chart => ui::appearing(k, || chart(ground, whose, t)),
+                Block::Best => ui::appearing(k, || best_plays(ground, whose, wide, t)),
             };
             pieces.push((*block, piece));
         }

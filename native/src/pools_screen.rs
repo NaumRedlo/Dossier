@@ -1939,7 +1939,7 @@ fn open_view<'a>(state: &'a State, opening: &'a Opening, words: &'a Words, thumb
     }
     let right = column![ui::label(words.t("pool-open-body"), FAINT), list].spacing(10);
     let body: Element<'a, Message> = row![container(left).width(Length::Fixed(OPEN_WIDE)), container(right).width(Length::Fill)].spacing(32).align_y(iced::alignment::Vertical::Top).into();
-    column![ui::appearing(ui::appear(t, 0), 10.0, || head.into()), ui::appearing(ui::appear(t, 1), 10.0, || body)].spacing(24).into()
+    column![ui::appearing(ui::appear(t, 0), || head.into()), ui::appearing(ui::appear(t, 1), || body)].spacing(24).into()
 }
 
 const PANEL_BESIDE: f32 = 1100.0;
@@ -2030,10 +2030,10 @@ fn view_at<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, i
         }
         if let Some(error) = state.catalogue_error.as_ref().filter(|_| state.conflict.is_none() && !editor.publish) {
             let lift = if footed.is_some() { 84.0 } else { 20.0 };
-            layers.push(ui::appearing(ui::appear(t, 5), 12.0, || container(catalogue_toast(error, words)).width(Length::Fill).height(Length::Fill).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom).padding(Padding { right: 24.0, bottom: lift, ..Padding::ZERO }).into()));
+            layers.push(ui::appearing(ui::appear(t, 5), || container(catalogue_toast(error, words)).width(Length::Fill).height(Length::Fill).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom).padding(Padding { right: 24.0, bottom: lift, ..Padding::ZERO }).into()));
         }
         if editor.choosing && !editor.marked.is_empty() {
-            layers.push(ui::appearing(k, 18.0, || bulk_bar(editor, words)));
+            layers.push(ui::appearing(k, || bulk_bar(editor, words)));
         } else if let (true, Some(pool)) = (editor.share, pool) {
             layers.push(ui::fading(ui::fade() * k, || share_modal(pool, words, state.exporting.is_some())));
         } else if let (Some(out), Some(pool)) = (leaving(&clocks.shut, "share"), pool) {
@@ -2050,7 +2050,7 @@ fn view_at<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, i
                 };
                 let veil = ui::fading(ui::fade() * k, || iced::widget::opaque(iced::widget::mouse_area(ui::veil(theme::SCRIM)).on_press(close)));
                 let wide = PANEL_WIDE.min((width - 32.0).max(280.0));
-                let sheet = ui::appearing(k, PANEL_RISE, || {
+                let sheet = ui::appearing(k, || {
                     let side = match sheet {
                         Sheet::Slot(at) => slot_panel(pool, shown, at, wide, words, thumbs, state.songs.as_ref()),
                         Sheet::Publish => publish_panel(state, shown, pool, words, thumbs),
@@ -2096,7 +2096,6 @@ fn sheet_scale(width: f32) -> f32 {
 }
 
 const PANEL_LATE: f32 = 0.25;
-const PANEL_RISE: f32 = 14.0;
 
 #[cfg(test)]
 mod tests;

@@ -155,7 +155,7 @@ pub(super) fn category_fields<'a>(pool: &'a Pool, editor: &'a Editor, at: usize,
 
 pub(super) fn slot_panel<'a>(pool: &'a Pool, editor: &'a Editor, at: usize, wide: f32, words: &'a Words, thumbs: &'a HashMap<String, image::Handle>, songs: Option<&Arc<HashMap<String, Map>>>) -> Element<'a, Message> {
     let slot = &pool.slots[at];
-    let close = icon_button(Icon::Close, 14.0, FAINT, Some(Message::Select(None)));
+    let close = ui::close_square(Some(Message::Select(None)), ui::CLOSE_SIDE);
     let category = if pool.collection { Space::new().into() } else { category_menu(pool, at, false) };
     let mut body = column![row![number_badge(category_number(pool, at), true), category, ui::grow(), close].spacing(10).align_y(iced::Center)].spacing(16);
     body = body.push(category_fields(pool, editor, at, words));

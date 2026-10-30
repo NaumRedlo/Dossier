@@ -286,7 +286,7 @@ pub(super) fn editor_tools<'a>(state: &'a State, editor: &'a Editor, pool: &'a P
     } else if editor.categories {
         Some(made())
     } else {
-        leaving(shut, "categories").map(|k| ui::appearing(k * k, -10.0, made))
+        leaving(shut, "categories").map(|k| ui::appearing(k * k, made))
     };
     ui::under_leaning(line, sheet, Message::Categories(false), ui::Lean::Left(0.0), 8.0)
 }
@@ -542,15 +542,15 @@ pub(super) fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Poo
     let frame_tiles: Vec<Element<'a, Message>> = frames.iter().map(|(frame, icon, key, offered)| frame_tile(*frame, *icon, key, *offered)).collect();
     let foot = row![faded_text(words.t("pool-start-note"), 14.0, MUTED), ui::grow(), primary_button(words.t("pool-start-go"), Message::Begin(Start::Empty))].spacing(12).align_y(iced::Center);
     let page = column![
-        ui::appearing(ui::appear(t, 0), 0.0, || editor_toolbar(state, editor, pool, words, width)),
-        ui::appearing(ui::appear(t, 1), 0.0, || {
+        ui::appearing(ui::appear(t, 0), || editor_toolbar(state, editor, pool, words, width)),
+        ui::appearing(ui::appear(t, 1), || {
             column![caption("pool-start-name"), editor_title(pool, words)].spacing(8).into()
         }),
-        ui::appearing(ui::appear(t, 2), 0.0, || column![caption("pool-start-frame"), lined(frame_tiles, if narrow { 1 } else { 3 })].spacing(12).into()),
+        ui::appearing(ui::appear(t, 2), || column![caption("pool-start-frame"), lined(frame_tiles, if narrow { 1 } else { 3 })].spacing(12).into()),
     ]
     .spacing(24);
     let tall = (high - 40.0) / grown;
-    let foot = ui::appearing(ui::appear(t, 4), 0.0, || foot.into());
+    let foot = ui::appearing(ui::appear(t, 4), || foot.into());
     let page: Element<'a, Message> = if !narrow && tall >= START_TALL {
         container(column![page, Space::new().height(Length::Fill), foot]).height(tall).into()
     } else {
@@ -564,17 +564,17 @@ pub(super) fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Po
         return start_view(state, editor, pool, words, width, high, t);
     }
     let mut head = column![
-        ui::appearing(ui::appear(t, 0), 0.0, || editor_toolbar(state, editor, pool, words, width)),
-        ui::appearing(ui::appear(t, 1), 0.0, || if pool.saved.is_some() { Space::new().into() } else { editor_tools(state, editor, pool, words, shut) }),
-        ui::appearing(ui::appear(t, 1), 0.0, || editor_title(pool, words)),
+        ui::appearing(ui::appear(t, 0), || editor_toolbar(state, editor, pool, words, width)),
+        ui::appearing(ui::appear(t, 1), || if pool.saved.is_some() { Space::new().into() } else { editor_tools(state, editor, pool, words, shut) }),
+        ui::appearing(ui::appear(t, 1), || editor_title(pool, words)),
     ]
     .spacing(14);
 
     if let Some(credits) = ui::fading(ui::fade() * ui::appear(t, 2), || editor_credits(state, editor, pool, words)) {
-        head = head.push(ui::lifted(credits, ui::appear(t, 2), 0.0));
+        head = head.push(credits);
     }
     if state.conflict.as_deref() == Some(pool.id.as_str()) {
-        head = head.push(ui::appearing(ui::appear(t, 3), 0.0, || conflict_banner(state, pool, words, width)));
+        head = head.push(ui::appearing(ui::appear(t, 3), || conflict_banner(state, pool, words, width)));
     }
 
     if state.uncollect_refused {
@@ -597,10 +597,10 @@ pub(super) fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Po
     };
     let loose = step.filter(|step| matches!(step, 1..=4) && pointed.is_none());
     if let Some(step) = step.filter(|step| *step == 0).or(loose) {
-        head = head.push(ui::appearing(ui::appear(t, 3), 0.0, || coach(step, words)));
+        head = head.push(ui::appearing(ui::appear(t, 3), || coach(step, words)));
     }
     if let Some(step) = step.filter(|step| *step >= 5) {
-        head = head.push(ui::appearing(ui::appear(t, 3), 0.0, || container(coach(step, words)).align_right(Length::Fill).into()));
+        head = head.push(ui::appearing(ui::appear(t, 3), || container(coach(step, words)).align_right(Length::Fill).into()));
     }
     let downloaded = match &state.finding {
         Some(Finding::Fetching(Fetching { step: Some(crate::maps::Step::Downloading { done, total, .. }), .. })) => Some((*done, *total)),
@@ -617,12 +617,12 @@ pub(super) fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Po
             let made: Element<'a, Message> = if adding {
                 ui::under_staying(add_row(pool, *at, editor, words), Some(add_drop(state, editor, pool, words, thumbs)), ui::Lean::Left(0.0), 6.0)
             } else {
-                ui::appearing(ui::appear(t, *at + 4) * dim, 0.0, || slot_row(pool, *at, lit, editor.choosing, words, thumbs, songs, state.ail(&pool.slots[*at]), pointed == Some(*at) && step == Some(2), downloaded))
+                ui::appearing(ui::appear(t, *at + 4) * dim, || slot_row(pool, *at, lit, editor.choosing, words, thumbs, songs, state.ail(&pool.slots[*at]), pointed == Some(*at) && step == Some(2), downloaded))
             };
             let made: Element<'a, Message> = match left {
                 Some(was) => {
                     let k = 1.0 - gone_age / SHEET_OUT;
-                    ui::under_staying(made, Some(ui::appearing(k * k, -10.0, || add_drop(state, was, pool, words, thumbs))), ui::Lean::Left(0.0), 6.0)
+                    ui::under_staying(made, Some(ui::appearing(k * k, || add_drop(state, was, pool, words, thumbs))), ui::Lean::Left(0.0), 6.0)
                 }
                 None => made,
             };
@@ -647,7 +647,7 @@ pub(super) fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Po
             .into()
     };
     let list: Element<'a, Message> = if pool.slots.is_empty() {
-        ui::appearing(ui::appear(t, 4), 0.0, || container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]).into())
+        ui::appearing(ui::appear(t, 4), || container(faded_text(words.t("pool-free-empty"), 14.0, MUTED)).padding([24, 10]).into())
     } else if !pool.collection {
         let mut custom = std::collections::BTreeMap::<&str, Vec<usize>>::new();
         for (at, slot) in pool.slots.iter().enumerate() { custom.entry(if slot.category.is_empty() { slot.mods.code() } else { &slot.category }).or_default().push(at); }
@@ -659,7 +659,7 @@ pub(super) fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Po
             blocks.push(board(slots, Some(mods), columns));
         }
         if pool.saved.is_none() && !editor.choosing {
-            blocks.push(ui::appearing(ui::appear(t, pool.slots.len() + 4), 0.0, || {
+            blocks.push(ui::appearing(ui::appear(t, pool.slots.len() + 4), || {
                 let k = ui::fade();
                 let more = button(container(glyph(Icon::Plus, 16.0, MUTED)).center_x(Length::Fill).center_y(ROW_HIGH))
                     .padding(0)
@@ -685,8 +685,8 @@ pub(super) fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Po
         return column![head, list].spacing(22).into();
     }
     let panel = match backdrop_out {
-        Some(k) => ui::appearing(k * k, -10.0, || backdrop_panel(state, pool, words, thumbs)),
-        None => ui::appearing(ui::appear(t, 3).min(ui::appear(backdrop_age, 0)), -10.0, || backdrop_panel(state, pool, words, thumbs)),
+        Some(k) => ui::appearing(k * k, || backdrop_panel(state, pool, words, thumbs)),
+        None => ui::appearing(ui::appear(t, 3).min(ui::appear(backdrop_age, 0)), || backdrop_panel(state, pool, words, thumbs)),
     };
     if beside {
         return column![head, row![container(list).width(Length::Fill), container(panel).width(BACKDROP_WIDE)].spacing(PANEL_GAP)].spacing(22).into();

@@ -93,6 +93,29 @@ impl Pace {
         performance(&score, &self.whole, self.mods).pp
     }
 
+    pub fn projected(&self, counts: Counts, combo: u32, max_combo: u32) -> f64 {
+        let objects = self.objects() as u32;
+        let judged = self.judged(counts) as u32;
+        let (ok, meh, miss) = (u32::from(counts.n100), u32::from(counts.n50), u32::from(counts.miss));
+        let ahead = f64::from(self.whole.max_combo) * f64::from(objects.saturating_sub(judged)) / f64::from(objects.max(1));
+        let reachable = (f64::from(combo) + ahead).round() as u32;
+        let mut score = Score {
+            max_combo: max_combo.max(reachable).min(self.whole.max_combo),
+            great: objects.saturating_sub(ok).saturating_sub(meh).saturating_sub(miss),
+            ok,
+            meh,
+            miss,
+            slider_tail_hit: self.whole.slider_count,
+            large_tick_miss: 0,
+            classic: true,
+            legacy_total_score: None,
+            accuracy: None,
+        };
+        score.accuracy = Some(score.accuracy());
+        let pp = performance(&score, &self.whole, self.mods).pp;
+        if pp.is_finite() { pp.max(0.0) } else { 0.0 }
+    }
+
     pub fn reach(&mut self, counts: Counts, max_combo: u32) -> Reach {
         let clean = self.clean(counts);
         let judged = self.judged(counts);
@@ -129,6 +152,21 @@ mod tests {
 
     fn all_great(objects: usize) -> Counts {
         Counts { n300: objects as u16, ..Counts::default() }
+    }
+
+    #[test]
+    fn the_projected_pp_follows_the_play_instead_of_growing_with_time() {
+        let pace = Pace::of(&corpus("5114204.osu"), 0).expect("a standard map");
+        let objects = pace.objects();
+        let top = pace.whole.max_combo;
+        let start = pace.projected(Counts::default(), 0, 0);
+        let halfway = pace.projected(all_great(objects / 2), top / 2, top / 2);
+        assert!((start - halfway).abs() < 1.0, "a clean play holds its value: {start} and {halfway}");
+        assert!((pace.projected(all_great(objects), top, top) - start).abs() < 1.0, "and ends where it began");
+        let hundreds = Counts { n300: (objects / 2 - 20) as u16, n100: 20, ..Counts::default() };
+        let missed = Counts { n300: (objects / 2 - 1) as u16, miss: 1, ..Counts::default() };
+        assert!(pace.projected(hundreds, top / 2, top / 2) < halfway, "hundreds lower it");
+        assert!(pace.projected(missed, 0, top / 2) < halfway, "and a miss lowers it");
     }
 
     #[test]

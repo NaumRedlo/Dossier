@@ -1134,6 +1134,10 @@ pub struct JobRival {
     pub name: String,
     pub score: u64,
     #[serde(default)]
+    pub stable: Option<u64>,
+    #[serde(default)]
+    pub standard: Option<u64>,
+    #[serde(default)]
     pub accuracy: Option<f64>,
     #[serde(default)]
     pub mods: String,

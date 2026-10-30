@@ -55,32 +55,44 @@ fn own_face(player: &str) -> Option<PathBuf> {
     crate::worker::avatar_of(&card.avatar_url)
 }
 
-const PACE_SAMPLES: usize = 160;
 const STRAIN_SECTIONS: usize = 110;
 const STRAIN_REACH: usize = 3;
 
 fn pace_of(text: &str, state: &dossier_sim::GameState, mods: u32) -> Vec<(f64, f32)> {
-    let (Some(judge), Some(mut pace)) = (state.judge(), dossier_witness::pace::Pace::of(text, mods)) else {
+    let (Some(judge), Some(pace)) = (state.judge(), dossier_witness::pace::Pace::of(text, mods)) else {
         return Vec::new();
     };
-    let events = judge.events();
-    let every = (events.len() / PACE_SAMPLES).max(1);
-    let mut times: Vec<f64> = events.iter().step_by(every).map(|event| event.scored_ms).collect();
-    times.extend(events.last().map(|event| event.scored_ms));
-    times
-        .into_iter()
-        .map(|at| {
-            let seen = judge.state_at(at);
+    judge
+        .events()
+        .iter()
+        .map(|event| {
+            let seen = judge.state_at(event.scored_ms);
             let counts = dossier_witness::stable::Counts {
-                n300: seen.counts.count_300 as u16,
-                n100: seen.counts.count_100 as u16,
-                n50: seen.counts.count_50 as u16,
-                miss: seen.counts.count_miss as u16,
+                n300: seen.counts.count_300,
+                n100: seen.counts.count_100,
+                n50: seen.counts.count_50,
+                miss: seen.counts.count_miss,
                 ..dossier_witness::stable::Counts::default()
             };
-            (at, pace.reach(counts, seen.max_combo).now as f32)
+            (event.scored_ms, pace.projected(counts, seen.combo, seen.max_combo) as f32)
         })
         .collect()
+}
+
+fn in_points_of_the_replay(mut rivals: Vec<dossier_render::Entry>, standardised: bool, objects: usize) -> Vec<dossier_render::Entry> {
+    for rival in &mut rivals {
+        rival.score = if standardised {
+            rival.standard.unwrap_or(rival.score)
+        } else {
+            rival.stable.or_else(|| rival.standard.map(|score| classic_of(score, objects))).unwrap_or(rival.score)
+        };
+    }
+    rivals
+}
+
+fn classic_of(standardised: u64, objects: usize) -> u64 {
+    let objects = objects as f64;
+    ((objects * objects * 32.57 + 100_000.0) * standardised as f64 / 1_000_000.0).round() as u64
 }
 
 fn strains_of(state: &dossier_sim::GameState) -> (Vec<f32>, (f64, f64)) {
@@ -506,7 +518,7 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
         origin: &found.origin,
         skin,
         leaderboard: dossier_render::Leaderboard {
-            rivals: rivals_for(ask, &beatmap).into_iter().filter(|rival| !rival.name.eq_ignore_ascii_case(replay.player.trim())).collect(),
+            rivals: in_points_of_the_replay(rivals_for(ask, &beatmap), state.score_track().is_some_and(|track| track.standardised()), beatmap.objects.len()).into_iter().filter(|rival| !rival.name.eq_ignore_ascii_case(replay.player.trim())).collect(),
             player: replay.player.clone(),
             avatar: own_face(replay.player.trim()),
             pace: if ask.play.pp_counter { pace_of(&found.text, &state, replay.mods.raw()) } else { Vec::new() },
@@ -616,6 +628,17 @@ fn draw_mania(ask: &Ask, tell: &Sender<Step>, replay: &dossier_replay::Replay, b
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn every_rival_is_shown_in_the_points_of_the_replay() {
+        let rival = |stable: Option<u64>, standard: Option<u64>, score: u64| dossier_render::Entry { name: "a".into(), score, stable, standard, accuracy: None, mods: String::new(), avatar: None, cover: None };
+        let scores = |standardised: bool, entry: dossier_render::Entry| in_points_of_the_replay(vec![entry], standardised, 1000)[0].score;
+        assert_eq!(scores(true, rival(Some(9_000_000), Some(950_000), 9_000_000)), 950_000, "a lazer replay reads the million scale");
+        assert_eq!(scores(false, rival(Some(9_000_000), Some(950_000), 9_000_000)), 9_000_000, "a stable replay reads stable points");
+        assert_eq!(scores(false, rival(None, Some(1_000_000), 1_000_000)), classic_of(1_000_000, 1000), "a chat's stored score is converted");
+        assert_eq!(classic_of(1_000_000, 1000), 32_670_000);
+        assert_eq!(scores(true, rival(None, None, 500)), 500, "an old answer is taken as it is");
+    }
+
     use super::*;
 
     #[test]

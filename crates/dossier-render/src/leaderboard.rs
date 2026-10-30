@@ -3,6 +3,10 @@ pub struct Entry {
     pub name: String,
     pub score: u64,
 
+    pub stable: Option<u64>,
+
+    pub standard: Option<u64>,
+
     pub accuracy: Option<f64>,
 
     pub mods: String,
@@ -56,6 +60,8 @@ impl Leaderboard {
             rivals.push(Entry {
                 name: name.to_owned(),
                 score,
+                stable: None,
+                standard: None,
                 accuracy,
                 mods,
                 avatar: picture(fields.next()),
@@ -134,6 +140,8 @@ impl Leaderboard {
             Entry {
                 name: self.player.clone(),
                 score: player_score,
+                stable: None,
+                standard: None,
                 accuracy: None,
 
                 mods: String::new(),

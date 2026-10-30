@@ -280,7 +280,7 @@ pub(crate) fn rivals_of(board: &[bot::JobRival]) -> Vec<dossier_render::Entry> {
     board
         .iter()
         .zip(faces)
-        .map(|(rival, avatar)| dossier_render::Entry { name: rival.name.clone(), score: rival.score, accuracy: rival.accuracy, mods: rival.mods.clone(), avatar, cover: None })
+        .map(|(rival, avatar)| dossier_render::Entry { name: rival.name.clone(), score: rival.score, stable: rival.stable, standard: rival.standard, accuracy: rival.accuracy, mods: rival.mods.clone(), avatar, cover: None })
         .collect()
 }
 
@@ -471,7 +471,7 @@ mod tests {
         assert_eq!(avatar_of(""), None);
         assert_eq!(avatar_of("https://evil.example/a.png"), None);
         assert_eq!(avatar_of("http://a.ppy.sh/1"), None);
-        let rivals = rivals_of(&[bot::JobRival { name: "kotofey".into(), score: 7, accuracy: Some(98.0), mods: "HD".into(), avatar: String::new() }]);
+        let rivals = rivals_of(&[bot::JobRival { stable: None, standard: None, name: "kotofey".into(), score: 7, accuracy: Some(98.0), mods: "HD".into(), avatar: String::new() }]);
         assert_eq!((rivals[0].name.as_str(), rivals[0].score, rivals[0].avatar.is_none()), ("kotofey", 7, true));
     }
 

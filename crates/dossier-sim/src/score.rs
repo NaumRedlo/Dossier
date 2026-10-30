@@ -212,6 +212,10 @@ impl ScoreTrack {
         track
     }
 
+    pub fn standardised(&self) -> bool {
+        self.ruleset.is_some_and(|ruleset| ruleset.client() == Client::Lazer)
+    }
+
     fn stable_v2(judge: &Judge, mods: Mods, played: usize) -> Self {
         let (mut combo_part_max, mut max_hits) = (0.0f64, 0u32);
         let mut perfect_combo = 0u32;

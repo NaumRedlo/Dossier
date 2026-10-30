@@ -257,15 +257,19 @@ pub fn share_cpu(percent: u32) {
 }
 
 pub fn threads() -> (Option<usize>, Option<usize>) {
-    threads_of(CPU.load(std::sync::atomic::Ordering::SeqCst), std::thread::available_parallelism().map_or(1, |n| n.get()))
+    threads_for(video::Encoder::Software)
 }
 
-pub fn threads_of(share: u32, cores: usize) -> (Option<usize>, Option<usize>) {
+pub fn threads_for(encoder: video::Encoder) -> (Option<usize>, Option<usize>) {
+    threads_of(CPU.load(std::sync::atomic::Ordering::SeqCst), std::thread::available_parallelism().map_or(1, |n| n.get()), encoder != video::Encoder::Software)
+}
+
+pub fn threads_of(share: u32, cores: usize, hardware: bool) -> (Option<usize>, Option<usize>) {
     if share >= 100 {
         return (None, None);
     }
     let allowed = ((cores * share as usize + 50) / 100).clamp(1, cores.max(1));
-    let draw = allowed.div_ceil(2);
+    let draw = if hardware { allowed } else { allowed.div_ceil(2) };
     (Some(draw), Some(allowed.saturating_sub(draw).max(1)))
 }
 
@@ -382,8 +386,10 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
     }
     let ffmpeg = ask.ffmpeg.display().to_string();
 
+    let encoder = encoder_for(&ffmpeg, ask.gpu);
+    let (draw, code) = threads_for(encoder);
     let settings = video::Settings {
-        encoder: encoder_for(&ffmpeg, ask.gpu),
+        encoder,
         out: ask.out.clone(),
         fps: ask.fps as f64,
         size: ask.size,
@@ -394,8 +400,8 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
         preset: "medium".to_owned(),
         music_level: ask.music_level,
         hitsound_level: ask.hitsound_level,
-        threads: threads().0,
-        encoder_threads: threads().1,
+        threads: draw,
+        encoder_threads: code,
         audio: locate::extract_audio(&found.origin, &beatmap.audio_filename, &scratch),
         video: None,
         hitsounds: None,
@@ -469,8 +475,10 @@ fn draw_mania(ask: &Ask, tell: &Sender<Step>, replay: &dossier_replay::Replay, b
     }
     let _ = tell.send(Step::Judged);
     let ffmpeg = ask.ffmpeg.display().to_string();
+    let encoder = encoder_for(&ffmpeg, ask.gpu);
+    let (draw, code) = threads_for(encoder);
     let settings = video::Settings {
-        encoder: encoder_for(&ffmpeg, ask.gpu),
+        encoder,
         out: ask.out.clone(),
         fps: ask.fps as f64,
         size: ask.size,
@@ -481,8 +489,8 @@ fn draw_mania(ask: &Ask, tell: &Sender<Step>, replay: &dossier_replay::Replay, b
         preset: "medium".to_owned(),
         music_level: ask.music_level,
         hitsound_level: ask.hitsound_level,
-        threads: threads().0,
-        encoder_threads: threads().1,
+        threads: draw,
+        encoder_threads: code,
         audio: locate::extract_audio(&found.origin, &beatmap.audio_filename, &scratch),
         video: None,
         hitsounds: None,
@@ -550,12 +558,14 @@ mod tests {
 
     #[test]
     fn a_share_of_the_processor_leaves_the_rest_alone() {
-        assert_eq!(threads_of(100, 8), (None, None));
-        assert_eq!(threads_of(50, 8), (Some(2), Some(2)));
-        assert_eq!(threads_of(25, 12), (Some(2), Some(1)));
-        assert_eq!(threads_of(75, 16), (Some(6), Some(6)));
-        assert_eq!(threads_of(25, 2), (Some(1), Some(1)));
-        assert_eq!(threads_of(75, 1), (Some(1), Some(1)));
+        assert_eq!(threads_of(100, 8, false), (None, None));
+        assert_eq!(threads_of(50, 8, false), (Some(2), Some(2)));
+        assert_eq!(threads_of(25, 12, false), (Some(2), Some(1)));
+        assert_eq!(threads_of(75, 16, false), (Some(6), Some(6)));
+        assert_eq!(threads_of(25, 2, false), (Some(1), Some(1)));
+        assert_eq!(threads_of(75, 1, false), (Some(1), Some(1)));
+        assert_eq!(threads_of(100, 8, true), (None, None));
+        assert_eq!(threads_of(50, 8, true), (Some(4), Some(1)));
     }
 
     #[test]

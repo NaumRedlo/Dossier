@@ -101,15 +101,11 @@ fn stitch(parts: &[Part], settings: &video::Settings) -> Result<(), String> {
         command.args(["-threads", &threads.to_string()]);
     }
     command
+        .args(["-c:v", settings.encoder.codec()])
+        .args(settings.encoder.quality(settings.crf, &settings.preset))
         .args([
-            "-c:v",
-            "libx264",
-            "-preset",
-            &settings.preset,
-            "-crf",
-            &settings.crf.to_string(),
             "-pix_fmt",
-            "yuv420p",
+            settings.encoder.pixels(),
             "-colorspace",
             "bt709",
             "-color_primaries",

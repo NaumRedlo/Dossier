@@ -29,7 +29,7 @@ pub fn mark<'a>(state: &State, content: Element<'a, Message>, selected: bool, ra
         .width(Length::Fill).height(Length::Fill);
     let marked = stack![content, drawing];
     if names.is_empty() { marked.into() } else {
-        iced::widget::tooltip(marked, iced::widget::text(names).font(crate::theme::SANS).size(13), iced::widget::tooltip::Position::Top).into()
+        crate::ui::tip(marked, names)
     }
 }
 

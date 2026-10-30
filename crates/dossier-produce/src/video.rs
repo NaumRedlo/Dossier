@@ -60,9 +60,9 @@ impl Encoder {
         let words: Vec<String> = match self {
             Encoder::Software => vec!["-preset".into(), preset.into(), "-crf".into(), crf.to_string()],
             Encoder::VideoToolbox => vec!["-q:v".into(), (100u32.saturating_sub(crf * 2)).clamp(1, 100).to_string(), "-allow_sw".into(), "0".into()],
-            Encoder::Nvenc => vec!["-preset".into(), "p5".into(), "-tune".into(), "hq".into(), "-rc".into(), "vbr".into(), "-cq".into(), (crf + 3).to_string(), "-b:v".into(), "0".into()],
-            Encoder::Amf => vec!["-quality".into(), "quality".into(), "-rc".into(), "cqp".into(), "-qp_i".into(), crf.to_string(), "-qp_p".into(), (crf + 2).to_string()],
-            Encoder::Qsv => vec!["-preset".into(), "slower".into(), "-global_quality".into(), (crf + 3).to_string()],
+            Encoder::Nvenc => vec!["-preset".into(), "p4".into(), "-tune".into(), "hq".into(), "-rc".into(), "vbr".into(), "-cq".into(), (crf + 3).to_string(), "-b:v".into(), "0".into()],
+            Encoder::Amf => vec!["-quality".into(), "balanced".into(), "-rc".into(), "cqp".into(), "-qp_i".into(), crf.to_string(), "-qp_p".into(), (crf + 2).to_string()],
+            Encoder::Qsv => vec!["-preset".into(), "medium".into(), "-global_quality".into(), (crf + 3).to_string()],
         };
         words
     }
@@ -820,7 +820,7 @@ mod tests {
         assert_eq!(Encoder::Software.codec(), "libx264");
         assert_eq!(Encoder::Software.quality(20, "medium"), ["-preset", "medium", "-crf", "20"]);
         assert_eq!(Encoder::VideoToolbox.quality(20, "medium"), ["-q:v", "60", "-allow_sw", "0"]);
-        assert_eq!(Encoder::Nvenc.quality(20, "medium")[..2], ["-preset", "p5"]);
+        assert_eq!(Encoder::Nvenc.quality(20, "medium")[..2], ["-preset", "p4"]);
         assert_eq!(Encoder::Qsv.pixels(), "nv12");
         assert!(!Encoder::tried_here().contains(&Encoder::Software));
     }

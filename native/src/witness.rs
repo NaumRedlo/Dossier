@@ -1034,8 +1034,8 @@ mod tests {
 
     #[test]
     fn a_client_in_a_yawl_container_gets_witness_in_that_container_with_the_client_s_environment() {
-        let dir = std::env::temp_dir().join(format!("dossier-yawl-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let scratch = tempfile::Builder::new().prefix("dossier-yawl-").tempdir().unwrap();
+        let dir = scratch.path();
         let yawl = dir.join("yawl-winello");
         let plain = dir.join("wine");
         std::fs::write(&yawl, b"test").unwrap();
@@ -1066,7 +1066,7 @@ mod tests {
         assert_eq!(started.get_args().take(3).map(PathBuf::from).collect::<Vec<_>>(), vec![PathBuf::from("/home/none/wine-osu/bin/wine"), program.to_path_buf(), PathBuf::from("--serve")]);
         let set = |key: &str| started.get_envs().find(|(name, _)| *name == key).and_then(|(_, value)| value).map(|value| value.to_string_lossy().into_owned());
         assert_eq!((set("YAWL_VERBS"), set("WINEDEBUG"), set("WINEFSYNC")), (Some("enter=4242".into()), Some("-all".into()), Some("1".into())));
-        std::fs::remove_dir_all(dir).unwrap();
+        scratch.close().unwrap();
     }
 
     #[test]

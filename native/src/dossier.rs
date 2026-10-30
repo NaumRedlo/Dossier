@@ -583,6 +583,7 @@ fn backdrop_picture(handle: &iced::widget::image::Handle, wide: f32, round: f32)
     })
 }
 
+const WINDOW_STEP: f32 = 320.0;
 const CARD_ROUND: f32 = 14.0;
 const CARD_SHADE_TOP: f32 = 0.5;
 const CARD_SHADE_MID: f32 = 0.9;
@@ -601,6 +602,10 @@ pub fn cover_of<'a>(ground: &Ground<'a>, person: &crate::community::Person, card
     ground.pictures.get(&card.cover_url)
         .or_else(|| ground.pictures.get(&person.cover))
         .or_else(|| ground.catalog.me.as_ref().filter(|_| person.you).and_then(|me| ground.pictures.get(&me.person.cover)))
+}
+
+pub fn window_backdrop(handle: &iced::widget::image::Handle, wide: f32) -> Option<iced::widget::image::Handle> {
+    backdrop_picture(handle, (wide / WINDOW_STEP).ceil().max(1.0) * WINDOW_STEP, 1.0)
 }
 
 pub fn backdropped<'a>(cover: Option<&iced::widget::image::Handle>, wide: f32, round: f32, page: Element<'a, Message>) -> Element<'a, Message> {
@@ -884,6 +889,7 @@ fn chart<'a>(ground: &Ground<'a>, whose: &Whose<'a>, t: f32) -> Element<'a, Mess
 }
 
 struct Poster<'a> {
+    beatmap: i64,
     grade: String,
     title: String,
     version: String,
@@ -954,6 +960,7 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
                     passed: true,
                 };
                 Poster {
+                    beatmap: score.beatmap_id as i64,
                     grade,
                     title: score.title.clone(),
                     version: score.version.clone(),
@@ -987,6 +994,7 @@ fn posters_of<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Vec<Poster<'a>> {
                 None => (rest, String::new()),
             };
             Poster {
+                beatmap: 0,
                 grade: play.grade.clone(),
                 title,
                 version,
@@ -1080,7 +1088,7 @@ fn play_row<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, wide: f3
         credit = credit.push(text(poster.artist.clone()).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)));
     }
     if !poster.mapper.is_empty() {
-        credit = credit.push(row![glyph(Icon::Mapper, 13.0, FAINT), text(poster.mapper.clone()).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED))].spacing(4).align_y(iced::Center));
+        credit = credit.push(row![crate::duels_screen::mapper_face(&poster.mapper, poster.beatmap, 18.0), text(poster.mapper.clone()).font(theme::SANS).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED))].spacing(4).align_y(iced::Center));
     }
     if !poster.artist.is_empty() || !poster.mapper.is_empty() {
         names = names.push(container(credit).clip(true));
@@ -1409,10 +1417,8 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         return container(ui::mono_small(w.t("nothing-yet"), FAINT)).center(Length::Fill).into();
     };
     let card = card.freshened(person);
-    let cover = cover_of(ground, person, &card);
     let whose = Whose { at, person, card, me: ground.catalog.me.as_ref() };
-    let page = container(columns(ground, &whose, ground.width - 80.0, ground.section_t)).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into();
-    backdropped(cover, ground.width, 0.0, page)
+    container(columns(ground, &whose, ground.width - 80.0, ground.section_t)).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into()
 }
 
 #[cfg(test)]

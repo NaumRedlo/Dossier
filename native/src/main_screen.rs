@@ -563,6 +563,7 @@ pub struct Main {
     pub leaving: HashMap<u64, Animation<bool>>,
     pub overlay_fade: Animation<bool>,
     pub ground_fade: Animation<bool>,
+    pub own_cover_fade: Animation<bool>,
     pub overlay_drawn: Overlay,
     pub side: Side,
     pub renaming: Option<String>,
@@ -859,6 +860,7 @@ impl Main {
             leaving: HashMap::new(),
             overlay_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
             ground_fade: Animation::new(false).duration(GROUND_UP).easing(Easing::EaseOutCubic),
+            own_cover_fade: Animation::new(false).duration(GROUND_UP).easing(Easing::EaseOutCubic),
             overlay_drawn: Overlay::None,
             side: Side::App,
             renaming: None,
@@ -1420,6 +1422,8 @@ impl Main {
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
             || self.ground_fade.is_animating(self.now)
+            || self.own_cover_fade.is_animating(self.now)
+            || self.own_cover_wanted() != self.own_cover_fade.value()
             || self.turning.is_some()
             || self.retype.is_animating(self.now)
             || self.side_fade.is_animating(self.now)
@@ -2533,6 +2537,10 @@ impl Main {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         let task = self.handle(message);
         self.watch_pools();
+        if self.own_cover_wanted() != self.own_cover_fade.value() {
+            let wanted = self.own_cover_wanted();
+            self.own_cover_fade.go_mut(wanted, Instant::now());
+        }
         task
     }
 
@@ -4964,6 +4972,7 @@ impl Main {
             blank()
         };
         let overlay: Element<'_, Message> = if showing { ui::fading(sheet, || self.overlay_view()) } else { blank() };
+        let own_cover = self.own_cover_layer(sheet);
         let bubble = blank();
         let person = if self.overlay_drawn == Overlay::Community && showing {
             ui::fading(sheet * awake, || self.community_view(true).unwrap_or_else(blank))
@@ -5000,8 +5009,28 @@ impl Main {
         } else { blank() };
         let mini = self.mini_player_layer();
         let rest_scene = if loaded { self.reel_view(rest) } else { blank() };
-        let layers = stack![scene_before, scene, body, share_menu, bubble, ground, overlay, chrome_layer, crest, mini, person, room, ask, sharing, duel_strip, toasts, menu, billing, signing, skin_ask, witness_ask, duel_leaving, failure, rest_scene, resting];
+        let layers = stack![scene_before, scene, body, share_menu, bubble, ground, own_cover, overlay, chrome_layer, crest, mini, person, room, ask, sharing, duel_strip, toasts, menu, billing, signing, skin_ask, witness_ask, duel_leaving, failure, rest_scene, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
+    }
+
+    fn own_cover(&self) -> Option<&image::Handle> {
+        let catalog = self.community.as_ref()?;
+        let card = self.shown_card.as_ref().map(|card| card.cover_url.as_str());
+        let you = catalog.you().map(|you| you.cover.as_str());
+        let me = catalog.me.as_ref().map(|me| me.person.cover.as_str());
+        [card, you, me].into_iter().flatten().find_map(|url| self.news_pictures.get(url))
+    }
+
+    fn own_cover_wanted(&self) -> bool {
+        self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Profile
+    }
+
+    fn own_cover_layer(&self, sheet: f32) -> Element<'_, Message> {
+        let k = self.own_cover_fade.interpolate(0.0, 1.0, self.now) * sheet;
+        match self.own_cover().filter(|_| k > 0.001).and_then(|cover| crate::dossier::window_backdrop(cover, self.width)) {
+            Some(picture) => image(picture).content_fit(ContentFit::Cover).width(Length::Fill).height(Length::Fill).opacity(k).into(),
+            None => Space::new().width(Length::Fill).height(Length::Fill).into(),
+        }
     }
 
     fn body(&self, k: f32, s: f32) -> Element<'_, Message> {

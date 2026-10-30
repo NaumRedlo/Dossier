@@ -1295,6 +1295,7 @@ fn community_states(
             if let Some(you) = main.community.as_mut().and_then(|catalog| catalog.people.iter_mut().find(|person| person.you)) {
                 you.cover = cover;
             }
+            main.own_cover_fade = iced::Animation::new(true);
             main
         }),
         ("main-community-reading".to_owned(), {

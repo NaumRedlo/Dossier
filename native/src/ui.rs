@@ -4716,11 +4716,12 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Lift<'_, Mess
         shell: &mut iced::advanced::Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        let cursor = cursor - iced::Vector::new(self.dx, self.dy);
         self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
     }
 
     fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
-        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor - iced::Vector::new(self.dx, self.dy), viewport, renderer)
     }
 
     fn draw(
@@ -4740,6 +4741,7 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Lift<'_, Mess
         use iced::advanced::Renderer as _;
         let shift = iced::Vector::new(self.dx, self.dy);
         let seen = *viewport - shift;
+        let cursor = cursor - shift;
         renderer.with_translation(shift, |renderer| {
             self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, &seen);
         });
@@ -5138,9 +5140,25 @@ pub fn tip<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, words: Str
     crate::tip::Tip::new(content, words).into()
 }
 
+pub fn first_sentence(words: &str) -> (&str, Option<&str>) {
+    match words.find(". ") {
+        Some(at) => (&words[..=at], Some(words[at + 2..].trim())),
+        None => (words, None),
+    }
+}
+
 pub fn explained<'a, Message: 'a>(words: String, side: f32) -> Element<'a, Message> {
-    let mark = container(crate::glyphs::glyph(crate::glyphs::Icon::Help, side, theme::FAINT)).padding(2);
-    crate::tip::Tip::new(mark, words).into()
+    let mark = container(crate::glyphs::glyph(crate::glyphs::Icon::Help, side, faded(theme::FAINT))).padding(2);
+    let (lead, rest) = first_sentence(&words);
+    let tip = crate::tip::Tip::new(mark, lead);
+    match rest {
+        Some(rest) => tip.under(rest).into(),
+        None => tip.into(),
+    }
+}
+
+pub fn told<'a, Message: 'a>(title: impl Into<Element<'a, Message>>, words: String, side: f32) -> Element<'a, Message> {
+    row![title.into(), explained(words, side)].spacing(6).align_y(iced::Center).into()
 }
 
 pub fn hover<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, glow: Glow) -> Element<'a, Message> {
@@ -5631,6 +5649,26 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Reveal<'_, Me
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_corner_close_button_answers_where_it_is_drawn() {
+        let press_at = |x: f32, y: f32| {
+            let page: Element<'_, u8> = container(close_corner(Some(1u8), 34.0, 20.0, 22.0, 12.0)).padding(100).into();
+            let mut ui = iced_test::Simulator::with_size(crate::settings(), Size::new(400.0, 300.0), page);
+            ui.point_at(Point::new(x, y));
+            let _ = ui.simulate(iced_test::simulator::click());
+            ui.into_messages().count()
+        };
+        assert_eq!(press_at(144.0, 93.0), 1, "on the drawn button, beyond where it was laid out");
+        assert_eq!(press_at(105.0, 125.0), 0, "where it was laid out, beside the drawn button");
+    }
+
+    #[test]
+    fn an_explanation_opens_with_its_first_sentence() {
+        assert_eq!(first_sentence("One line only."), ("One line only.", None));
+        assert_eq!(first_sentence("osu! keeps this. The rest follows. And more."), ("osu! keeps this.", Some("The rest follows. And more.")));
+        assert_eq!(first_sentence("Lead without a dot"), ("Lead without a dot", None));
+    }
+
     use super::*;
 
     #[test]

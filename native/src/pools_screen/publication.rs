@@ -29,11 +29,10 @@ pub(super) fn share_modal<'a>(pool: &'a Pool, words: &'a Words, exporting: bool)
     .spacing(10)
     .align_y(iced::Center);
     let inside = column![
-        row![semi(words.t("pool-share-title"), 18.0, INK), ui::grow(), hash].align_y(iced::Center),
+        row![ui::told(semi(words.t("pool-share-title"), 18.0, INK), words.t("pool-share-note"), 16.0), ui::grow(), hash].align_y(iced::Center),
         share_row(Icon::File, words.t("pool-share-file"), words.t("pool-share-file-hint"), words.t("pool-save"), Some(Message::SaveFile)),
         share_row(Icon::Copy, words.t("pool-share-string"), shown, words.t("pool-copy"), Some(Message::CopyText)),
         share_row(Icon::Pool, words.t("pool-share-image"), words.t("pool-share-image-hint"), words.t(if exporting { "pool-image-saving" } else { "pool-save" }), (!exporting).then_some(Message::SaveImage)),
-        para(words.t("pool-share-note"), 12.5, MUTED),
         row![ui::grow(), quiet_button(words.t("pool-close"), Message::Share(false))],
     ]
     .spacing(16);

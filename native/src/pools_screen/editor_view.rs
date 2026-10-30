@@ -384,12 +384,11 @@ pub(super) fn backdrop_panel<'a>(state: &'a State, pool: &'a Pool, words: &'a Wo
         button(row![check_box(on), text(label).font(theme::SANS).size(14.0).color(ui::faded(INK))].spacing(12).align_y(iced::Center)).padding(0).style(ui::button_faded(theme::bare)).on_press_maybe(live.then_some(press)).into()
     };
     let inside = column![
-        row![semi(words.t("pool-backdrop-title"), 16.0, INK), ui::grow(), faded_text(words.t("pool-backdrop-optional"), 12.0, MUTED)].align_y(iced::Center),
+        row![ui::told(semi(words.t("pool-backdrop-title"), 16.0, INK), words.t("pool-backdrop-note"), 15.0), ui::grow(), faded_text(words.t("pool-backdrop-optional"), 12.0, MUTED)].align_y(iced::Center),
         from,
         column![row![text(words.t("pool-backdrop-dim")).font(theme::SANS).size(14.0).color(ui::faded(INK)), ui::grow(), text(format!("{dim}%")).font(theme::MONO_BOLD).size(14.0).color(ui::faded(INK))].align_y(iced::Center), scale].spacing(8),
         tick(held.is_some_and(|backdrop| backdrop.blur), words.t("pool-backdrop-blur"), Message::BackdropBlur(!held.is_some_and(|backdrop| backdrop.blur))),
         tick(held.is_some_and(|backdrop| backdrop.on_card), words.t("pool-backdrop-card"), Message::BackdropCard(!held.is_some_and(|backdrop| backdrop.on_card))),
-        para(words.t("pool-backdrop-note"), 12.0, FAINT),
         row![primary_button(words.t("pool-backdrop-done"), Message::BackdropPanel(false)), outlined(words.t("pool-backdrop-drop"), live.then_some(Message::BackdropFrom(None)))].spacing(8),
     ]
     .spacing(20);
@@ -540,7 +539,7 @@ pub(super) fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Poo
         rows.into()
     };
     let frame_tiles: Vec<Element<'a, Message>> = frames.iter().map(|(frame, icon, key, offered)| frame_tile(*frame, *icon, key, *offered)).collect();
-    let foot = row![faded_text(words.t("pool-start-note"), 14.0, MUTED), ui::grow(), primary_button(words.t("pool-start-go"), Message::Begin(Start::Empty))].spacing(12).align_y(iced::Center);
+    let foot = row![ui::grow(), ui::explained(words.t("pool-start-note"), 16.0), primary_button(words.t("pool-start-go"), Message::Begin(Start::Empty))].spacing(12).align_y(iced::Center);
     let page = column![
         ui::appearing(ui::appear(t, 0), || editor_toolbar(state, editor, pool, words, width)),
         ui::appearing(ui::appear(t, 1), || {

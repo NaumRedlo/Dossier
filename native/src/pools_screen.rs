@@ -1890,7 +1890,7 @@ fn open_view<'a>(state: &'a State, opening: &'a Opening, words: &'a Words, thumb
     };
     let measured = pool.slots.iter().filter(|slot| slot.hash.is_some()).all(|slot| slot.measure.is_some()) && total > 0;
     let mut ledger = column![
-        semi(words.with("pool-opening", &[("name", name)]), 15.0, INK),
+        ui::told(semi(words.with("pool-opening", &[("name", name)]), 15.0, INK), words.t("pool-open-note"), 15.0),
         line(true, false, words.t("pool-open-read")),
         line(known, !known, if known { words.with("pool-open-found", &[("n", present.to_string()), ("total", total.to_string())]) } else { words.t("pool-reading") }),
     ]
@@ -1911,7 +1911,7 @@ fn open_view<'a>(state: &'a State, opening: &'a Opening, words: &'a Words, thumb
     } else {
         actions = actions.push(primary_button(words.t("pool-open-keep"), Message::Keep));
     }
-    let left = panel_box(column![ledger, actions, para(words.t("pool-open-note"), 12.0, MUTED)].spacing(18).into());
+    let left = panel_box(column![ledger, actions].spacing(18).into());
 
     let mut list = column![].spacing(4);
     for (at, slot) in pool.slots.iter().enumerate() {

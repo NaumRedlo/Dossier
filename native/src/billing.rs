@@ -840,7 +840,7 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
                             Some(days) => format!("{} {}", words.t("billing-change-note"), words.n("billing-change-days", days as u64)),
                             None => words.t("billing-change-note"),
                         },
-                        _ => words.t("billing-email-why"),
+                        _ => String::new(),
                     };
                     let label = match (state.paying, state.chosen()) {
                         (true, _) => words.t("billing-creating"),
@@ -849,7 +849,7 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
                         (false, None) => words.t("billing-pay-plain"),
                     };
                     body = body.push(row![
-                        column![ui::label(words.t("billing-email"), MUTED), field].spacing(8),
+                        column![ui::told(ui::label(words.t("billing-email"), MUTED), words.t("billing-email-why"), 14.0), field].spacing(8),
                         container(text(why).font(theme::SANS).size(14.0).color(ui::faded(MUTED))).width(Length::Fill),
                         ui::primary(label, state.can_pay().then_some(Message::Pay)),
                     ].spacing(18).align_y(iced::Bottom));

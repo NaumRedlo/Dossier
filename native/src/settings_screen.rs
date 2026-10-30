@@ -381,6 +381,12 @@ fn head<'a>(w: &Words, key: &str) -> Element<'a, Message> {
         .into()
 }
 
+fn head_told<'a>(w: &Words, key: &str, words: String) -> Element<'a, Message> {
+    container(ui::told(ui::section(w.t(key)), words, 15.0))
+        .padding(Padding { top: 2.0, right: 0.0, bottom: 12.0, left: 1.0 })
+        .into()
+}
+
 fn line<'a>(ground: &Ground<'a>, id: &str, glyph: &str, name: String, under: String, on: bool, press: Option<Message>) -> Element<'a, Message> {
     let k = mark_at(ground, id, on);
     let mut words = column![
@@ -426,7 +432,11 @@ fn pill<'a>(ground: &Ground<'a>, id: &str, name: String, on: bool, press: Messag
 }
 
 fn chip<'a>(ground: &Ground<'a>, id: &str, name: String, on: bool, press: Message) -> Element<'a, Message> {
-    switch_sized(ground, id, name, None, on, Some(press), false)
+    switch_sized(ground, id, name, None, None, on, Some(press), false)
+}
+
+fn pill_told<'a>(ground: &Ground<'a>, id: &str, name: String, told: String, on: bool, press: Message) -> Element<'a, Message> {
+    switch_sized(ground, id, name, None, Some(told), on, Some(press), true)
 }
 
 fn pill_tagged<'a>(ground: &Ground<'a>, id: &str, name: String, tag: String, on: bool, press: Message) -> Element<'a, Message> {
@@ -434,10 +444,10 @@ fn pill_tagged<'a>(ground: &Ground<'a>, id: &str, name: String, tag: String, on:
 }
 
 fn switch_row<'a>(ground: &Ground<'a>, id: &str, name: String, tag: Option<String>, on: bool, press: Option<Message>) -> Element<'a, Message> {
-    switch_sized(ground, id, name, tag, on, press, true)
+    switch_sized(ground, id, name, tag, None, on, press, true)
 }
 
-fn switch_sized<'a>(ground: &Ground<'a>, id: &str, name: String, tag: Option<String>, on: bool, press: Option<Message>, fill: bool) -> Element<'a, Message> {
+fn switch_sized<'a>(ground: &Ground<'a>, id: &str, name: String, tag: Option<String>, told: Option<String>, on: bool, press: Option<Message>, fill: bool) -> Element<'a, Message> {
     let k = mark_at(ground, id, on);
     let live = press.is_some();
     let mut inside = row![text(name).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(if live { INK } else { MUTED }))]
@@ -445,6 +455,9 @@ fn switch_sized<'a>(ground: &Ground<'a>, id: &str, name: String, tag: Option<Str
         .align_y(iced::Center);
     if let Some(tag) = tag {
         inside = inside.push(ui::tag(tag));
+    }
+    if let Some(told) = told {
+        inside = inside.push(ui::explained(told, 14.0));
     }
     inside = inside.push(if fill { Space::new().width(Length::Fill) } else { Space::new().width(6.0) }).push(ui::track(k));
     let face = button(container(inside).padding(Padding { top: 0.0, right: 9.0, bottom: 0.0, left: 14.0 }).center_y(38.0))
@@ -516,8 +529,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 .width(360.0)
             )
             .padding(Padding::ZERO.top(6.0)),
-            container(pill(ground, "render-gpu", w.t("render-gpu"), s.render_gpu, Message::RenderGpu(!s.render_gpu))).padding(Padding::ZERO.top(10.0)),
-            container(text(w.t("render-gpu-note")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(360.0).padding(Padding::ZERO.top(4.0)),
+            container(pill_told(ground, "render-gpu", w.t("render-gpu"), w.t("render-gpu-note"), s.render_gpu, Message::RenderGpu(!s.render_gpu))).padding(Padding::ZERO.top(10.0)),
         ]
         .spacing(2)
         .into(),
@@ -535,20 +547,13 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             let fraction = crate::settings::scale_fraction(shown);
             let (moving, snap) = ground.slides.get("scale").copied().unwrap_or((fraction, 1.0));
             let mut panel = column![
-                head(w, "look-tile"),
+                head_told(w, "look-tile", w.t("scale-space-note")),
                 pill(ground, "auto-scale", w.t("scale-to-monitor"), s.ui_scale == 0, Message::AutoScale(s.ui_scale != 0)),
                 container(ui::steps_released(w.t("scale"), value, fraction, moving, snap, Message::Scale, || Message::ScaleDone))
                     .width(280.0)
                     .padding(Padding::ZERO.top(8.0)),
             ]
             .spacing(2);
-            if shown > 100 {
-                panel = panel.push(
-                    container(text(w.t("scale-space-note")).font(theme::SANS).size(11.0).color(ui::faded(MUTED)))
-                        .width(280.0)
-                        .padding(Padding::ZERO.top(8.0)),
-                );
-            }
             if ground.tray {
                 panel = panel.push(container(pill(ground, "close-to-tray", w.t("close-to-tray"), s.close_to_tray, Message::CloseToTray(!s.close_to_tray))).padding(Padding::ZERO.top(10.0)));
             }
@@ -631,10 +636,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 Status::Playing => seen.state.as_ref().map_or_else(|| w.t("witness-watching"), |state| w.with("witness-playing", &[("map", state.map_line())])),
             };
             let line = |said: String, colour: iced::Color, top: f32| container(text(said).font(theme::SANS).size(11.0).color(ui::faded(colour))).width(300.0).padding(Padding::ZERO.top(top));
-            let mut panel = column![head(w, "witness-tile")].spacing(2);
-            if !running {
-                panel = panel.push(line(w.t("witness-off-note"), FAINT, 0.0));
-            }
+            let mut panel = column![if running { head(w, "witness-tile") } else { head_told(w, "witness-tile", w.t("witness-off-note")) }].spacing(2);
             if running && !said.is_empty() {
                 panel = panel.push(line(said, if matches!(seen.status, Status::Unavailable | Status::LaunchFailed(_)) { theme::ACCENT } else { FAINT }, 0.0));
             }
@@ -672,10 +674,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         Tile::Overlay => {
             let running = s.witness_on;
             let note = |said: String, colour: iced::Color, top: f32| container(text(said).font(theme::SANS).size(11.0).color(ui::faded(colour))).width(300.0).padding(Padding::ZERO.top(top));
-            let mut panel = column![head(w, "overlay-tile")].spacing(2);
-            if !running {
-                panel = panel.push(note(w.t("overlay-off-note"), FAINT, 0.0));
-            }
+            let mut panel = column![head_told(w, "overlay-tile", w.t(if running { "overlay-keys" } else { "overlay-off-note" }))].spacing(2);
             let press = running.then_some(Message::WitnessOverlay(!s.witness_overlay));
             panel = panel.push(container(switch_row(ground, "witness-overlay", w.t("witness-overlay"), Some(w.t("witness-experimental")), s.witness_overlay, press)).padding(Padding::ZERO.top(if running { 0.0 } else { 10.0 })));
             if running && s.witness_overlay {
@@ -701,7 +700,6 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             for (at, (key, words, on)) in shows.into_iter().enumerate() {
                 panel = panel.push(container(pill(ground, words, w.t(words), on, Message::OverlayShows(key, !on))).padding(Padding::ZERO.top(if at == 0 { 10.0 } else { 4.0 })));
             }
-            panel = panel.push(note(w.t("overlay-keys"), FAINT, 10.0));
             panel.into()
         }
         Tile::Sources => {
@@ -822,14 +820,14 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if let Some(said) = said {
                 under = under.push(text(said).font(theme::SANS).size(11.0).wrapping(text::Wrapping::None).color(ui::faded(FAINT)));
             }
-            let under: Element<'a, Message> = under.push(text(w.t("skin-reorder-hint")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).into();
+            let under: Element<'a, Message> = under.into();
             let deeds = row![
                 deed(w.t("more-skins"), Message::MoreSkins, false),
                 deed(w.t("add-skin"), Message::AddSkin, false),
                 deed(w.t("skins-folder"), Message::OpenSkinsFolder, false)
             ]
             .spacing(6);
-            column![head(w, "skins"), strip, container(under).padding(Padding::ZERO.top(2.0)), container(deeds).padding(Padding::ZERO.top(6.0))]
+            column![head_told(w, "skins", w.t("skin-reorder-hint")), strip, container(under).padding(Padding::ZERO.top(2.0)), container(deeds).padding(Padding::ZERO.top(6.0))]
                 .spacing(2)
                 .into()
         }
@@ -1192,10 +1190,7 @@ fn community_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     body = body.push(container(text(said).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(300.0).padding(Padding::ZERO.top(6.0)));
     body = body.push(container(pill(ground, "people-everyone", w.t("people-everyone"), s.people_everyone, Message::PeopleEveryone(!s.people_everyone))).padding(Padding::ZERO.top(14.0)));
     if let Some(sharing) = ground.share_replays {
-        body = body.push(container(pill(ground, "share-replays", w.t("share-replays"), sharing.on, Message::ShareReplays(!sharing.on))).padding(Padding::ZERO.top(8.0)));
-        if !sharing.on {
-            body = body.push(container(text(w.t("share-replays-about")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(300.0).padding(Padding::ZERO.top(6.0)));
-        }
+        body = body.push(container(pill_told(ground, "share-replays", w.t("share-replays"), w.t("share-replays-about"), sharing.on, Message::ShareReplays(!sharing.on))).padding(Padding::ZERO.top(8.0)));
     }
     body.into()
 }
@@ -1227,10 +1222,7 @@ fn worker_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             state = state.push(ui::grow()).push(ui::mono_small(w.with("worker-fps", &[("n", format!("{}", fps.round() as u64))]), MUTED));
         }
     }
-    let mut body = column![head(w, "worker"), pill(ground, "worker", w.t("worker-take"), on, Message::Worker(!on))].spacing(2).width(Length::Fixed(330.0));
-    if !on {
-        body = body.push(container(small(w.t("worker-about"), FAINT)).padding(Padding::ZERO.top(8.0)));
-    }
+    let mut body = column![head_told(w, "worker", w.t("worker-about")), pill(ground, "worker", w.t("worker-take"), on, Message::Worker(!on))].spacing(2).width(Length::Fixed(330.0));
     body = body.push(container(state).padding(Padding::ZERO.top(10.0)));
     let current = match ground.worker {
         Some(W::Taken { title } | W::Getting { title, .. } | W::Polishing { title }) => Some((title.clone(), None, None)),
@@ -1309,9 +1301,10 @@ fn worker_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         }
         body = body.push(container(farm).padding(Padding::ZERO.top(14.0)));
     }
-    body = body.push(container(pill(ground, "donate", w.t("donate-replays"), s.donate_replays, Message::Donate(!s.donate_replays))).padding(Padding::ZERO.top(14.0)));
-    let donated = if s.donate_replays { w.with("donate-count", &[("n", ground.donated.to_string())]) } else { w.t("donate-about") };
-    body = body.push(container(small(donated, FAINT)).padding(Padding::ZERO.top(6.0)));
+    body = body.push(container(pill_told(ground, "donate", w.t("donate-replays"), w.t("donate-about"), s.donate_replays, Message::Donate(!s.donate_replays))).padding(Padding::ZERO.top(14.0)));
+    if s.donate_replays {
+        body = body.push(container(small(w.with("donate-count", &[("n", ground.donated.to_string())]), FAINT)).padding(Padding::ZERO.top(6.0)));
+    }
     body.into()
 }
 

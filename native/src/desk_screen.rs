@@ -2163,7 +2163,7 @@ fn label_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
 }
 
 fn archive_picker<'a>(w: &Words, state: &'a State, k: f32) -> iced::widget::Column<'a, Message> {
-    let mut list = column![heading_k(k, w.t("desk-archive-title")), words(w.t("desk-archive-hint"), 12.0 * k, FAINT)].spacing(8);
+    let mut list = column![ui::told(heading_k(k, w.t("desk-archive-title")), w.t("desk-archive-hint"), 15.0 * k)].spacing(8);
     for packed in &state.archive {
         let on = state.archive_picked.contains(&packed.beatmap);
         let note = if packed.standard { format!("#{}", packed.beatmap) } else { w.t("desk-archive-other-mode") };
@@ -2347,7 +2347,7 @@ fn gaps_view<'a>(w: &Words, state: &State, coverage: &desk::Coverage, k: f32) ->
         }
     }
     gaps.sort();
-    let mut body = column![heading_k(k, w.t("desk-gaps-title"))].spacing(12);
+    let mut body = column![ui::told(heading_k(k, w.t("desk-gaps-title")), w.t("desk-gaps-hint"), 15.0 * k)].spacing(12);
     if gaps.is_empty() {
         body = body.push(words(w.t("desk-gaps-none"), 14.0 * k, GOOD));
     } else {
@@ -2361,7 +2361,7 @@ fn gaps_view<'a>(w: &Words, state: &State, coverage: &desk::Coverage, k: f32) ->
             let inside = row![tag(slot, k), band_pill(band_name(w, band), false, k), container(words(skill(w, slot), 13.0 * k, MUTED)).width(Length::Fill).clip(true), amount].spacing(8).align_y(Alignment::Center);
             list = list.push(button(container(inside).padding([6.0 * k, 8.0 * k]).width(Length::Fill)).padding(0).style(quiet(false, theme::CONTROL_RADIUS)).on_press(Message::Band(slot.to_owned(), band)));
         }
-        body = body.push(words(w.t("desk-gaps-hint"), 13.0 * k, FAINT)).push(list);
+        body = body.push(list);
     }
     body.push(line_button_k(w.t("desk-add-map"), (!state.posting).then_some(Message::AddingMap(true)), k))
         .push(words(w.t("desk-catalog-pick"), 13.0 * k, FAINT))
@@ -2414,7 +2414,7 @@ fn add_map_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message>
         .style(theme::field);
     let asked = state.map_asked || state.map_link.contains('/');
     let preview: Element<'a, Message> = match (beatmap, about) {
-        (None, _) if state.map_link.trim().is_empty() => words(w.t("desk-map-link-about"), 13.0 * k, FAINT),
+        (None, _) if state.map_link.trim().is_empty() => Space::new().into(),
         (None, _) => words(w.t("desk-map-link-bad"), 13.0 * k, BAD),
         (Some(_), Some(found)) => map_preview(w, state, found, k),
         (Some(id), None) if state.missing.contains(&id) => words(w.t("desk-map-missing"), 13.0 * k, UNSURE),
@@ -2432,8 +2432,7 @@ fn add_map_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message>
         row![glyph(Icon::Warn, 16.0 * k, colour), container(words(said, 13.0 * k, colour)).width(Length::Fill)].spacing(8).align_y(Alignment::Center).into()
     };
     let mut body = column![
-        row![glyph(Icon::Plus, 18.0 * k, ACCENT), container(heading_k(k, w.t("desk-add-map"))).width(Length::Fill), close].spacing(8).align_y(Alignment::Center),
-        words(w.t("desk-add-map-about"), 13.0 * k, FAINT),
+        row![glyph(Icon::Plus, 18.0 * k, ACCENT), container(ui::told(heading_k(k, w.t("desk-add-map")), format!("{} {}", w.t("desk-add-map-about"), w.t("desk-map-link-about")), 15.0 * k)).width(Length::Fill), close].spacing(8).align_y(Alignment::Center),
         labelled_k(k, w.t("desk-map-link"), field.into()),
         preview,
         labelled_k(k, w.t("desk-map-slot"), slots.wrap().vertical_spacing(6).into()),
@@ -2691,7 +2690,7 @@ fn model_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: f3
         }
     }
     let body = column![
-        column![strong(w.t("desk-slots"), 17.0 * k, INK), slots, words(w.t("desk-trusted-rule"), 13.0 * k, FAINT)].spacing(10),
+        column![ui::told(strong(w.t("desk-slots"), 17.0 * k, INK), w.t("desk-trusted-rule"), 15.0 * k), slots].spacing(10),
         column![strong(w.t("desk-by-year"), 17.0 * k, INK), years].spacing(10),
     ].spacing(24.0 * k);
     let reason = row![words(w.t("desk-reason"), 13.0 * k, FAINT), field_k(w.t("desk-reason-hint"), &state.reason, Message::Reason, k)].spacing(12).align_y(Alignment::Center);
@@ -2797,7 +2796,7 @@ fn did(w: &Words, state: &State, entry: &desk::Entry) -> String {
 
 fn batches_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a, Message> {
     let shown = state.batch_shown();
-    let mut list = column![heading_k(k, w.t("desk-batches-all")), words(w.t("desk-batches-hint"), 12.0 * k, FAINT)].spacing(8);
+    let mut list = column![ui::told(heading_k(k, w.t("desk-batches-all")), w.t("desk-batches-hint"), 15.0 * k)].spacing(8);
     for batch in &state.desk.batches {
         let on = shown.is_some_and(|held| held.name == batch.name && held.year == batch.year);
         let title = if batch.year == 0 { batch.name.clone() } else { format!("{} {}", batch.name, batch.year) };
@@ -2889,8 +2888,8 @@ fn batches_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a
         head,
         block(strong(w.t("desk-batches-rename-title"), 16.0 * k, INK), rename.into(), k),
         labelled_k(k, w.t("desk-reason"), field_kk(k, w.t("desk-reason-hint"), &state.reason, Message::Reason)),
-        block(strong(w.t("desk-batches-whole"), 16.0 * k, INK), column![words(w.t("desk-batches-whole-about"), 13.0 * k, FAINT), actions].spacing(10).into(), k),
-        block(strong(w.with("desk-batches-maps", &[("count", batch.maps.to_string())]), 16.0 * k, INK), column![words(w.t("desk-batches-maps-about"), 13.0 * k, FAINT), maps].spacing(10).into(), k),
+        block(ui::told(strong(w.t("desk-batches-whole"), 16.0 * k, INK), w.t("desk-batches-whole-about"), 15.0 * k), actions.into(), k),
+        block(ui::told(strong(w.with("desk-batches-maps", &[("count", batch.maps.to_string())]), 16.0 * k, INK), w.t("desk-batches-maps-about"), 15.0 * k), maps.into(), k),
         busy(w, state, k),
     ]
     .spacing(16);
@@ -3018,7 +3017,7 @@ fn journal_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: 
         log = log.push(container(container(more).width(240.0 * k)).center_x(Length::Fill).padding([12, 0]));
     }
     let main = panel(column![heading_k(k, w.t("desk-journal")), chips.wrap().vertical_spacing(6), scrollable(log).direction(ui::hidden_bar()).height(Length::Fill)].spacing(12).into());
-    let mut people = column![heading_k(k, w.t("desk-journal-who")), words(w.t("desk-journal-who-hint"), 12.0 * k, FAINT)].spacing(8);
+    let mut people = column![ui::told(heading_k(k, w.t("desk-journal-who")), w.t("desk-journal-who-hint"), 15.0 * k)].spacing(8);
     for held in &state.desk.people {
         let name = held.name.clone().unwrap_or_else(|| held.player.to_string());
         let count = state.desk.journal.iter().filter(|entry| entry.actor == held.player).count();
@@ -3138,20 +3137,18 @@ fn duels_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a, 
         }
         let label = if state.finalize_sure { w.with("desk-finalize-sure", &[("round", ordinal.to_string())]) } else { w.t("desk-finalize") };
         let count = column![
-            words(w.t("desk-finalize-about"), 13.0 * k, FAINT),
             matched,
             labelled_k(k, w.t("desk-game"), field_kk(k, w.t("desk-game-hint"), &state.game_id, Message::GameId)),
             container(main_button_kk(k, label, (ready && numbers).then_some(Message::Finalize))).width(Length::Shrink),
         ]
         .spacing(10);
-        body = body.push(block(strong(w.t("desk-finalize-title"), 16.0 * k, INK), count.into(), k));
+        body = body.push(block(ui::told(strong(w.t("desk-finalize-title"), 16.0 * k, INK), w.t("desk-finalize-about"), 15.0 * k), count.into(), k));
     }
     let stop = column![
-        words(w.t("desk-cancel-about"), 13.0 * k, FAINT),
         container(line_button_k(w.t(if state.confirming { "desk-cancel-sure" } else { "desk-cancel-duel" }), ready.then_some(Message::CancelDuel), k)).width(Length::Shrink),
     ]
     .spacing(10);
-    body = body.push(block(strong(w.t("desk-cancel-title"), 16.0 * k, INK), stop.into(), k)).push(busy(w, state, k));
+    body = body.push(block(ui::told(strong(w.t("desk-cancel-title"), 16.0 * k, INK), w.t("desk-cancel-about"), 15.0 * k), stop.into(), k)).push(busy(w, state, k));
     let detail = container(scrollable(body).direction(ui::hidden_bar())).padding(workspace::INSET).width(Length::Fill).height(Length::Fill).style(workspace::surface);
     row![aside, detail].spacing(14).height(Length::Fill).into()
 }

@@ -21,7 +21,7 @@ const TOP_ROOM: f32 = 7.0;
 const WORDS_SIZE: f32 = 12.5;
 const UNDER_SIZE: f32 = 11.5;
 const KEYS_ROOM: f32 = 16.0;
-const LINES_ROOM: f32 = 2.0;
+const LINES_ROOM: f32 = 4.0;
 const RADIUS: f32 = 8.0;
 const FILL: Color = Color::from_rgb(0.102, 0.063, 0.078);
 
@@ -243,7 +243,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Tip<'_, Message> {
             if state.laid.as_ref().is_none_or(|laid| laid.key != key) {
                 let wide = MOST_WIDE - SIDE_ROOM * 2.0;
                 state.laid = Some(Laid {
-                    words: line(&self.words, theme::SANS, WORDS_SIZE, wide),
+                    words: line(&self.words, if self.under.is_some() { theme::SANS_SEMI } else { theme::SANS }, WORDS_SIZE, wide),
                     under: self.under.as_deref().map(|under| line(under, theme::SANS, UNDER_SIZE, wide)),
                     keys: self.keys.as_deref().map(|keys| line(keys, theme::SANS, UNDER_SIZE, wide)),
                     key,

@@ -893,10 +893,9 @@ pub(crate) fn standing<'a>(w: &Words, me: Option<&Me>) -> Element<'a, Message> {
         });
         let line = row(marks.collect::<Vec<Element<'a, Message>>>()).spacing(6);
         return column![
-            words(w.t("duels-calibration"), 15.0, FAINT),
+            ui::told(words(w.t("duels-calibration"), 15.0, FAINT), w.t("duels-calibration-note"), 15.0),
             row![bold(filled.to_string(), 96.0, INK), container(strong(w.with("duels-calibration-out-of", &[("needed", me.rating.needed.to_string())]), 24.0, MUTED)).padding(Padding { bottom: 16.0, ..Padding::ZERO })].spacing(16).align_y(Alignment::End),
             line,
-            words(w.t("duels-calibration-note"), 14.0, FAINT),
         ].spacing(14).into();
     }
     let rating = me.rating.rating.map(|value| w.lang().group(value.max(0) as u64)).unwrap_or_default();

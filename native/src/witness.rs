@@ -158,7 +158,7 @@ impl Sittings {
                 self.begin_if_none(now, zone);
                 self.moved(now)
             }
-            Event::Loading | Event::Alive | Event::Overlay(_) | Event::Screen(_) | Event::Cursor(_) | Event::SendAsked => None,
+            Event::Loading | Event::Alive | Event::Overlay(_) | Event::Screen(_) | Event::Cursor(_) | Event::SendAsked | Event::OverlayScale(_) => None,
         }
     }
 
@@ -299,6 +299,8 @@ pub enum Event {
     Screen(Option<String>),
     #[serde(skip)]
     SendAsked,
+    #[serde(skip)]
+    OverlayScale(u16),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -379,7 +381,7 @@ impl Seen {
             }
             Event::Overlay(on) => self.overlay = *on,
             Event::Screen(screen) => self.screen = screen.clone(),
-            Event::Alive | Event::Cursor(_) | Event::SendAsked => {}
+            Event::Alive | Event::Cursor(_) | Event::SendAsked | Event::OverlayScale(_) => {}
         }
     }
 }
@@ -562,15 +564,15 @@ pub fn launch() -> Option<Launch> {
 pub struct Overlay {
     pub english: bool,
     pub keeps: bool,
+    pub keeps_failed: bool,
     pub offers: bool,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Extras {
-    pub day: Option<dossier_hud::Day>,
     pub notices: Vec<dossier_hud::Notice>,
     pub places: Option<(String, Vec<dossier_hud::Place>)>,
-    pub sent: Option<dossier_hud::Sent>,
+    pub look: Option<dossier_hud::Look>,
 }
 
 pub fn replay_hash(kept: &Kept) -> Option<String> {
@@ -625,6 +627,9 @@ pub fn overlay_command(launch: &Launch, program: &Path, overlay: Overlay) -> Com
     if overlay.keeps {
         command.arg("--keeps");
     }
+    if overlay.keeps_failed {
+        command.arg("--keeps-failed");
+    }
     if overlay.offers {
         command.arg("--offer");
     }
@@ -650,6 +655,7 @@ pub fn overlay_log() -> std::path::PathBuf {
 struct Shown {
     child: Child,
     frames: std::sync::mpsc::SyncSender<String>,
+    ready: Arc<AtomicBool>,
 }
 
 fn write_frames(mut input: ChildStdin, frames: std::sync::mpsc::Receiver<String>) {
@@ -660,17 +666,38 @@ fn write_frames(mut input: ChildStdin, frames: std::sync::mpsc::Receiver<String>
     }
 }
 
-fn listen_overlay(output: std::process::ChildStdout, asked: &std::sync::atomic::AtomicU32) {
+#[derive(Debug, Deserialize)]
+struct Said {
+    event: String,
+    #[serde(default)]
+    version: u32,
+    #[serde(default)]
+    scale: u16,
+}
+
+pub const OVERLAY_SPEAKS: u32 = 2;
+
+fn listen_overlay(output: std::process::ChildStdout, asked: &std::sync::atomic::AtomicU32, looked: &std::sync::atomic::AtomicU32, ready: &AtomicBool) {
     for line in std::io::BufReader::new(output).lines() {
         let Ok(line) = line else { return };
-        if line.contains("\"event\":\"send\"") {
+        heard_overlay(&line, asked, looked, ready);
+    }
+}
+
+fn heard_overlay(line: &str, asked: &std::sync::atomic::AtomicU32, looked: &std::sync::atomic::AtomicU32, ready: &AtomicBool) {
+    let Ok(said) = serde_json::from_str::<Said>(line) else { return };
+    match said.event.as_str() {
+        "send" => {
             asked.fetch_add(1, Ordering::SeqCst);
         }
+        "ready" if said.version >= OVERLAY_SPEAKS => ready.store(true, Ordering::SeqCst),
+        "look" if said.scale > 0 => looked.store(u32::from(said.scale), Ordering::SeqCst),
+        _ => {}
     }
 }
 
 fn close(shown: Shown) {
-    let Shown { mut child, frames } = shown;
+    let Shown { mut child, frames, .. } = shown;
     drop(frames);
     std::thread::spawn(move || {
         let until = Instant::now() + OVERLAY_GRACE;
@@ -698,6 +725,7 @@ pub struct Control {
     context: Mutex<Option<dossier_hud::context::Packet>>,
     extras: Mutex<Extras>,
     asked: Arc<std::sync::atomic::AtomicU32>,
+    looked: Arc<std::sync::atomic::AtomicU32>,
     pid: std::sync::atomic::AtomicU32,
     cursor: Mutex<Option<std::sync::mpsc::Sender<Cursor>>>,
 }
@@ -729,7 +757,7 @@ impl Control {
                     pool: Some(pool.name.clone()), stars: slot.measure.as_ref().filter(|_| slot.mods == crate::pools::Mod::Nm).map(|measure| measure.stars), places: Vec::new(),
                 })
             }));
-            dossier_hud::context::Packet { version: 1, pid, at_ms: 0, lang: if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, map_md5, card, day: None, notices: Vec::new(), sent: None }
+            dossier_hud::context::Packet { version: 1, pid, at_ms: 0, lang: if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, map_md5, card, notices: Vec::new(), look: None }
         });
         drop(held);
         self.tell_overlay();
@@ -743,9 +771,8 @@ impl Control {
     pub fn packet(&self) -> Option<dossier_hud::context::Packet> {
         let mut packet = self.context.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()?;
         let extras = self.extras.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
-        packet.day = extras.day;
         packet.notices = extras.notices;
-        packet.sent = extras.sent;
+        packet.look = extras.look;
         if let Some((hash, places)) = extras.places.filter(|(hash, places)| !places.is_empty() && packet.map_md5.as_ref().is_some_and(|known| known.eq_ignore_ascii_case(hash))) {
             let _ = hash;
             packet.card.get_or_insert_with(dossier_hud::Card::default).places = places;
@@ -757,7 +784,7 @@ impl Control {
     fn tell_overlay(&self) {
         let Some(packet) = self.packet() else { return };
         let Ok(line) = serde_json::to_string(&dossier_hud::context::Line::of(packet)) else { return };
-        if let Some(shown) = self.shown.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref() {
+        if let Some(shown) = self.shown.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).as_ref().filter(|shown| shown.ready.load(Ordering::SeqCst)) {
             let _ = shown.frames.try_send(line);
         }
     }
@@ -779,6 +806,10 @@ impl Control {
 
     fn forward(&self, line: &str, push: &mut dyn FnMut(Event) -> bool) -> bool {
         if self.asked.swap(0, Ordering::SeqCst) > 0 && !push(Event::SendAsked) {
+            return false;
+        }
+        let scale = self.looked.swap(0, Ordering::SeqCst);
+        if scale > 0 && !push(Event::OverlayScale(scale.min(u32::from(u16::MAX)) as u16)) {
             return false;
         }
         if let Some(screen) = screen_of(line) {
@@ -812,16 +843,17 @@ impl Control {
                             let _ = child.wait();
                             return None;
                         };
+                        let ready = Arc::new(AtomicBool::new(false));
                         if let Some(output) = child.stdout.take() {
-                            let asked = self.asked.clone();
-                            std::thread::spawn(move || listen_overlay(output, &asked));
+                            let (asked, looked, ready) = (self.asked.clone(), self.looked.clone(), ready.clone());
+                            std::thread::spawn(move || listen_overlay(output, &asked, &looked, &ready));
                         }
                         let (frames, queue) = std::sync::mpsc::sync_channel(OVERLAY_QUEUE);
                         std::thread::spawn(move || write_frames(input, queue));
                         if let Some(first) = self.hello.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone().filter(|_| !hello) {
                             let _ = frames.try_send(first);
                         }
-                        Some(Shown { child, frames })
+                        Some(Shown { child, frames, ready })
                     });
                     if shown.is_some() {
                         said = Some(true);
@@ -1043,34 +1075,58 @@ mod tests {
         assert_eq!(packet.pid, 42);
         assert_eq!(packet.map_md5, Some("a".repeat(32)));
         assert_eq!(packet.lang, dossier_hud::Lang::En);
-        assert!(packet.day.is_none() && packet.card.is_none());
+        assert!(packet.notices.is_empty() && packet.card.is_none());
         control.context(&Event::Gone, None, &[], true);
         assert!(control.context.lock().unwrap().is_none());
     }
 
     #[test]
-    fn the_overlay_hears_dossiers_day_notices_places_and_sent_card() {
+    fn the_overlay_hears_dossiers_notices_and_places() {
         let control = Control::default();
         assert!(control.packet().is_none(), "nothing is told before the game is attached");
         let state = State { md5: "a".repeat(32), ..State::default() };
         control.context(&Event::Attached { pid: 42, build: String::new(), player: String::new() }, Some(&state), &[], false);
         let place = dossier_hud::Place { place: 1, name: "kotofey".into(), accuracy: 98.5, you: false };
         control.dress(|extras| {
-            extras.day = Some(dossier_hud::Day { plays: 3, ..dossier_hud::Day::default() });
             extras.notices = vec![dossier_hud::Notice { title: "Видео готово".into(), ..dossier_hud::Notice::default() }];
             extras.places = Some(("b".repeat(32), vec![place.clone()]));
-            extras.sent = Some(dossier_hud::Sent { chat: "Osu Squad".into(), ..dossier_hud::Sent::default() });
         });
         let packet = control.packet().unwrap();
-        assert_eq!(packet.day.as_ref().map(|day| day.plays), Some(3));
         assert_eq!(packet.notices.len(), 1);
-        assert_eq!(packet.sent.as_ref().map(|sent| sent.chat.as_str()), Some("Osu Squad"));
         assert!(packet.card.is_none(), "places of another map are not shown");
         assert!(packet.at_ms > 0);
         control.dress(|extras| extras.places = Some(("A".repeat(32), vec![place.clone()])));
         assert_eq!(control.packet().unwrap().card.unwrap().places, vec![place]);
         let line = serde_json::to_vec(&dossier_hud::context::Line::of(control.packet().unwrap())).unwrap();
         assert!(line.starts_with(br#"{"event":"context""#), "the overlay tells a context line from a frame by its start");
+    }
+
+    #[test]
+    fn what_the_overlay_says_is_heard_and_an_overlay_that_never_said_ready_gets_no_context() {
+        let control = Control::default();
+        let ready = AtomicBool::new(false);
+        for line in [r#"{"event":"ready","version":1}"#, "not json", r#"{"event":"look","scale":0}"#, r#"{"event":"later"}"#] {
+            heard_overlay(line, &control.asked, &control.looked, &ready);
+        }
+        assert!(!ready.load(Ordering::SeqCst), "an overlay older than the context lines is never told them");
+        assert_eq!((control.asked.load(Ordering::SeqCst), control.looked.load(Ordering::SeqCst)), (0, 0));
+        heard_overlay(r#"{"event":"ready","version":2}"#, &control.asked, &control.looked, &ready);
+        heard_overlay(r#"{"event":"look","scale":115}"#, &control.asked, &control.looked, &ready);
+        heard_overlay(r#"{"event":"send"}"#, &control.asked, &control.looked, &ready);
+        assert!(ready.load(Ordering::SeqCst));
+        let mut heard = Vec::new();
+        assert!(control.forward("{}", &mut |event| { heard.push(event); true }));
+        assert!(control.forward("{}", &mut |event| { heard.push(event); true }));
+        assert_eq!(heard, vec![Event::SendAsked, Event::OverlayScale(115)]);
+    }
+
+    #[test]
+    fn the_look_travels_to_the_overlay_with_the_packet() {
+        let control = Control::default();
+        control.context(&Event::Attached { pid: 42, build: String::new(), player: String::new() }, None, &[], false);
+        let look = dossier_hud::Look { scale: 80, notices: false, ..dossier_hud::Look::default() };
+        control.dress(|extras| extras.look = Some(look));
+        assert_eq!(control.packet().unwrap().look, Some(look));
     }
 
     #[test]
@@ -1294,8 +1350,9 @@ mod tests {
         let program = Path::new("/home/none/.dossier/bin/witness-overlay.exe");
         let args = |overlay: Overlay| overlay_command(&Launch::Direct, program, overlay).get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
         assert!(args(Overlay::default()).is_empty());
-        assert_eq!(args(Overlay { english: true, keeps: true, offers: false }), ["--lang", "en", "--keeps"]);
-        assert_eq!(args(Overlay { english: false, keeps: false, offers: true }), ["--offer"]);
+        assert_eq!(args(Overlay { english: true, keeps: true, keeps_failed: false, offers: false }), ["--lang", "en", "--keeps"]);
+        assert_eq!(args(Overlay { english: false, keeps: false, keeps_failed: false, offers: true }), ["--offer"]);
+        assert_eq!(args(Overlay { english: false, keeps: true, keeps_failed: true, offers: false }), ["--keeps", "--keeps-failed"]);
         let control = Control::default();
         assert_eq!(control.overlay(), None);
         assert!(control.show(Some(Overlay::default())), "a change is told");

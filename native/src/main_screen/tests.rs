@@ -607,11 +607,20 @@ fn the_overlay_switch_reaches_the_running_witness_with_the_language_and_the_jour
     assert_eq!(control.overlay(), None);
     let _ = main.update(super::Message::Prefs(P::WitnessOverlay(true)));
     assert!(main.settings.witness_overlay);
-    assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: true, offers: true }), "a linked player is offered to send a play");
+    assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: true, keeps_failed: false, offers: true }), "a linked player is offered to send a play");
+    let _ = main.update(super::Message::Prefs(P::WitnessFailed(true)));
+    assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: true, keeps_failed: true, offers: true }), "the tile may say a failed play was saved");
+    let _ = main.update(super::Message::Prefs(P::WitnessFailed(false)));
+    let _ = main.update(super::Message::Prefs(P::OverlayScale(1.0)));
+    assert_eq!(main.settings.overlay_scale, 130);
+    let _ = main.update(super::Message::Prefs(P::OverlayShows("pp", false)));
+    assert!(!main.settings.overlay_pp && main.settings.overlay_look().scale == 130 && !main.settings.overlay_look().pp);
+    let _ = main.update(super::Message::Witness(crate::witness::Event::OverlayScale(90)));
+    assert_eq!(main.settings.overlay_scale, 90, "a size chosen in the game is kept");
     let _ = main.update(super::Message::Prefs(P::Witness(false)));
-    assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: false, offers: true }), "the tile may not say a play was saved");
+    assert_eq!(control.overlay(), Some(Overlay { english: true, keeps: false, keeps_failed: false, offers: true }), "the tile may not say a play was saved");
     let _ = main.update(super::Message::Prefs(P::PickLang(crate::lang::Lang::Ru)));
-    assert_eq!(control.overlay(), Some(Overlay { english: false, keeps: false, offers: true }));
+    assert_eq!(control.overlay(), Some(Overlay { english: false, keeps: false, keeps_failed: false, offers: true }));
     let _ = main.update(super::Message::Prefs(P::WitnessOverlay(false)));
     assert_eq!(control.overlay(), None);
 }

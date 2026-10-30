@@ -1,4 +1,4 @@
-use super::paint::{draw_bar, draw_pill, pie};
+use super::paint::{draw_bar, draw_pill, pie, triangle};
 use super::*;
 
 const SCORE_SIZE: f64 = 0.050;
@@ -30,7 +30,7 @@ const BAR_TALLEST: f32 = 120.0;
 const BAR_RISE: f32 = 20.0 * 1.6;
 const BAR_HIDDEN_SCALE: f32 = 1.6;
 
-use tiny_skia::{Pixmap, PixmapPaint, Transform};
+use tiny_skia::{Color, Pixmap, PixmapPaint, Transform};
 
 use crate::layout::Layout;
 use crate::skin::with_alpha;
@@ -1054,71 +1054,80 @@ impl Scene<'_> {
 
         let scale = self.skin.meter_scale;
         let height = f64::from(layout.height);
-        let full_width = (layout.width as f64 * 0.22) as f32 * scale;
+        let per_ms = (height * ERROR_BAR_PX_PER_MS) as f32 * scale;
+        let half = |window: f64| window as f32 * per_ms;
         let centre_x = layout.width as f32 * 0.5;
-        let y = (height * 0.955) as f32;
-        let band = (height * 0.006).max(2.0) as f32 * scale;
-        let span = w50 * ERROR_BAR_SPAN;
-        let half = |window: f64| (window / span) as f32 * full_width * 0.5;
+        let band = (height * 0.0045).max(2.0) as f32 * scale;
+        let y = (height * 0.965) as f32 - band * 0.5;
+        let colour = |hex: u32, alpha: f32| {
+            with_alpha(
+                Color::from_rgba8((hex >> 16) as u8, (hex >> 8) as u8, hex as u8, 255),
+                alpha * presence,
+            )
+        };
 
-        for (window, colour) in [
-            (w50, self.skin.verdict_50),
-            (w100, self.skin.verdict_100),
-            (w300, self.skin.verdict_300),
-        ] {
+        for (window, hex) in [(w50, ERROR_BAR_50), (w100, ERROR_BAR_100), (w300, ERROR_BAR_300)] {
             let w = half(window);
-            draw_bar(
-                pixmap,
-                centre_x - w,
-                y,
-                w * 2.0,
-                band,
-                with_alpha(colour, 0.30 * presence),
-            );
+            draw_bar(pixmap, centre_x - w, y, w * 2.0, band, colour(hex, 0.85));
         }
 
-        let mut recent: Vec<(f64, f64)> =
-            judge.errors_ms().filter(|&(at, _)| at <= time_ms).collect();
-
-        recent.reverse();
-        recent.truncate(ERROR_BAR_TICKS);
-        let tick_w = (height * 0.0035).max(1.0) as f32 * scale;
-        for (i, (_, error)) in recent.iter().enumerate() {
-            let age = i as f32 / ERROR_BAR_TICKS as f32;
-            let offset = (*error / span).clamp(-1.0, 1.0) as f32 * full_width * 0.5;
-            let colour = if error.abs() < w300 {
-                self.skin.verdict_300
+        let errors: Vec<(f64, f64)> = judge.errors_ms().filter(|&(at, _)| at <= time_ms).collect();
+        let mark_w = (height * 0.0025).max(1.0) as f32 * scale;
+        for &(at, error) in errors.iter().rev().take_while(|(at, _)| time_ms - at < ERROR_BAR_MARK_MS) {
+            let age = ((time_ms - at) / ERROR_BAR_MARK_MS) as f32;
+            let offset = (error.clamp(-w50, w50) as f32) * per_ms;
+            let hex = if error.abs() < w300 {
+                ERROR_BAR_300
             } else if error.abs() < w100 {
-                self.skin.verdict_100
+                ERROR_BAR_100
             } else {
-                self.skin.verdict_50
+                ERROR_BAR_50
             };
             draw_bar(
                 pixmap,
-                centre_x + offset - tick_w * 0.5,
-                y - band * 1.6,
-                tick_w,
-                band * 4.2,
-                with_alpha(colour, (1.0 - age) * 0.9 * presence),
+                centre_x + offset - mark_w * 0.5,
+                y - band * 1.5,
+                mark_w,
+                band * 4.0,
+                colour(hex, 0.75 * (1.0 - age)),
             );
         }
 
-        let centre_top = y - band * 2.4;
         draw_bar(
             pixmap,
-            centre_x - tick_w * 0.5,
-            centre_top,
-            tick_w,
-            band * 5.8,
-            with_alpha(self.skin.hud, 0.75 * presence),
+            centre_x - mark_w * 0.5,
+            y - band * 2.5,
+            mark_w,
+            band * 6.0,
+            colour(0xffffff, 0.9),
         );
+
+        if !errors.is_empty() {
+            let mean = |upto: usize| {
+                let shown = &errors[upto.saturating_sub(ERROR_BAR_AVERAGED)..upto];
+                shown.iter().map(|(_, error)| *error).sum::<f64>() / shown.len().max(1) as f64
+            };
+            let last = errors.len();
+            let now = mean(last);
+            let was = if last > 1 { mean(last - 1) } else { 0.0 };
+            let since = ((time_ms - errors[last - 1].0) / ERROR_BAR_ARROW_MS).clamp(0.0, 1.0);
+            let eased = 1.0 - (1.0 - since).powi(5);
+            let at = centre_x + ((was + (now - was) * eased).clamp(-w50, w50) as f32) * per_ms;
+            let tip = y - band * 3.0;
+            let side = band * 1.6;
+            triangle(
+                pixmap,
+                [(at, tip), (at - side, tip - side * 1.3), (at + side, tip - side * 1.3)],
+                colour(0xffffff, 0.9),
+            );
+        }
 
         if let Some(rate) = judge
             .unstable_rate(time_ms)
             .filter(|_| self.skin.unstable_rate)
         {
             let size = (height * ERROR_BAR_UR_SIZE) as f32 * scale;
-            let baseline = centre_top - size * ERROR_BAR_UR_GAP;
+            let baseline = y - band * 5.5 - size * ERROR_BAR_UR_GAP;
 
             let text = format!("{rate:.0}");
 

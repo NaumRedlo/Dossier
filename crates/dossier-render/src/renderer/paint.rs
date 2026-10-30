@@ -26,6 +26,21 @@ pub(super) fn rounded_rect(
     path.finish()
 }
 
+pub(super) fn triangle(pixmap: &mut Pixmap, points: [(f32, f32); 3], colour: Color) {
+    let mut path = PathBuilder::new();
+    path.move_to(points[0].0, points[0].1);
+    path.line_to(points[1].0, points[1].1);
+    path.line_to(points[2].0, points[2].1);
+    path.close();
+    let Some(path) = path.finish() else {
+        return;
+    };
+    let mut paint = Paint::default();
+    paint.set_color(colour);
+    paint.anti_alias = true;
+    pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+}
+
 pub(super) fn draw_bar(
     pixmap: &mut Pixmap,
     x: f32,

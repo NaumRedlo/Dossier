@@ -1,6 +1,6 @@
 use dossier_overlay::{Client, Gameplay, Screen, Snapshot, View};
 
-use crate::{Best, Card, Context, Day, Lang, Meter, Notice, Outcome, Place, Play, Sent, Tone};
+use crate::{Card, Context, Lang, Look, Meter, Notice, Outcome, Panel, Place, Play, Tone};
 
 fn view(screen: Screen) -> View {
     View {
@@ -43,43 +43,17 @@ fn play(resting: bool) -> Play {
     }
 }
 
-fn sent() -> Sent {
-    Sent {
-        chat: "osu! друзья".into(),
-        title: "Towa no Maigo".into(),
-        player: "NaumRedlo".into(),
-        mods: "HD".into(),
-        pp: 412.0,
-        accuracy: 98.61,
-        grade: "A".into(),
-    }
-}
-
 pub fn frames(lang: Lang) -> Vec<(&'static str, View, Context)> {
     let base = Context {
         lang,
         ..Context::default()
     };
-    vec![
+    let mut frames = vec![
         (
             "menu",
             view(Screen::Menu),
             Context {
-                day: Some(Day {
-                    pp_gain: 38.0,
-                    rank: 11_188,
-                    climbed: 214,
-                    best: Some(Best {
-                        title: "Towa no Maigo".into(),
-                        pp: 412.0,
-                        accuracy: 98.61,
-                        mods: "HD".into(),
-                        stars: 6.88,
-                    }),
-                    plays: 14,
-                    seconds: 4_320,
-                    records: 2,
-                }),
+                greet: true,
                 notices: vec![
                     Notice {
                         title: "Видео готово".into(),
@@ -88,9 +62,9 @@ pub fn frames(lang: Lang) -> Vec<(&'static str, View, Context)> {
                         tone: Tone::Good,
                     },
                     Notice {
-                        title: "kotofey сыграл вашу карту".into(),
-                        body: "Glass Orchard, 98,61%".into(),
-                        sign: "K".into(),
+                        title: "Что нового".into(),
+                        body: "Dossier 0.97.6".into(),
+                        sign: String::new(),
                         tone: Tone::Blue,
                     },
                 ],
@@ -152,7 +126,6 @@ pub fn frames(lang: Lang) -> Vec<(&'static str, View, Context)> {
                     saved: true,
                     offer: Some("Tab".into()),
                     holding: 0.0,
-                    sent: None,
                 }),
                 ..base.clone()
             },
@@ -165,25 +138,39 @@ pub fn frames(lang: Lang) -> Vec<(&'static str, View, Context)> {
                     saved: true,
                     offer: Some("Tab".into()),
                     holding: 0.6,
-                    sent: None,
                 }),
                 ..base.clone()
             },
         ),
         (
-            "sent",
+            "saved",
             view(Screen::Results),
             Context {
                 outcome: Some(Outcome {
                     saved: true,
                     offer: Some("Tab".into()),
                     holding: 0.0,
-                    sent: Some(sent()),
                 }),
+                ticked: true,
                 ..base
             },
         ),
-    ]
+    ];
+    let (_, menu, context) = frames[0].clone();
+    frames.push((
+        "tuning",
+        menu,
+        Context {
+            look: Look {
+                scale: 115,
+                ..Look::default()
+            },
+            panel: Some(Panel::Tuning),
+            greet: false,
+            ..context
+        },
+    ));
+    frames
 }
 
 pub fn backdrop(width: u32, height: u32) -> Vec<u8> {

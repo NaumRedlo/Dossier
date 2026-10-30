@@ -33,6 +33,7 @@ pub enum Tile {
     Storage,
     Builds,
     Witness,
+    Overlay,
     Account,
     Chats,
     Receive,
@@ -59,6 +60,7 @@ impl Tile {
             Tile::Storage => "storage",
             Tile::Builds => "builds",
             Tile::Witness => "witness",
+            Tile::Overlay => "overlay",
             Tile::Account => "account",
             Tile::Chats => "chats",
             Tile::Receive => "receive",
@@ -73,7 +75,7 @@ impl Tile {
     }
 }
 
-pub const APP: [Tile; 15] = [
+pub const APP: [Tile; 16] = [
     Tile::Render,
     Tile::Language,
     Tile::Look,
@@ -84,6 +86,7 @@ pub const APP: [Tile; 15] = [
     Tile::Elements,
     Tile::Sources,
     Tile::Witness,
+    Tile::Overlay,
     Tile::Skins,
     Tile::Videos,
     Tile::Maps,
@@ -190,6 +193,10 @@ pub enum Message {
     WitnessAskTap,
     Witness(bool),
     WitnessOverlay(bool),
+    WitnessFailed(bool),
+    RenderGpu(bool),
+    OverlayScale(f32),
+    OverlayShows(&'static str, bool),
     WitnessHistory(bool),
     PeopleEveryone(bool),
     Pin(i64),
@@ -509,6 +516,8 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 .width(360.0)
             )
             .padding(Padding::ZERO.top(6.0)),
+            container(pill(ground, "render-gpu", w.t("render-gpu"), s.render_gpu, Message::RenderGpu(!s.render_gpu))).padding(Padding::ZERO.top(10.0)),
+            container(text(w.t("render-gpu-note")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(360.0).padding(Padding::ZERO.top(4.0)),
         ]
         .spacing(2)
         .into(),
@@ -644,6 +653,9 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             panel = panel.push(container(pill_tagged(ground, "witness-run", w.t("witness-run"), w.t("witness-risk"), running, Message::WitnessRun(!running))).padding(Padding::ZERO.top(10.0)));
             if running {
                 panel = panel.push(container(pill(ground, "witness", w.t("witness-on"), on, Message::Witness(!on))).padding(Padding::ZERO.top(4.0)));
+                if on {
+                    panel = panel.push(container(pill(ground, "witness-failed", w.t("witness-keep-failed"), s.witness_keep_failed, Message::WitnessFailed(!s.witness_keep_failed))).padding(Padding::ZERO.top(4.0)));
+                }
             }
             panel = panel.push(container(pill(ground, "witness-history", w.t("witness-history"), s.history_share, Message::WitnessHistory(!s.history_share))).padding(Padding::ZERO.top(4.0)));
             if s.history_share && seen.history_told > 0 {
@@ -655,15 +667,41 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if running && on && seen.written > 0 {
                 panel = panel.push(line(w.with("witness-kept", &[("n", w.lang().group(u64::from(seen.written)))]), FAINT, 8.0));
             }
+            panel.into()
+        }
+        Tile::Overlay => {
+            let running = s.witness_on;
+            let note = |said: String, colour: iced::Color, top: f32| container(text(said).font(theme::SANS).size(11.0).color(ui::faded(colour))).width(300.0).padding(Padding::ZERO.top(top));
+            let mut panel = column![head(w, "overlay-tile")].spacing(2);
+            if !running {
+                panel = panel.push(note(w.t("overlay-off-note"), FAINT, 0.0));
+            }
             let press = running.then_some(Message::WitnessOverlay(!s.witness_overlay));
-            panel = panel.push(container(switch_row(ground, "witness-overlay", w.t("witness-overlay"), Some(w.t("witness-experimental")), s.witness_overlay, press)).padding(Padding::ZERO.top(10.0)));
+            panel = panel.push(container(switch_row(ground, "witness-overlay", w.t("witness-overlay"), Some(w.t("witness-experimental")), s.witness_overlay, press)).padding(Padding::ZERO.top(if running { 0.0 } else { 10.0 })));
             if running && s.witness_overlay {
                 if ground.witness.screen.as_deref() == Some("full") {
-                    panel = panel.push(line(w.t("overlay-full-screen"), theme::ACCENT, 4.0));
+                    panel = panel.push(note(w.t("overlay-full-screen"), theme::ACCENT, 4.0));
                 } else {
-                    panel = panel.push(line(w.t(if ground.witness.overlay { "overlay-running" } else { "overlay-waiting" }), FAINT, 4.0));
+                    panel = panel.push(note(w.t(if ground.witness.overlay { "overlay-running" } else { "overlay-waiting" }), FAINT, 4.0));
                 }
             }
+            let scales: Vec<u32> = dossier_hud::SCALES.iter().map(|scale| u32::from(*scale)).collect();
+            let scale = u32::from(dossier_hud::SCALES[dossier_hud::nearest_scale(s.overlay_scale)]);
+            panel = panel.push(
+                container(slide(ground, "overlay-scale", w.t("overlay-scale"), format!("{scale} %"), at(scale, &scales), stops(&scales), Message::OverlayScale))
+                    .width(360.0)
+                    .padding(Padding::ZERO.top(10.0)),
+            );
+            let shows = [
+                ("notices", "overlay-show-notices", s.overlay_notices),
+                ("card", "overlay-show-card", s.overlay_card),
+                ("pp", "overlay-show-pp", s.overlay_pp),
+                ("rate", "overlay-show-rate", s.overlay_rate),
+            ];
+            for (at, (key, words, on)) in shows.into_iter().enumerate() {
+                panel = panel.push(container(pill(ground, words, w.t(words), on, Message::OverlayShows(key, !on))).padding(Padding::ZERO.top(if at == 0 { 10.0 } else { 4.0 })));
+            }
+            panel = panel.push(note(w.t("overlay-keys"), FAINT, 10.0));
             panel.into()
         }
         Tile::Sources => {

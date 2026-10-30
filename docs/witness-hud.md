@@ -18,30 +18,59 @@ snapshot, and a `Stage` that holds the animation, and returns sprites: small
 premultiplied RGBA bitmaps with their place in the window. A host inside a client
 only has to upload each sprite as a texture and draw it at `x`, `y`.
 
-The look was agreed on the canvas page «Оверлей в игре» on 10 October 2026:
-dark glass plates, one common tile in the bottom-right corner on every screen.
-There is no blur of the game picture behind a plate; the glass is a translucent
-dark fill with a light edge.
+The look was agreed on the canvas page «Оверлей в игре» on 10 October 2026 and
+made plainer on 30 October 2026: every plate is the same flat dark panel with
+one corner radius and no edge, labels are in sentence case, the colour of a
+medals of the chat leaderboard are the only colours beside the accent, and
+there are no avatars, mod chips or pulsing dots. One common tile stays in the
+bottom-right corner on every screen.
 
 ## What is shown
 
-- **Every screen:** the common tile. «Witness на связи» normally, «Ведётся
-  запись» while a map is played, «Игра сохранена» on the results screen once the
-  play is kept.
-- **Menu:** «Результаты за день» (PP gained, world rank and its movement, the
-  best play of the day, plays, time in game, new records) and up to two Dossier
-  notices.
-- **Song select:** one compact card with the pool the map is in, its stars and
-  three places «в беседе».
+- **Every screen:** the common tile, only the Dossier mark. When the game is
+  first seen in a session it says «Witness подключился» for five seconds and folds
+  back to the mark. When a play is kept, a green tick grows in place of the
+  mark and its stroke draws itself; the mark comes back after three seconds.
+  Nothing on the tile says a play is being recorded.
+- **Menu:** up to two Dossier notices in the top-right corner, drawn like the
+  notices in Dossier: a round mark (a green tick, a grey «i» or a red «!»), a
+  title and one line.
+- **Song select:** «Топ беседы», the first three places of the map in the
+  chat: a medal-coloured place, the name and the accuracy, with the player's own
+  row tinted. Without places there is no card; the pool is not shown.
 - **Playing:** the PP reached so far and the unstable rate above the game's own
   hit error meter. While notes are played the PP plate is only a live counter and
   the tile shrinks to the logo; in a break both unfold, and the PP plate adds the
   player's record and the value without misses.
-- **Results:** the offer to send the result to the chat with its key, or what was
-  sent once the bot has posted the card.
+- **Results:** the offer to send the result to the chat with its key. Once the
+  hold is done the offer goes away; nothing more is shown.
 
 Nothing is drawn without a view. A watched replay is not a play: it gets neither
 the counter nor the rate.
+
+## Look and the keys in the game
+
+`Context::look` (`dossier_hud::Look`) holds the size of every plate in percent,
+one of `SCALES` (70, 80, 90, 100, 115, 130), and whether the notices, the
+leaderboard in song select, the PP counter and the unstable rate are shown. The size
+multiplies the unit every plate is drawn in, positions included, so the plates
+keep their corners.
+
+The overlay listens for chords with Ctrl and Shift held and no Alt or Win, only
+while the game is in front (`dossier_hud::hold::Chords`, one action per press):
+
+- **Ctrl+Shift+O** opens or closes the tuning panel at the top centre: the size
+  and the chords. It closes by itself after eight seconds.
+- **Ctrl+Shift+=** and **Ctrl+Shift+−** (or the keypad's + and −) step the size
+  up or down and show the panel. The overlay uses the new size at once and
+  writes `{"event":"look","scale":N}` on its output; Dossier keeps it in the
+  settings and sends it back with the packet. Until that packet arrives, at most
+  three seconds, the overlay keeps its own value.
+- **Ctrl+Shift+H** hides every plate and brings them back. A short note says
+  how to bring them back; while hidden, the send key does nothing.
+
+None of them works during a play but the hiding, because stable reads + and −
+there for the offset.
 
 ## Context
 
@@ -49,15 +78,14 @@ the counter nor the rate.
 is not drawn. `told` fills `Play::resting`, `Play::unstable_rate`, `Play::meter`,
 `Play::pp` and `Play::clean` from what Witness tells in a snapshot; without PP
 (another ruleset, a map whose file could not be read) the PP plate is not drawn.
-`Play::record`, the day, the pool, the chat places and the outcome come from
-Dossier.
+`Play::record`, the chat places and the outcome come from Dossier.
 
 ## Animation
 
 `Stage::advance` is called once per drawn frame. It moves the fold between the
-playing and the break form in `UNFOLD_SECONDS`, pulls the shown unstable rate
-towards the latest value with a half-life of `RATE_HALF_LIFE`, and runs the pulse
-of the recording dot. The PP counter runs to each new value the same way (`Stage::pp`).
+playing and the break form in `UNFOLD_SECONDS`, folds the greeting of the tile the same way, draws the tick in
+`TICK_SECONDS` and pulls the shown unstable rate
+towards the latest value with a half-life of `RATE_HALF_LIFE`. The PP counter runs to each new value the same way (`Stage::pp`).
 `Stage::moving` tells whether another frame is needed.
 `Stage::settled` gives the resting state for a still picture.
 
@@ -172,7 +200,13 @@ changes size. The state behind them is `crates/dossier-witness-overlay/src/hud.r
   the bot to post the play.
 - `--keeps` says that whoever started Witness keeps the replays, so the tile may
   say «Игра сохранена» after a play; without it (and without `--offer`) a kept
-  take changes nothing on the screen.
+  take changes nothing on the screen. A failed play counts as kept only with
+  `--keeps-failed`.
+- At its start the overlay writes `{"event":"ready","version":2}` on its output.
+  Dossier sends context lines only to an overlay that said it: an older one
+  would take them for broken frames. The overlay itself passes over any line on
+  its input that is neither a frame nor a context line, without a word in the
+  log.
 - What the overlay does is told on its error stream in lines that begin with
   `witness overlay:`. Dossier writes that stream to `witness-overlay.log` in
   its own folder, anew at every start of the overlay, so a tester can send it.
@@ -191,13 +225,19 @@ changes size. The state behind them is `crates/dossier-witness-overlay/src/hud.r
   change the resolution), they are written again. All of it is read from the
   system and the window; the game's process is still not opened.
 
-In Dossier the overlay has its own tile in the settings, «Witness Overlay»,
-with the switch «Оверлей в игре», marked «эксперимент» and off by default
-(`Settings::witness_overlay`). It says whether the plates are being drawn or
-the overlay waits for Witness to see the game. Dossier passes `--lang en` for
-the English interface, `--keeps` when replays are saved to the journal and
-`--offer` when the player is linked to the bot; a change of any of them starts
-the overlay again.
+In Dossier the overlay has its own tile in the settings, «Оверлей в игре»,
+with the switch «Показывать поверх игры», marked «эксперимент» and off by
+default (`Settings::witness_overlay`). It says whether the plates are being
+drawn or the overlay waits for Witness to see the game. Below it are the size
+slider, a switch for each plate and the chords. Dossier passes `--lang en` for
+the English interface, `--keeps` when replays are saved to the journal,
+`--keeps-failed` when failed plays are saved too and `--offer` when the player
+is linked to the bot; a change of any of them starts the overlay again. The
+size and the plate switches travel in the packet instead and apply at once.
+
+Failed plays are not saved to the journal unless «Сохранять зафейленные игры»
+is on (`Settings::witness_keep_failed`, off by default); they still reach
+the bot like before.
 
 ### What Dossier tells the overlay
 
@@ -206,16 +246,11 @@ one line, `{"event":"context","packet":{…}}` (`dossier_hud::context::Line`),
 whenever it changes and every five seconds, so it never expires while Dossier
 runs. The packet is the same one `tools/overlay-host` reads from its file:
 
-- `day`: the plays, time in game, new records and best play of the day from
-  the bot (`GET /render/me/day?zone=`), with the PP gained and the world rank
-  measured against the profile Dossier first saw that day;
-- `notices`: up to two unseen Dossier notices of the last day;
-- `card`: the pool the map is in and its first three places in the chat
-  (`GET /render/maps/{id}/board`);
-- `sent`: what the bot posted after the send key, shown in place of the offer.
-
-The day is asked when the game is found and after every kept play; the places
-when song select shows another map.
+- `notices`: up to two unseen Dossier notices of the last day, told when the
+  game is found and after every kept play;
+- `card`: the first three places of the map in the chat
+  (`GET /render/maps/{id}/board`), asked when song select shows another map;
+- `look`: the size and the plate switches from the settings.
 
 ### Sending a play
 
@@ -223,8 +258,9 @@ After the hold Dossier waits until Witness has delivered the play to the bot,
 then asks `POST /render/me/play/send` with the replay's hash and the chat chosen
 in Dossier (the pinned or first group when none is). The bot draws the same
 card as its recent score command: from the official score when the osu! API has
-it within ten minutes of the play, otherwise from what Witness kept. A play the
-bot cannot post leaves a notice in Dossier.
+it within ten minutes of the play, otherwise from what Witness kept. The
+overlay shows nothing about it; a play the bot cannot post leaves a notice in
+Dossier.
 
 The outcome of a play lives until the player leaves the results screen, so an
 older score opened from song select is not offered.

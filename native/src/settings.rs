@@ -29,13 +29,6 @@ use crate::sources::Source;
 
 pub const DEFAULT_SERVER: &str = "https://onenineeightfour.ignorelist.com";
 
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-pub struct DayMark {
-    pub day: String,
-    pub pp: f64,
-    pub rank: u32,
-}
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
     pub lang: Lang,
@@ -77,8 +70,6 @@ pub struct Settings {
     #[serde(default)]
     pub duel_running: Option<String>,
     #[serde(default)]
-    pub day_mark: Option<DayMark>,
-    #[serde(default)]
     pub side_order: Vec<String>,
     #[serde(default)]
     pub inbox_heard: i64,
@@ -102,6 +93,20 @@ pub struct Settings {
     pub witness_keep: bool,
     #[serde(default)]
     pub witness_overlay: bool,
+    #[serde(default)]
+    pub witness_keep_failed: bool,
+    #[serde(default)]
+    pub render_gpu: bool,
+    #[serde(default = "default_overlay_scale")]
+    pub overlay_scale: u16,
+    #[serde(default = "yes")]
+    pub overlay_notices: bool,
+    #[serde(default = "yes")]
+    pub overlay_card: bool,
+    #[serde(default = "yes")]
+    pub overlay_pp: bool,
+    #[serde(default = "yes")]
+    pub overlay_rate: bool,
     #[serde(default)]
     pub history_share: bool,
     #[serde(default)]
@@ -186,6 +191,10 @@ impl Default for Tell {
     fn default() -> Tell {
         Tell { rendered: true, errors: false, maps: false, worker: true }
     }
+}
+
+fn default_overlay_scale() -> u16 {
+    100
 }
 
 fn yes() -> bool {
@@ -941,6 +950,16 @@ pub fn own_skin_picture(side: u32) -> Vec<u8> {
 }
 
 impl Settings {
+    pub fn overlay_look(&self) -> dossier_hud::Look {
+        dossier_hud::Look {
+            scale: self.overlay_scale,
+            notices: self.overlay_notices,
+            card: self.overlay_card,
+            pp: self.overlay_pp,
+            rate: self.overlay_rate,
+        }
+    }
+
     pub fn forget_skin(&mut self, folder: &Path) -> bool {
         if !self.removed_skins.iter().any(|path| path == folder) { self.removed_skins.push(folder.to_path_buf()); }
         self.own_skins.retain(|path| path != folder);
@@ -989,7 +1008,6 @@ impl Default for Settings {
             tiles_app: Vec::new(),
             tiles_bot: Vec::new(),
             duel_running: None,
-            day_mark: None,
             side_order: Vec::new(),
             inbox_heard: 0,
             chat_id: None,
@@ -1002,6 +1020,13 @@ impl Default for Settings {
             witness_on: false,
             witness_keep: false,
             witness_overlay: false,
+            witness_keep_failed: false,
+            render_gpu: false,
+            overlay_scale: default_overlay_scale(),
+            overlay_notices: true,
+            overlay_card: true,
+            overlay_pp: true,
+            overlay_rate: true,
             history_share: false,
             history_sent: 0,
             worker_done: 0,

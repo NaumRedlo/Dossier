@@ -37,6 +37,22 @@ pub struct Ask {
     pub music_level: f32,
     pub hitsound_level: f32,
     pub play: Play,
+    pub rivals: Vec<dossier_render::Entry>,
+    pub gpu: bool,
+}
+
+pub fn encoder_for(ffmpeg: &str, gpu: bool) -> video::Encoder {
+    static FOUND: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, video::Encoder>>> = std::sync::OnceLock::new();
+    if !gpu {
+        return video::Encoder::Software;
+    }
+    let held = FOUND.get_or_init(Default::default);
+    if let Some(known) = held.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(ffmpeg) {
+        return *known;
+    }
+    let found = video::Encoder::found(ffmpeg);
+    held.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(ffmpeg.to_owned(), found);
+    found
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -367,6 +383,7 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
     let ffmpeg = ask.ffmpeg.display().to_string();
 
     let settings = video::Settings {
+        encoder: encoder_for(&ffmpeg, ask.gpu),
         out: ask.out.clone(),
         fps: ask.fps as f64,
         size: ask.size,
@@ -393,7 +410,11 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
         map_text: &found.text,
         origin: &found.origin,
         skin,
-        leaderboard: dossier_render::Leaderboard::default(),
+        leaderboard: dossier_render::Leaderboard {
+            rivals: ask.rivals.iter().filter(|rival| !rival.name.eq_ignore_ascii_case(replay.player.trim())).cloned().collect(),
+            player: replay.player.clone(),
+            ..dossier_render::Leaderboard::default()
+        },
         bare: !ask.play.hud,
         layering,
         behind: scenery::Behind {
@@ -449,6 +470,7 @@ fn draw_mania(ask: &Ask, tell: &Sender<Step>, replay: &dossier_replay::Replay, b
     let _ = tell.send(Step::Judged);
     let ffmpeg = ask.ffmpeg.display().to_string();
     let settings = video::Settings {
+        encoder: encoder_for(&ffmpeg, ask.gpu),
         out: ask.out.clone(),
         fps: ask.fps as f64,
         size: ask.size,

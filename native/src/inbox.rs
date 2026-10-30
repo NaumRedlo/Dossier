@@ -240,6 +240,8 @@ mod tests {
             music_level: 0.5,
             hitsound_level: 0.5,
             play: crate::render::Play::default(),
+            rivals: Vec::new(),
+            gpu: false,
         };
         Look::default().dress(&mut ask);
         assert_eq!((ask.size, ask.fps, ask.music_level), ((1280, 720), 30, 0.5));

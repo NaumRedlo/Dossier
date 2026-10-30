@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::c_void;
 
-use dossier_hud::hold::Keys;
+use dossier_hud::hold::{Chord, Keys};
 use dossier_hud::Sprite;
 
 const POPUP: u32 = 0x8000_0000;
@@ -20,6 +20,14 @@ const KEEP_PLACE: u32 = 0x0001 | 0x0002 | 0x0010 | 0x0200;
 const LOOKED_AT_MOST: usize = 4096;
 const TAB: i32 = 0x09;
 const OTHERS: [i32; 5] = [0x10, 0x11, 0x12, 0x5B, 0x5C];
+const SHIFT: i32 = 0x10;
+const CTRL: i32 = 0x11;
+const ALT: i32 = 0x12;
+const WINDOWS: [i32; 2] = [0x5B, 0x5C];
+const OPEN: i32 = 0x4F;
+const HIDE_KEY: i32 = 0x48;
+const BIGGER: [i32; 2] = [0xBB, 0x6B];
+const SMALLER: [i32; 2] = [0xBD, 0x6D];
 
 #[repr(C)]
 #[derive(Default)]
@@ -159,6 +167,17 @@ pub fn area(window: isize) -> Option<(i32, i32, i32, i32)> {
         return None;
     }
     (rect.right > 0 && rect.bottom > 0).then_some((corner.x, corner.y, rect.right, rect.bottom))
+}
+
+pub fn chord() -> Chord {
+    let down = |key: i32| unsafe { GetAsyncKeyState(key) } < 0;
+    Chord {
+        ctrl_shift: down(CTRL) && down(SHIFT) && !down(ALT) && !WINDOWS.into_iter().any(down),
+        open: down(OPEN),
+        hide: down(HIDE_KEY),
+        bigger: BIGGER.into_iter().any(down),
+        smaller: SMALLER.into_iter().any(down),
+    }
 }
 
 pub fn keys(window: isize) -> Keys {

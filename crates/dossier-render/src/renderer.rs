@@ -30,6 +30,8 @@ const TICK_FIRST_LEAD: f64 = 0.66;
 
 const TICK_REPEAT_LEAD_MS: f64 = 200.0;
 
+const TICK_LEAVE_MS: f64 = 150.0;
+
 const HIDDEN_FADE_IN: f64 = 0.4;
 const MARK_SHARE: f64 = 0.05;
 const MARK_SWELL: f32 = 0.12;
@@ -282,9 +284,17 @@ pub const OUTRO_FADE_MS: f64 = 700.0;
 const ERROR_BAR_UR_SIZE: f64 = 0.020;
 const ERROR_BAR_UR_GAP: f32 = 0.35;
 
-const ERROR_BAR_SPAN: f64 = 1.0;
+const ERROR_BAR_PX_PER_MS: f64 = 1.0 / 768.0;
 
-const ERROR_BAR_TICKS: usize = 28;
+const ERROR_BAR_MARK_MS: f64 = 10_000.0;
+
+const ERROR_BAR_AVERAGED: usize = 10;
+
+const ERROR_BAR_ARROW_MS: f64 = 800.0;
+
+const ERROR_BAR_300: u32 = 0x32bce7;
+const ERROR_BAR_100: u32 = 0x57e313;
+const ERROR_BAR_50: u32 = 0xdaae46;
 const SHAKE_WIDTH: f64 = 0.22;
 const SHAKE_CYCLES: f64 = 3.0;
 
@@ -844,7 +854,7 @@ impl<'a> Scene<'a> {
     ) {
         self.ground(pixmap);
         for index in self.candidates(time_ms) {
-            if self.alpha_of(index, time_ms) > 0.0 {
+            if self.on_field(index, time_ms) {
                 self.draw_object(pixmap, index, time_ms, close);
             }
         }
@@ -945,7 +955,7 @@ impl<'a> Scene<'a> {
         self.draw_verdicts(pixmap, time_ms, layout, Some(Tier::Beneath));
 
         for index in self.candidates(time_ms).rev() {
-            if self.alpha_of(index, time_ms) > 0.0 {
+            if self.on_field(index, time_ms) {
                 self.draw_object(pixmap, index, time_ms, close);
             }
         }

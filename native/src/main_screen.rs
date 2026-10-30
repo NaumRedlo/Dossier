@@ -190,7 +190,6 @@ pub enum Message {
     Sharing(sharing::Message),
     Witness(crate::witness::Event),
     WitnessDelivered(crate::witness_delivery::Delivery, Result<(), Refused>),
-    OverlayDay(Result<crate::bot::PlayDay, String>),
     OverlaySent(Result<dossier_hud::Sent, String>),
     OverlayPlaces(String, Vec<dossier_hud::Place>),
     WitnessDeliveryTick,
@@ -1073,12 +1072,20 @@ impl Main {
     }
 
     fn witness_overlay(&self) -> Option<crate::witness::Overlay> {
-        self.settings.witness_overlay.then(|| crate::witness::Overlay { english: self.settings.lang == crate::lang::Lang::En, keeps: self.settings.witness_keep, offers: !self.settings.token.is_empty() })
+        self.settings.witness_overlay.then(|| crate::witness::Overlay { english: self.settings.lang == crate::lang::Lang::En, keeps: self.settings.witness_keep, keeps_failed: self.settings.witness_keep_failed, offers: !self.settings.token.is_empty() })
     }
 
     fn witness_shown(&self) {
         if let Some(control) = &self.witness_control {
             control.show(self.witness_overlay());
+            self.overlay_dressed();
+        }
+    }
+
+    fn overlay_dressed(&self) {
+        if let Some(control) = &self.witness_control {
+            let look = self.settings.overlay_look();
+            control.dress(|extras| extras.look = Some(look));
         }
     }
 
@@ -1092,6 +1099,8 @@ impl Main {
         }
         let control = std::sync::Arc::new(crate::witness::Control::default());
         control.show(self.witness_overlay());
+        let look = self.settings.overlay_look();
+        control.dress(|extras| extras.look = Some(look));
         self.witness_control = Some(control.clone());
         let untold = self.witness.untold;
         self.witness = crate::witness::Seen { status: crate::witness::Status::Absent, ..crate::witness::Seen::default() };
@@ -1202,18 +1211,25 @@ impl Main {
 
     fn overlay_task(&mut self, event: &crate::witness::Event) -> Task<Message> {
         use crate::witness::Event;
+        if let Event::OverlayScale(scale) = event {
+            self.settings.overlay_scale = *scale;
+            let _ = self.settings.save();
+            self.overlay_dressed();
+            return Task::none();
+        }
         if self.gallery || self.settings.token.is_empty() || !self.settings.witness_overlay {
             return Task::none();
         }
         let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
         match event {
-            Event::Attached { .. } => ui::in_thread(move || Message::OverlayDay(crate::bot::play_day(&server, &token, &name, &crate::witness::time_zone()).map_err(|e| e.to_string()))),
+            Event::Attached { .. } => {
+                self.overlay_noticed();
+                Task::none()
+            }
             Event::Kept(kept) => {
                 self.last_kept = Some(kept.clone());
-                if let Some(control) = &self.witness_control {
-                    control.dress(|extras| extras.sent = None);
-                }
-                ui::in_thread(move || Message::OverlayDay(crate::bot::play_day(&server, &token, &name, &crate::witness::time_zone()).map_err(|e| e.to_string())))
+                self.overlay_noticed();
+                Task::none()
             }
             Event::State(state) if state.id > 0 && !state.md5.is_empty() && !state.md5.eq_ignore_ascii_case(&self.overlay_map) => {
                 self.overlay_map = state.md5.clone();
@@ -1242,21 +1258,11 @@ impl Main {
         ui::in_thread(move || Message::OverlaySent(crate::bot::send_play(&server, &token, &name, &replay, chat).map_err(|e| e.to_string())))
     }
 
-    fn overlay_day(&mut self, told: crate::bot::PlayDay) -> dossier_hud::Day {
-        let mut day = dossier_hud::Day { best: told.best, plays: told.plays, seconds: told.seconds, records: told.records, ..dossier_hud::Day::default() };
-        let Some(card) = self.osu_card.as_ref().filter(|card| card.pp > 0.0) else { return day };
-        let (pp, rank) = (card.pp, card.global_rank.max(0.0) as u32);
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        if self.settings.day_mark.as_ref().is_none_or(|mark| mark.day != today) {
-            self.settings.day_mark = Some(crate::settings::DayMark { day: today, pp, rank });
-            let _ = self.settings.save();
+    fn overlay_noticed(&self) {
+        if let Some(control) = &self.witness_control {
+            let notices = self.overlay_notices();
+            control.dress(|extras| extras.notices = notices);
         }
-        if let Some(mark) = &self.settings.day_mark {
-            day.pp_gain = pp - mark.pp;
-            day.rank = rank;
-            day.climbed = i64::from(mark.rank) - i64::from(rank);
-        }
-        day
     }
 
     fn overlay_notices(&self) -> Vec<dossier_hud::Notice> {
@@ -3832,7 +3838,7 @@ impl Main {
                 let sitting = Task::batch([self.sitting_task(&event), if leaving { self.history_task(false) } else { Task::none() }, overlay]);
                 if let crate::witness::Event::Kept(kept) = &event {
                     let tell = Task::batch([self.tell_task(kept).unwrap_or_else(Task::none), sitting]);
-                    if !self.settings.witness_keep {
+                    if !self.settings.witness_keep || !(kept.passed || self.settings.witness_keep_failed) {
                         return tell;
                     }
                     match crate::witness::keep(kept, &crate::witness::folder()) {
@@ -3875,23 +3881,7 @@ impl Main {
                 };
                 Task::batch([fresh, self.delivery_task()])
             }
-            Message::OverlayDay(Ok(told)) => {
-                let day = self.overlay_day(told);
-                if let Some(control) = &self.witness_control {
-                    let notices = self.overlay_notices();
-                    control.dress(|extras| {
-                        extras.day = Some(day);
-                        extras.notices = notices;
-                    });
-                }
-                Task::none()
-            }
-            Message::OverlayDay(Err(_)) => Task::none(),
             Message::OverlaySent(said) => {
-                let sent = said.as_ref().ok().cloned();
-                if let Some(control) = &self.witness_control {
-                    control.dress(|extras| extras.sent = sent);
-                }
                 if let Err(why) = said {
                     self.announce(notices::Mark::Bad, self.words.t("witness-not-sent"), why, String::new(), String::new(), notices::Link::None);
                 }
@@ -5253,6 +5243,8 @@ impl Main {
             music_level: self.settings.music_level,
             hitsound_level: self.settings.hitsound_level,
             play: render::Play::of(&self.settings),
+            rivals: Vec::new(),
+            gpu: self.settings.render_gpu,
         };
         if let Some(look) = self.sharing.looks.get(&entry.path) {
             look.dress(&mut ask);
@@ -5613,7 +5605,7 @@ impl Main {
         if !songs.contains(&own_songs) {
             songs.push(own_songs.clone());
         }
-        Some(crate::worker::Setup { server: self.settings.server.clone(), token: self.settings.token.clone(), name: self.settings.device.clone(), ffmpeg, songs, own_songs })
+        Some(crate::worker::Setup { server: self.settings.server.clone(), token: self.settings.token.clone(), name: self.settings.device.clone(), ffmpeg, songs, own_songs, gpu: self.settings.render_gpu })
     }
 
     fn start_worker(&mut self) -> Task<Message> {
@@ -6611,6 +6603,45 @@ impl Main {
                 self.settings.witness_overlay = on;
                 keep(&self.settings);
                 self.witness_shown();
+                Task::none()
+            }
+            P::RenderGpu(on) => {
+                self.remember_mark("render-gpu", on);
+                self.settings.render_gpu = on;
+                keep(&self.settings);
+                Task::none()
+            }
+            P::WitnessFailed(on) => {
+                self.remember_mark("witness-failed", on);
+                self.settings.witness_keep_failed = on;
+                keep(&self.settings);
+                self.witness_shown();
+                Task::none()
+            }
+            P::OverlayScale(at) => {
+                self.slid_at.insert("overlay-scale".to_owned(), Instant::now());
+                let scales: Vec<u32> = dossier_hud::SCALES.iter().map(|scale| u32::from(*scale)).collect();
+                self.settings.overlay_scale = prefs::nearest(at, &scales) as u16;
+                keep(&self.settings);
+                self.overlay_dressed();
+                Task::none()
+            }
+            P::OverlayShows(key, on) => {
+                self.remember_mark(match key {
+                    "notices" => "overlay-show-notices",
+                    "card" => "overlay-show-card",
+                    "pp" => "overlay-show-pp",
+                    _ => "overlay-show-rate",
+                }, on);
+                let shown = match key {
+                    "notices" => &mut self.settings.overlay_notices,
+                    "card" => &mut self.settings.overlay_card,
+                    "pp" => &mut self.settings.overlay_pp,
+                    _ => &mut self.settings.overlay_rate,
+                };
+                *shown = on;
+                keep(&self.settings);
+                self.overlay_dressed();
                 Task::none()
             }
             P::AutoScale(on) => {

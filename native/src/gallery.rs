@@ -598,6 +598,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
                 music_level: 1.0,
                 hitsound_level: 1.0,
                 play: crate::render::Play::default(),
+                rivals: Vec::new(),
+                gpu: false,
             },
         })
         .collect();
@@ -1075,8 +1077,16 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-prefs-shared".to_owned(), prefs_shared),
         ("main-prefs-witness-full".to_owned(), {
             let mut full = prefs_witness.clone();
+            full.settings.tiles_app = vec!["overlay".to_owned()];
             full.witness.screen = Some("full".to_owned());
             full
+        }),
+        ("main-prefs-overlay".to_owned(), {
+            let mut tuned = prefs_witness.clone();
+            tuned.settings.tiles_app = vec!["overlay".to_owned()];
+            tuned.settings.overlay_scale = 115;
+            tuned.settings.overlay_pp = false;
+            tuned
         }),
         ("main-prefs-witness".to_owned(), prefs_witness),
         ("main-prefs-witness-ask".to_owned(), witness_ask),

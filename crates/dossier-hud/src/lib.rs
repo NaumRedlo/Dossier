@@ -16,10 +16,11 @@ pub const REFERENCE_HIGH: f32 = 720.0;
 pub const EDGE: f32 = 24.0;
 pub const SIZE: f32 = 0.86;
 pub const UNFOLD_SECONDS: f32 = 0.22;
+pub const TICK_SECONDS: f32 = 0.45;
 pub const RATE_HALF_LIFE: f32 = 0.12;
-pub const PULSE_SECONDS: f32 = 1.6;
 pub const METER_HIGH: f32 = 30.0;
 pub const HOLD_SECONDS: f32 = 0.5;
+pub const SCALES: [u16; 6] = [70, 80, 90, 100, 115, 130];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,28 +37,6 @@ pub enum Tone {
     Good,
     Blue,
     Accent,
-}
-
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Best {
-    pub title: String,
-    pub pp: f64,
-    pub accuracy: f64,
-    pub mods: String,
-    pub stars: f64,
-}
-
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Day {
-    pub pp_gain: f64,
-    pub rank: u32,
-    pub climbed: i64,
-    pub best: Option<Best>,
-    pub plays: u32,
-    pub seconds: u64,
-    pub records: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -111,7 +90,6 @@ pub struct Outcome {
     pub saved: bool,
     pub offer: Option<String>,
     pub holding: f32,
-    pub sent: Option<Sent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -123,15 +101,67 @@ pub struct Notice {
     pub tone: Tone,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Look {
+    pub scale: u16,
+    pub notices: bool,
+    pub card: bool,
+    pub pp: bool,
+    pub rate: bool,
+}
+
+impl Default for Look {
+    fn default() -> Look {
+        Look {
+            scale: 100,
+            notices: true,
+            card: true,
+            pp: true,
+            rate: true,
+        }
+    }
+}
+
+impl Look {
+    pub fn share(&self) -> f32 {
+        f32::from(self.scale.clamp(SCALES[0], SCALES[SCALES.len() - 1])) / 100.0
+    }
+}
+
+pub fn nearest_scale(scale: u16) -> usize {
+    SCALES
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, step)| step.abs_diff(scale))
+        .map_or(0, |(at, _)| at)
+}
+
+pub fn scale_step(scale: u16, by: i32) -> u16 {
+    let at = nearest_scale(scale) as i32 + by;
+    SCALES[at.clamp(0, SCALES.len() as i32 - 1) as usize]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Panel {
+    Tuning,
+    Hidden,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Context {
     pub lang: Lang,
-    pub day: Option<Day>,
     pub card: Option<Card>,
     pub play: Option<Play>,
     pub outcome: Option<Outcome>,
     pub notices: Vec<Notice>,
+    pub look: Look,
+    pub hidden: bool,
+    pub panel: Option<Panel>,
+    pub greet: bool,
+    pub ticked: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -139,7 +169,8 @@ pub struct Stage {
     pub unfold: f32,
     pub rate: Option<f32>,
     pub pp: Option<f32>,
-    pub pulse: f32,
+    pub greet: f32,
+    pub tick: f32,
     last: Option<Instant>,
 }
 
@@ -194,7 +225,8 @@ impl Stage {
                 .and_then(|play| play.unstable_rate)
                 .map(|rate| rate as f32),
             pp: context.play.as_ref().and_then(|play| play.pp).map(|pp| pp as f32),
-            pulse: 0.0,
+            greet: if context.greet { 1.0 } else { 0.0 },
+            tick: if context.ticked { 1.0 } else { 0.0 },
             last: None,
         }
     }
@@ -205,14 +237,15 @@ impl Stage {
             .map_or(0.0, |was| now.saturating_duration_since(was).as_secs_f32())
             .min(0.25);
         self.last = Some(now);
-        self.pulse = (self.pulse + dt) % PULSE_SECONDS;
         let resting = context.play.as_ref().is_none_or(|play| play.resting);
         let aim = if live(view) && !resting { 0.0 } else { 1.0 };
         let step = dt / UNFOLD_SECONDS;
-        self.unfold = if self.unfold < aim {
-            (self.unfold + step).min(aim)
+        self.unfold = toward(self.unfold, aim, step);
+        self.greet = toward(self.greet, if context.greet { 1.0 } else { 0.0 }, step);
+        self.tick = if context.ticked {
+            (self.tick + dt / TICK_SECONDS).min(1.0)
         } else {
-            (self.unfold - step).max(aim)
+            0.0
         };
         let wanted = context
             .play
@@ -234,17 +267,31 @@ impl Stage {
             .and_then(|play| play.unstable_rate)
             .map(|rate| rate as f32);
         (self.unfold - aim).abs() > 0.001
+            || (self.greet - if context.greet { 1.0 } else { 0.0 }).abs() > 0.001
+            || (context.ticked && self.tick < 1.0)
             || live(view)
             || matches!((self.rate, wanted), (Some(shown), Some(aim)) if (shown - aim).abs() > 0.05)
     }
 
     pub fn eased(&self) -> f32 {
-        let k = self.unfold.clamp(0.0, 1.0);
-        k * k * (3.0 - 2.0 * k)
+        smooth(self.unfold)
     }
 
-    pub fn glow(&self) -> f32 {
-        0.35 + 0.65 * (0.5 + 0.5 * (std::f32::consts::TAU * self.pulse / PULSE_SECONDS).cos())
+    pub fn greeted(&self) -> f32 {
+        smooth(self.greet)
+    }
+}
+
+fn smooth(k: f32) -> f32 {
+    let k = k.clamp(0.0, 1.0);
+    k * k * (3.0 - 2.0 * k)
+}
+
+fn toward(from: f32, aim: f32, step: f32) -> f32 {
+    if from < aim {
+        (from + step).min(aim)
+    } else {
+        (from - step).max(aim)
     }
 }
 
@@ -255,6 +302,7 @@ pub enum Anchor {
     BottomLeft,
     BottomRight,
     BottomCentre,
+    TopCentre,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -280,10 +328,23 @@ fn stacked(key: [&'static str; 2], anchor: Anchor, from: f32, nodes: Vec<Node>) 
                 y: pen,
                 node,
             };
-            pen += high + 8.0;
+            pen += high + GAP;
             placed
         })
         .collect()
+}
+
+const GAP: f32 = 8.0;
+
+fn top_centre(key: &'static str, node: Node) -> Placed {
+    let wide = node.measure().0;
+    Placed {
+        key,
+        anchor: Anchor::TopCentre,
+        x: -wide / 2.0,
+        y: EDGE,
+        node,
+    }
 }
 
 pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed> {
@@ -291,30 +352,30 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
         return Vec::new();
     };
     let lang = context.lang;
+    let look = context.look;
+    if context.hidden {
+        return match context.panel {
+            Some(Panel::Hidden) => vec![top_centre("hidden", plates::hidden(lang))],
+            _ => Vec::new(),
+        };
+    }
     let screen = view.snapshot.screen;
     let playing = live(Some(view));
     let mut placed = Vec::new();
-    let saved = screen == Screen::Results && context.outcome.as_ref().is_some_and(|out| out.saved);
-    let tile = if playing {
-        plates::tile_recording(lang, stage.eased(), stage.glow())
-    } else if saved {
-        plates::tile_saved(lang)
-    } else {
-        plates::tile_connected(lang)
-    };
-    let mut corner = vec![("tile", tile)];
+    if context.panel == Some(Panel::Tuning) && !playing {
+        placed.push(top_centre("tuning", plates::tuning(look.scale, lang)));
+    }
+    let tick = context.ticked.then_some(stage.tick);
+    let mut corner = vec![("tile", plates::tile(lang, stage.greeted(), tick))];
     match screen {
         Screen::Menu => {
-            if let Some(day) = &context.day {
-                placed.push(Placed {
-                    key: "day",
-                    anchor: Anchor::TopLeft,
-                    x: EDGE,
-                    y: 96.0,
-                    node: plates::day(day, lang),
-                });
-            }
-            let notices: Vec<Node> = context.notices.iter().take(2).map(plates::notice).collect();
+            let notices: Vec<Node> = context
+                .notices
+                .iter()
+                .filter(|_| look.notices)
+                .take(2)
+                .map(plates::notice)
+                .collect();
             placed.extend(stacked(
                 ["notice-1", "notice-2"],
                 Anchor::TopRight,
@@ -326,6 +387,7 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
             if let Some(node) = context
                 .card
                 .as_ref()
+                .filter(|_| look.card)
                 .and_then(|card| plates::card(card, lang))
             {
                 placed.push(Placed {
@@ -339,18 +401,18 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
         }
         Screen::Playing if playing => {
             if let Some(play) = &context.play {
-                if let Some(pp) = play.pp {
+                if let Some(pp) = play.pp.filter(|_| look.pp) {
                     let shown = stage.pp.map_or(pp, f64::from);
                     corner.push(("pp", plates::reach(play, shown, lang, stage.eased())));
                 }
-                if let (Some(meter), Some(rate)) = (play.meter, stage.rate) {
+                if let (Some(meter), Some(rate)) = (play.meter.filter(|_| look.rate), stage.rate) {
                     let node = plates::rate(rate, lang, meter.scale);
                     let wide = node.measure().0;
                     placed.push(Placed {
                         key: "rate",
                         anchor: Anchor::BottomCentre,
                         x: -wide / 2.0,
-                        y: METER_HIGH / SIZE * meter.scale.clamp(0.5, 3.0) + 6.0,
+                        y: METER_HIGH / (SIZE * look.share()) * meter.scale.clamp(0.5, 3.0) + 6.0,
                         node,
                     });
                 }
@@ -358,9 +420,7 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
         }
         Screen::Results => {
             if let Some(outcome) = &context.outcome {
-                if let Some(sent) = &outcome.sent {
-                    corner.push(("sent", plates::sent(sent, lang)));
-                } else if let Some(key) = outcome.offer.as_deref().filter(|_| outcome.saved) {
+                if let Some(key) = outcome.offer.as_deref().filter(|_| outcome.saved) {
                     corner.push(("offer", plates::offer(key, outcome.holding, lang)));
                 }
             }
@@ -377,7 +437,7 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
             y: pen,
             node,
         });
-        pen += high + 8.0;
+        pen += high + GAP;
     }
     placed
 }
@@ -392,12 +452,11 @@ pub struct Sprite {
     pub pixels: Vec<u8>,
 }
 
-pub fn unit(viewport: Viewport) -> f32 {
-    (viewport.height as f32 / REFERENCE_HIGH * SIZE).clamp(0.5, 4.0)
+pub fn unit(viewport: Viewport, look: Look) -> f32 {
+    (viewport.height as f32 / REFERENCE_HIGH * SIZE * look.share()).clamp(0.4, 5.0)
 }
 
-pub fn paint(placed: &Placed, viewport: Viewport) -> Option<Sprite> {
-    let unit = unit(viewport);
+pub fn paint(placed: &Placed, viewport: Viewport, unit: f32) -> Option<Sprite> {
     let (wide, high) = placed.node.measure();
     let room = 12.0;
     let mut canvas = draw::Canvas::new(wide + room * 2.0, high + room * 2.0, unit)?;
@@ -409,6 +468,7 @@ pub fn paint(placed: &Placed, viewport: Viewport) -> Option<Sprite> {
         Anchor::BottomLeft => (placed.x, frame_high - placed.y - high),
         Anchor::BottomRight => (frame_wide - placed.x - wide, frame_high - placed.y - high),
         Anchor::BottomCentre => (frame_wide / 2.0 + placed.x, frame_high - placed.y - high),
+        Anchor::TopCentre => (frame_wide / 2.0 + placed.x, placed.y),
     };
     Some(Sprite {
         key: placed.key,
@@ -426,9 +486,10 @@ pub fn sprites(
     stage: &Stage,
     viewport: Viewport,
 ) -> Vec<Sprite> {
+    let unit = unit(viewport, context.look);
     plan(view, context, stage)
         .iter()
-        .filter_map(|placed| paint(placed, viewport))
+        .filter_map(|placed| paint(placed, viewport, unit))
         .collect()
 }
 
@@ -507,24 +568,18 @@ mod tests {
     #[test]
     fn each_screen_shows_its_own_plates() {
         let (view, context) = frame("menu");
-        assert_eq!(
-            keys(&view, &context),
-            ["day", "notice-1", "notice-2", "tile"]
-        );
+        assert_eq!(keys(&view, &context), ["notice-1", "notice-2", "tile"]);
         let (view, context) = frame("select");
         assert_eq!(keys(&view, &context), ["card", "tile"]);
         let (view, context) = frame("play");
         assert_eq!(keys(&view, &context), ["rate", "tile", "pp"]);
-        for name in ["results", "hold"] {
+        for name in ["results", "hold", "saved"] {
             let (view, context) = frame(name);
             assert_eq!(keys(&view, &context), ["tile", "offer"], "{name}");
         }
-        let (view, context) = frame("sent");
-        assert_eq!(
-            keys(&view, &context),
-            ["tile", "sent"],
-            "what was sent takes the place of the offer"
-        );
+        let (view, mut context) = frame("select");
+        context.card.as_mut().unwrap().places.clear();
+        assert_eq!(keys(&view, &context), ["tile"], "a pool alone is no leaderboard");
     }
 
     #[test]
@@ -582,13 +637,9 @@ mod tests {
                 .node
                 .measure()
         };
-        for key in ["tile", "pp"] {
-            let (folded, open) = (size(&playing, key), size(&resting, key));
-            assert!(
-                folded.0 < open.0 * 0.7,
-                "{key}: {folded:?} against {open:?}"
-            );
-        }
+        let (folded, open) = (size(&playing, "pp"), size(&resting, "pp"));
+        assert!(folded.0 < open.0 * 0.7, "{folded:?} against {open:?}");
+        assert_eq!(size(&playing, "tile"), size(&resting, "tile"), "the tile is only the logo in a play");
         assert!(size(&playing, "pp").1 < size(&resting, "pp").1 * 0.6);
         let mut stage = Stage::settled(Some(&view), &playing);
         let start = Instant::now();
@@ -659,13 +710,17 @@ mod tests {
 
     #[test]
     fn every_plate_stays_inside_the_window_at_any_size() {
-        for (wide, high) in [(1024, 768), (1280, 720), (1920, 1080), (2560, 1080)] {
+        for ((wide, high), scale) in [(1024, 768), (1280, 720), (1920, 1080), (2560, 1080)]
+            .into_iter()
+            .flat_map(|size| [SCALES[0], 100, SCALES[SCALES.len() - 1]].map(|scale| (size, scale)))
+        {
             let viewport = Viewport {
                 width: wide,
                 height: high,
                 scale: 1.0,
             };
-            for (name, view, context) in sample::frames(Lang::En) {
+            for (name, view, mut context) in sample::frames(Lang::En) {
+                context.look.scale = scale;
                 let stage = Stage::settled(Some(&view), &context);
                 for sprite in sprites(Some(&view), &context, &stage, viewport) {
                     let lit = sprite
@@ -678,7 +733,7 @@ mod tests {
                         let y = sprite.y + (at as u32 / sprite.width) as i32;
                         assert!(
                             x >= 0 && y >= 0 && x < wide as i32 && y < high as i32,
-                            "{name} {wide}x{high}: {} leaves the window at {x}, {y}",
+                            "{name} {wide}x{high} at {scale} %: {} leaves the window at {x}, {y}",
                             sprite.key
                         );
                     }
@@ -747,6 +802,99 @@ mod tests {
         context.play.as_mut().unwrap().pp = None;
         stage.advance(Some(&view), &context, from + Duration::from_secs(4));
         assert_eq!(stage.pp, None);
+    }
+
+    #[test]
+    fn the_look_turns_plates_off_and_sizes_all_of_them() {
+        let (view, mut context) = frame("menu");
+        context.look.notices = false;
+        assert_eq!(keys(&view, &context), ["tile"]);
+        let (view, mut context) = frame("play");
+        context.look.pp = false;
+        assert_eq!(keys(&view, &context), ["rate", "tile"]);
+        context.look.rate = false;
+        assert_eq!(keys(&view, &context), ["tile"]);
+        let (view, mut context) = frame("select");
+        context.look.card = false;
+        assert_eq!(keys(&view, &context), ["tile"]);
+        let viewport = Viewport {
+            width: 1280,
+            height: 720,
+            scale: 1.0,
+        };
+        let (view, mut context) = frame("menu");
+        let wide = |context: &Context| {
+            sprites(Some(&view), context, &Stage::settled(Some(&view), context), viewport)
+                .into_iter()
+                .find(|sprite| sprite.key == "notice-1")
+                .unwrap()
+                .width
+        };
+        let usual = wide(&context);
+        context.look.scale = 130;
+        assert!(wide(&context) as f32 > usual as f32 * 1.25);
+        context.look.scale = 70;
+        assert!((wide(&context) as f32) < usual as f32 * 0.75);
+    }
+
+    #[test]
+    fn the_tuning_panel_stays_out_of_a_play_and_hidden_plates_leave_only_their_note() {
+        let (view, mut context) = frame("menu");
+        context.panel = Some(Panel::Tuning);
+        assert_eq!(keys(&view, &context), ["tuning", "notice-1", "notice-2", "tile"]);
+        let (view, mut playing) = frame("play");
+        playing.panel = Some(Panel::Tuning);
+        assert_eq!(keys(&view, &playing), ["rate", "tile", "pp"]);
+        let (view, mut context) = frame("menu");
+        context.hidden = true;
+        context.panel = Some(Panel::Hidden);
+        assert_eq!(keys(&view, &context), ["hidden"]);
+        context.panel = None;
+        assert!(keys(&view, &context).is_empty());
+    }
+
+    #[test]
+    fn the_tile_greets_once_with_words_and_a_saved_play_draws_a_tick_in_place_of_the_logo() {
+        let (view, greeting) = frame("menu");
+        let tile = |context: &Context, stage: &Stage| {
+            plan(Some(&view), context, stage)
+                .into_iter()
+                .find(|placed| placed.key == "tile")
+                .unwrap()
+                .node
+        };
+        let quiet = Context {
+            greet: false,
+            ..greeting.clone()
+        };
+        let wide = |context: &Context| tile(context, &Stage::settled(Some(&view), context)).measure().0;
+        assert!(wide(&greeting) > wide(&quiet) * 3.0, "the words fold away to the logo");
+        let mut stage = Stage::settled(Some(&view), &greeting);
+        let start = Instant::now();
+        stage.advance(Some(&view), &quiet, start);
+        stage.advance(Some(&view), &quiet, start + Duration::from_secs_f32(UNFOLD_SECONDS / 2.0));
+        assert!(stage.greet > 0.3 && stage.greet < 0.7, "{}", stage.greet);
+        let ticked = Context {
+            ticked: true,
+            ..quiet.clone()
+        };
+        let mut stage = Stage::settled(Some(&view), &quiet);
+        stage.advance(Some(&view), &ticked, start);
+        stage.advance(Some(&view), &ticked, start + Duration::from_secs_f32(TICK_SECONDS / 2.0));
+        assert!(stage.tick > 0.3 && stage.tick < 0.7, "the tick draws itself: {}", stage.tick);
+        assert!(stage.moving(Some(&view), &ticked));
+        assert!(matches!(tile(&ticked, &stage), Node::Morph { from, .. } if matches!(*from, Node::Tick { .. })));
+        assert!(matches!(tile(&quiet, &stage), Node::Morph { from, .. } if matches!(*from, Node::Logo { .. })));
+    }
+
+    #[test]
+    fn the_scale_moves_along_its_steps_and_stops_at_the_ends() {
+        assert_eq!(scale_step(100, 1), 115);
+        assert_eq!(scale_step(100, -1), 90);
+        assert_eq!(scale_step(130, 1), 130);
+        assert_eq!(scale_step(70, -1), 70);
+        assert_eq!(scale_step(104, 1), 115, "a value between steps starts from the nearest");
+        assert_eq!(Look { scale: 400, ..Look::default() }.share(), 1.3);
     }
 
     #[test]

@@ -74,6 +74,8 @@ fn main() -> iced::Result {
             music_level: said.music_level,
             hitsound_level: said.hitsound_level,
             play: dossier_native::render::Play::of(&said),
+            rivals: Vec::new(),
+            gpu: false,
         };
         println!("skin {:?} · {:?}", ask.skin, ask.play);
         let started = std::time::Instant::now();

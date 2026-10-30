@@ -92,6 +92,22 @@ impl Scene<'_> {
         self.alpha_at(index, time_ms, HiddenFade::Own)
     }
 
+    pub(super) fn on_field(&self, index: usize, time_ms: f64) -> bool {
+        self.alpha_of(index, time_ms) > 0.0
+            || (self.state.timeline().objects[index].is_slider()
+                && self.alpha_through_hidden(index, time_ms) > 0.0)
+    }
+
+    fn tick_was_hit(&self, index: usize, tick_ms: f64) -> bool {
+        self.state.judge().is_none_or(|judge| {
+            !judge.events_for(index).any(|event| {
+                event.part == dossier_sim::Part::SliderTick
+                    && (event.time_ms - tick_ms).abs() < 1.0
+                    && event.result.is_miss()
+            })
+        })
+    }
+
     fn alpha_at(&self, index: usize, time_ms: f64, hidden: HiddenFade) -> f32 {
         let annotation = &self.annotations[index];
         if time_ms < annotation.spawn_ms || time_ms > annotation.gone_ms {
@@ -331,11 +347,22 @@ impl Scene<'_> {
                 for &tick in &annotation.ticks_ms {
                     let on_body =
                         path_fraction(object, tick).is_some_and(|frac| frac >= from && frac <= to);
-                    if tick <= time_ms || !on_body {
+                    let since = time_ms - tick;
+                    if since >= TICK_LEAVE_MS || (since < 0.0 && !on_body) {
                         continue;
                     }
                     let Some(at) = object.ball_at(tick) else {
                         continue;
+                    };
+                    let (left, swell) = if since < 0.0 {
+                        (1.0, 1.0)
+                    } else {
+                        let share = (since / TICK_LEAVE_MS) as f32;
+                        if self.tick_was_hit(index, tick) {
+                            (1.0 - eased_out(share), 1.0 + 0.5 * eased_out(share))
+                        } else {
+                            (1.0 - share.powi(5), 1.0)
+                        }
                     };
 
                     let span = if slide > 0.0 {
@@ -354,11 +381,12 @@ impl Scene<'_> {
                         continue;
                     }
 
-                    let grown = TICK_SCALE_FROM
+                    let grown = (TICK_SCALE_FROM
                         + (1.0 - TICK_SCALE_FROM)
                             * out_elastic_half(
                                 (((time_ms - live) / (TICK_FADE_MS * 4.0)).clamp(0.0, 1.0)) as f32,
-                            );
+                            ))
+                        * swell;
 
                     if self.skin_speaks_for(Element::SliderScorePoint) {
                         self.draw_sprite(
@@ -367,7 +395,7 @@ impl Scene<'_> {
                             annotation.colour,
                             at,
                             radius * grown,
-                            alpha * arriving,
+                            alpha * arriving * left,
                             layout,
                         );
                     } else {
@@ -376,7 +404,7 @@ impl Scene<'_> {
                             at,
                             radius * 0.14 * grown,
                             lighten(self.skin.circle_border, 0.5),
-                            alpha * arriving,
+                            alpha * arriving * left,
                             layout,
                         );
                     }

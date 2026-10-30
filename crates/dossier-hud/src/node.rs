@@ -52,7 +52,6 @@ pub enum Node {
     Dot {
         side: f32,
         colour: Rgba,
-        glow: f32,
     },
     Logo {
         side: f32,
@@ -61,6 +60,7 @@ pub enum Node {
     Tick {
         side: f32,
         colour: Rgba,
+        drawn: f32,
     },
     Badge {
         side: f32,
@@ -119,6 +119,27 @@ pub fn text(text: impl Into<String>, face: Face, size: f32, colour: Rgba) -> Nod
         size,
         colour,
     }
+}
+
+fn partly(points: &[(f32, f32)], share: f32) -> Vec<(f32, f32)> {
+    let lengths: Vec<f32> = points
+        .windows(2)
+        .map(|pair| ((pair[1].0 - pair[0].0).powi(2) + (pair[1].1 - pair[0].1).powi(2)).sqrt())
+        .collect();
+    let mut left = lengths.iter().sum::<f32>() * share;
+    let mut out = vec![points[0]];
+    for (pair, length) in points.windows(2).zip(lengths) {
+        if left <= 0.0 {
+            break;
+        }
+        let part = (left / length).min(1.0);
+        out.push((
+            pair[0].0 + (pair[1].0 - pair[0].0) * part,
+            pair[0].1 + (pair[1].1 - pair[0].1) * part,
+        ));
+        left -= length;
+    }
+    out
 }
 
 impl Node {
@@ -332,39 +353,35 @@ impl Node {
                     );
                 }
             }
-            Node::Dot { side, colour, glow } => {
-                let (cx, cy) = (x + side / 2.0, y + side / 2.0);
-                canvas.disc(
-                    cx,
-                    cy,
-                    side / 2.0 + 4.0,
-                    [colour[0], colour[1], colour[2], 0.2 * glow],
-                );
-                canvas.disc(
-                    cx,
-                    cy,
-                    side / 2.0,
-                    [colour[0], colour[1], colour[2], colour[3] * glow],
-                );
+            Node::Dot { side, colour } => {
+                canvas.disc(x + side / 2.0, y + side / 2.0, side / 2.0, *colour);
             }
             Node::Logo { side, colour } => canvas.logo(x, y, *side, *colour),
-            Node::Tick { side, colour } => {
+            Node::Tick {
+                side,
+                colour,
+                drawn,
+            } => {
+                let k = drawn.clamp(0.0, 1.0);
+                let grown = 1.0 - (1.0 - (k / 0.45).min(1.0)).powi(3);
                 canvas.disc(
                     x + side / 2.0,
                     y + side / 2.0,
-                    side / 2.0,
-                    [colour[0], colour[1], colour[2], 0.2],
+                    side / 2.0 * (0.55 + 0.45 * grown),
+                    [colour[0], colour[1], colour[2], colour[3] * grown],
                 );
                 let unit = side / 16.0;
-                canvas.line(
-                    &[
-                        (x + 4.6 * unit, y + 8.4 * unit),
-                        (x + 7.1 * unit, y + 10.8 * unit),
-                        (x + 11.4 * unit, y + 5.6 * unit),
-                    ],
-                    1.6 * unit,
-                    *colour,
-                );
+                let points = [
+                    (x + 4.4 * unit, y + 8.3 * unit),
+                    (x + 7.0 * unit, y + 10.9 * unit),
+                    (x + 11.8 * unit, y + 5.4 * unit),
+                ];
+                let stroke = ((k - 0.3) / 0.7).clamp(0.0, 1.0);
+                let stroke = 1.0 - (1.0 - stroke).powi(2);
+                let drawn_points = partly(&points, stroke);
+                if drawn_points.len() > 1 {
+                    canvas.line(&drawn_points, 1.9 * unit, [0.06, 0.09, 0.05, 1.0]);
+                }
             }
             Node::Badge {
                 side,

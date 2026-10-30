@@ -191,6 +191,7 @@ fn graph(parts: &[Part], total: f64, sound: bool) -> String {
 
 fn clone_settings(settings: &video::Settings) -> video::Settings {
     video::Settings {
+        encoder: settings.encoder,
         out: settings.out.clone(),
         fps: settings.fps,
         size: settings.size,

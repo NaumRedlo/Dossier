@@ -14,6 +14,7 @@ pub struct Setup {
     pub ffmpeg: PathBuf,
     pub songs: Vec<PathBuf>,
     pub own_songs: PathBuf,
+    pub gpu: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,6 +214,8 @@ fn steps(
         music_level: job.settings.music,
         hitsound_level: job.settings.hitsounds,
         play: job.settings.play.unwrap_or(render::Play { map_sounds: false, ..render::Play::default() }),
+        rivals: rivals_of(&job.leaderboard),
+        gpu: setup.gpu,
     };
     DRAWING.store(true, Ordering::SeqCst);
     let started = Instant::now();
@@ -259,6 +262,39 @@ fn steps(
     gone(push, Step::Sending { title: title.to_owned(), done: 0, of: size })?;
     let meta = serde_json::json!({"duration": length.as_secs(), "width": job.settings.width, "height": job.settings.height});
     bot::deliver(&setup.server, &setup.token, &setup.name, &job.id, &sent, &meta, |_| {}).map_err(|e| format!("sending: {e}"))
+}
+
+const AVATARS_AT_ONCE: usize = 10;
+
+fn rivals_of(board: &[bot::JobRival]) -> Vec<dossier_render::Entry> {
+    let faces: Vec<Option<PathBuf>> = board
+        .chunks(AVATARS_AT_ONCE)
+        .flat_map(|chunk| {
+            std::thread::scope(|scope| {
+                let asked: Vec<_> = chunk.iter().map(|rival| scope.spawn(move || avatar_of(&rival.avatar))).collect();
+                asked.into_iter().map(|asked| asked.join().ok().flatten()).collect::<Vec<_>>()
+            })
+        })
+        .collect();
+    board
+        .iter()
+        .zip(faces)
+        .map(|(rival, avatar)| dossier_render::Entry { name: rival.name.clone(), score: rival.score, accuracy: rival.accuracy, mods: rival.mods.clone(), avatar, cover: None })
+        .collect()
+}
+
+fn avatar_of(url: &str) -> Option<PathBuf> {
+    if !url.starts_with("https://a.ppy.sh/") {
+        return None;
+    }
+    let face = crate::news::picture_path(url).with_extension("face.png");
+    if face.is_file() {
+        return Some(face);
+    }
+    let bytes = crate::news::picture(url)?;
+    let picture = image::load_from_memory(&bytes).ok()?.resize_to_fill(128, 128, image::imageops::FilterType::Triangle);
+    picture.save_with_format(&face, image::ImageFormat::Png).ok()?;
+    Some(face)
 }
 
 fn map_for(setup: &Setup, hash: &str) -> Result<PathBuf, String> {
@@ -428,6 +464,15 @@ fn fit(binary: &Path, from: &Path, into: &Path, most: u64, length: Duration) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_osu_s_own_avatars_are_fetched_for_the_leaderboard() {
+        assert_eq!(avatar_of(""), None);
+        assert_eq!(avatar_of("https://evil.example/a.png"), None);
+        assert_eq!(avatar_of("http://a.ppy.sh/1"), None);
+        let rivals = rivals_of(&[bot::JobRival { name: "kotofey".into(), score: 7, accuracy: Some(98.0), mods: "HD".into(), avatar: String::new() }]);
+        assert_eq!((rivals[0].name.as_str(), rivals[0].score, rivals[0].avatar.is_none()), ("kotofey", 7, true));
+    }
 
     fn skin_archive(files: &[(&str, &[u8])]) -> Vec<u8> {
         use std::io::Write;

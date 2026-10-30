@@ -1,6 +1,6 @@
 use std::io::Write;
 use std::path::Path;
-use std::process::{Child, Stdio};
+use std::process::{Child, Command, Stdio};
 
 use dossier_render::{Layout, Picture};
 use tiny_skia::Pixmap;
@@ -14,7 +14,88 @@ pub struct Backdrop {
     pub dim: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Encoder {
+    #[default]
+    Software,
+    VideoToolbox,
+    Nvenc,
+    Amf,
+    Qsv,
+}
+
+impl Encoder {
+    pub fn codec(self) -> &'static str {
+        match self {
+            Encoder::Software => "libx264",
+            Encoder::VideoToolbox => "h264_videotoolbox",
+            Encoder::Nvenc => "h264_nvenc",
+            Encoder::Amf => "h264_amf",
+            Encoder::Qsv => "h264_qsv",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Encoder::Software => "x264",
+            Encoder::VideoToolbox => "VideoToolbox",
+            Encoder::Nvenc => "NVENC",
+            Encoder::Amf => "AMF",
+            Encoder::Qsv => "Quick Sync",
+        }
+    }
+
+    pub fn tried_here() -> &'static [Encoder] {
+        if cfg!(target_os = "macos") {
+            &[Encoder::VideoToolbox]
+        } else if cfg!(windows) {
+            &[Encoder::Nvenc, Encoder::Amf, Encoder::Qsv]
+        } else {
+            &[Encoder::Nvenc, Encoder::Qsv]
+        }
+    }
+
+    pub fn quality(self, crf: u32, preset: &str) -> Vec<String> {
+        let crf = crf.min(51);
+        let words: Vec<String> = match self {
+            Encoder::Software => vec!["-preset".into(), preset.into(), "-crf".into(), crf.to_string()],
+            Encoder::VideoToolbox => vec!["-q:v".into(), (100u32.saturating_sub(crf * 2)).clamp(1, 100).to_string(), "-allow_sw".into(), "0".into()],
+            Encoder::Nvenc => vec!["-preset".into(), "p5".into(), "-tune".into(), "hq".into(), "-rc".into(), "vbr".into(), "-cq".into(), (crf + 3).to_string(), "-b:v".into(), "0".into()],
+            Encoder::Amf => vec!["-quality".into(), "quality".into(), "-rc".into(), "cqp".into(), "-qp_i".into(), crf.to_string(), "-qp_p".into(), (crf + 2).to_string()],
+            Encoder::Qsv => vec!["-preset".into(), "slower".into(), "-global_quality".into(), (crf + 3).to_string()],
+        };
+        words
+    }
+
+    pub fn pixels(self) -> &'static str {
+        match self {
+            Encoder::Qsv => "nv12",
+            _ => "yuv420p",
+        }
+    }
+
+    pub fn works(self, ffmpeg: &str) -> bool {
+        let mut command = Command::new(ffmpeg);
+        command
+            .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=320x240:r=30:d=0.1", "-frames:v", "2", "-c:v", self.codec(), "-pix_fmt", self.pixels(), "-f", "null", "-"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x0800_0000);
+        }
+        command.status().is_ok_and(|status| status.success())
+    }
+
+    pub fn found(ffmpeg: &str) -> Encoder {
+        Encoder::tried_here().iter().copied().find(|encoder| encoder.works(ffmpeg)).unwrap_or(Encoder::Software)
+    }
+}
+
 pub struct Settings {
+    pub encoder: Encoder,
     pub out: std::path::PathBuf,
     pub fps: f64,
     pub size: (u32, u32),
@@ -642,15 +723,11 @@ fn spawn(
     }
 
     command
+        .args(["-c:v", settings.encoder.codec()])
+        .args(settings.encoder.quality(settings.crf, &settings.preset))
         .args([
-            "-c:v",
-            "libx264",
-            "-preset",
-            &settings.preset,
-            "-crf",
-            &settings.crf.to_string(),
             "-pix_fmt",
-            "yuv420p",
+            settings.encoder.pixels(),
             "-colorspace",
             "bt709",
             "-color_primaries",
@@ -738,8 +815,29 @@ pub fn check_output(path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_processor_keeps_its_old_settings_and_each_card_gets_its_own_quality_words() {
+        assert_eq!(Encoder::Software.codec(), "libx264");
+        assert_eq!(Encoder::Software.quality(20, "medium"), ["-preset", "medium", "-crf", "20"]);
+        assert_eq!(Encoder::VideoToolbox.quality(20, "medium"), ["-q:v", "60", "-allow_sw", "0"]);
+        assert_eq!(Encoder::Nvenc.quality(20, "medium")[..2], ["-preset", "p5"]);
+        assert_eq!(Encoder::Qsv.pixels(), "nv12");
+        assert!(!Encoder::tried_here().contains(&Encoder::Software));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_mac_with_ffmpeg_encodes_on_its_graphics() {
+        if !Encoder::Software.works("ffmpeg") {
+            return;
+        }
+        assert_eq!(Encoder::found("ffmpeg"), Encoder::VideoToolbox);
+        assert!(!Encoder::Nvenc.works("ffmpeg"));
+    }
+
     fn settings() -> Settings {
         Settings {
+            encoder: Encoder::Software,
             out: std::path::PathBuf::from("out.mp4"),
             fps: 60.0,
             size: (1280, 720),
@@ -1359,6 +1457,7 @@ mod fail_timing {
 
     fn settings() -> Settings {
         Settings {
+            encoder: Encoder::Software,
             out: std::path::PathBuf::from("/dev/null"),
             fps: 100.0,
             size: (2, 2),

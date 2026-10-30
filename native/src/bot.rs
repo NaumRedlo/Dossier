@@ -623,26 +623,6 @@ pub fn local_scores(server: &str, token: &str, name: &str, scores: &[crate::hist
     Ok(kept.kept)
 }
 
-#[derive(Debug, Clone, Default, PartialEq, serde::Deserialize)]
-#[serde(default)]
-pub struct PlayDay {
-    pub plays: u32,
-    pub seconds: u64,
-    pub records: u32,
-    pub best: Option<dossier_hud::Best>,
-}
-
-pub fn play_day(server: &str, token: &str, name: &str, zone: &str) -> Result<PlayDay, Refused> {
-    let response = client()?
-        .get(format!("{server}/render/me/day"))
-        .query(&[("zone", zone)])
-        .header("X-Render-Worker", crate::bot::worker(name))
-        .bearer_auth(token)
-        .send()
-        .map_err(|e| Refused::Network(e.to_string()))?;
-    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
-}
-
 pub fn send_play(server: &str, token: &str, name: &str, replay: &str, chat: Option<i64>) -> Result<dossier_hud::Sent, Refused> {
     let response = client()?
         .post(format!("{server}/render/me/play/send"))
@@ -1127,6 +1107,20 @@ pub struct Job {
     pub skin: Option<JobSkin>,
     #[serde(default)]
     pub most: u64,
+    #[serde(default)]
+    pub leaderboard: Vec<JobRival>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct JobRival {
+    pub name: String,
+    pub score: u64,
+    #[serde(default)]
+    pub accuracy: Option<f64>,
+    #[serde(default)]
+    pub mods: String,
+    #[serde(default)]
+    pub avatar: String,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
@@ -1331,6 +1325,17 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_job_brings_the_maps_top_and_an_older_job_brings_none() {
+        let job: Job = serde_json::from_str(r#"{"id": "j", "beatmap_md5": "a", "settings": {"width": 1920, "height": 1080, "fps": 60}, "leaderboard": [{"name": "mrekk", "score": 52000000, "accuracy": 99.12, "mods": "HD", "avatar": "https://a.ppy.sh/7562902"}, {"name": "lazer", "score": 870000}]}"#).expect("a job");
+        assert_eq!(job.leaderboard.len(), 2);
+        assert_eq!((job.leaderboard[0].accuracy, job.leaderboard[0].mods.as_str()), (Some(99.12), "HD"));
+        assert_eq!((job.leaderboard[1].accuracy, job.leaderboard[1].mods.as_str()), (None, ""));
+        assert_eq!((job.leaderboard[0].avatar.as_str(), job.leaderboard[1].avatar.as_str()), ("https://a.ppy.sh/7562902", ""));
+        let older: Job = serde_json::from_str(r#"{"id": "j", "beatmap_md5": "a", "settings": {"width": 1920, "height": 1080, "fps": 60}}"#).expect("an older job");
+        assert!(older.leaderboard.is_empty());
+    }
 
     #[test]
     fn other_players_badges_are_read_by_player_and_a_broken_answer_gives_none() {

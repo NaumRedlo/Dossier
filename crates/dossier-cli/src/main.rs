@@ -2579,6 +2579,7 @@ fn exhibit_command(options: Options) -> ExitCode {
         &fired,
     );
     let settings = video::Settings {
+        encoder: video::Encoder::Software,
         out,
         fps: options.fps,
         size: options.size,
@@ -2823,6 +2824,7 @@ fn video_command(options: Options) -> ExitCode {
     );
 
     let settings = video::Settings {
+        encoder: video::Encoder::Software,
         out,
         fps: options.fps,
         size: options.size,
@@ -2907,6 +2909,7 @@ fn mania_video(options: &Options, beatmap: &Beatmap, replay: &Replay, origin: &l
     };
     eprintln!("{} — {} [{}], osu!mania, {} · {}", replay.player, beatmap.metadata.title, beatmap.metadata.version, replay.mods, out.display());
     let settings = video::Settings {
+        encoder: video::Encoder::Software,
         out,
         fps: options.fps,
         size: options.size,

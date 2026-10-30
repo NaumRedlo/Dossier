@@ -1,4 +1,4 @@
-use crate::{Card, Context, Day, Lang, Notice, Sent};
+use crate::{Card, Context, Lang, Look, Notice};
 use dossier_overlay::View;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -17,11 +17,10 @@ pub struct Packet {
     pub lang: Lang,
     pub map_md5: Option<String>,
     pub card: Option<Card>,
-    pub day: Option<Day>,
     #[serde(default)]
     pub notices: Vec<Notice>,
     #[serde(default)]
-    pub sent: Option<Sent>,
+    pub look: Option<Look>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,7 +57,6 @@ impl Packet {
             .is_some_and(|(hash, map)| !hash.is_empty() && hash.eq_ignore_ascii_case(&map.md5));
         Some(Context {
             lang: self.lang,
-            day: self.day.clone(),
             card: if matches { self.card.clone() } else { None },
             notices: self.notices.clone(),
             ..Context::default()
@@ -119,9 +117,8 @@ mod tests {
             lang: Lang::Ru,
             map_md5: None,
             card: None,
-            day: None,
             notices: Vec::new(),
-            sent: None,
+            look: None,
         };
         write(&path, &packet).unwrap();
         assert_eq!(read(&path).unwrap(), packet);
@@ -155,9 +152,8 @@ mod tests {
                 pool: Some("Cup".into()),
                 ..Card::default()
             }),
-            day: None,
             notices: Vec::new(),
-            sent: None,
+            look: None,
         };
         packet.notices = vec![Notice { title: "Готово".into(), ..Notice::default() }];
         let told = packet.context(&view, 1001).unwrap();

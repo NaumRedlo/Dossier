@@ -1,80 +1,50 @@
-use crate::draw::{fitted, mix, rgb, Face, Rgba};
+use crate::draw::{fitted, rgb, Face, Rgba};
 use crate::node::{col, row, text, Cross, Node, Shell};
-use crate::{Best, Card, Day, Lang, Notice, Place, Play, Sent, Tone};
+use crate::{Card, Lang, Notice, Place, Play, Tone};
 
 const INK: Rgba = rgb(0xece7e2, 1.0);
 const MUTED: Rgba = rgb(0xc9aaa6, 1.0);
 const ACCENT: Rgba = rgb(0xe24848, 1.0);
 const GOOD: Rgba = rgb(0xa2b485, 1.0);
-const BLUE: Rgba = rgb(0x6ea0f0, 1.0);
-const WHITE: Rgba = rgb(0xffffff, 1.0);
-const GLASS: Rgba = rgb(0x0d0508, 0.78);
-const GLASS_EDGE: Rgba = rgb(0xffffff, 0.10);
+const QUIET: Rgba = rgb(0xb9aeb0, 1.0);
+const PANEL: Rgba = rgb(0x100a0c, 0.88);
+const RADIUS: f32 = 8.0;
+pub const OPEN: &str = "Ctrl+Shift+O";
+pub const HIDE: &str = "Ctrl+Shift+H";
+pub const BIGGER: &str = "Ctrl+Shift+=";
+pub const SMALLER: &str = "Ctrl+Shift+−";
 
 fn said(lang: Lang, key: &str) -> &'static str {
     match (lang, key) {
-        (Lang::Ru, "connected") => "Witness на связи",
-        (Lang::En, "connected") => "Witness is connected",
-        (Lang::Ru, "recording") => "Ведётся запись",
-        (Lang::En, "recording") => "Recording",
-        (Lang::Ru, "saved") => "Игра сохранена",
-        (Lang::En, "saved") => "Play saved",
-        (Lang::Ru, "day") => "РЕЗУЛЬТАТЫ ЗА ДЕНЬ",
-        (Lang::En, "day") => "TODAY'S RESULTS",
-        (Lang::Ru, "gain") => "прирост",
-        (Lang::En, "gain") => "gained",
-        (Lang::Ru, "world") => "в мире",
-        (Lang::En, "world") => "in the world",
-        (Lang::Ru, "higher") => "в мире, выше на",
-        (Lang::En, "higher") => "in the world, up by",
-        (Lang::Ru, "lower") => "в мире, ниже на",
-        (Lang::En, "lower") => "in the world, down by",
-        (Lang::Ru, "best") => "ЛУЧШАЯ ИГРА",
-        (Lang::En, "best") => "BEST PLAY",
-        (Lang::Ru, "in-game") => "в игре",
-        (Lang::En, "in-game") => "in game",
-        (Lang::Ru, "chat") => "В БЕСЕДЕ",
-        (Lang::En, "chat") => "IN THE CHAT",
-        (Lang::Ru, "record") => "ваш рекорд",
-        (Lang::En, "record") => "your record",
-        (Lang::Ru, "clean") => "без ошибок",
-        (Lang::En, "clean") => "without misses",
-        (Lang::Ru, "offer") => "Отправить результат в беседу",
-        (Lang::En, "offer") => "Send the result to the chat",
-        (Lang::Ru, "offer-about") => "удерживайте клавишу, бот пришлёт карточку игры",
-        (Lang::En, "offer-about") => "hold the key, the bot will post a card of the play",
-        (Lang::Ru, "sent") => "Отправлено в беседу",
-        (Lang::En, "sent") => "Sent to the chat",
-        (Lang::Ru, "hour") => "ч",
-        (Lang::En, "hour") => "h",
-        (Lang::Ru, "minute") => "мин",
-        (Lang::En, "minute") => "min",
-        (Lang::Ru, "second") => "с",
-        (Lang::En, "second") => "s",
+        (Lang::Ru, "connected") => "Witness подключился",
+        (Lang::En, "connected") => "Witness is on",
+        (Lang::Ru, "chat") => "Топ беседы",
+        (Lang::En, "chat") => "Chat top",
+        (Lang::Ru, "record") => "рекорд",
+        (Lang::En, "record") => "record",
+        (Lang::Ru, "clean") => "FC",
+        (Lang::En, "clean") => "FC",
+        (Lang::Ru, "offer") => "Отправить в беседу",
+        (Lang::En, "offer") => "Send to the chat",
+        (Lang::Ru, "offer-about") => "зажмите клавишу",
+        (Lang::En, "offer-about") => "hold the key",
+        (Lang::Ru, "tuning") => "Оверлей",
+        (Lang::En, "tuning") => "Overlay",
+        (Lang::Ru, "scale") => "Размер",
+        (Lang::En, "scale") => "Size",
+        (Lang::Ru, "bigger") => "больше",
+        (Lang::En, "bigger") => "larger",
+        (Lang::Ru, "smaller") => "меньше",
+        (Lang::En, "smaller") => "smaller",
+        (Lang::Ru, "hide") => "спрятать оверлей",
+        (Lang::En, "hide") => "hide the overlay",
+        (Lang::Ru, "close") => "закрыть",
+        (Lang::En, "close") => "close",
+        (Lang::Ru, "hidden") => "Оверлей спрятан",
+        (Lang::En, "hidden") => "Overlay hidden",
+        (Lang::Ru, "hidden-about") => "Ctrl+Shift+H, чтобы вернуть",
+        (Lang::En, "hidden-about") => "Ctrl+Shift+H to bring it back",
         _ => "",
-    }
-}
-
-fn counted(
-    lang: Lang,
-    n: u32,
-    forms: [&'static str; 3],
-    english: [&'static str; 2],
-) -> &'static str {
-    match lang {
-        Lang::En => english[usize::from(n != 1)],
-        Lang::Ru => {
-            let (tens, ones) = (n % 100, n % 10);
-            if (11..=14).contains(&tens) {
-                forms[2]
-            } else if ones == 1 {
-                forms[0]
-            } else if (2..=4).contains(&ones) {
-                forms[1]
-            } else {
-                forms[2]
-            }
-        }
     }
 }
 
@@ -86,41 +56,14 @@ pub fn decimal(value: f64, places: usize, lang: Lang) -> String {
     }
 }
 
-pub fn grouped(value: u64) -> String {
-    let digits = value.to_string();
-    let mut out = String::new();
-    for (at, digit) in digits.chars().enumerate() {
-        if at > 0 && (digits.len() - at) % 3 == 0 {
-            out.push(' ');
-        }
-        out.push(digit);
-    }
-    out
-}
-
-pub fn lasted(seconds: u64, lang: Lang) -> String {
-    let (hours, minutes, rest) = (seconds / 3600, seconds % 3600 / 60, seconds % 60);
-    let (hour, minute, second) = (
-        said(lang, "hour"),
-        said(lang, "minute"),
-        said(lang, "second"),
-    );
-    match (hours, minutes) {
-        (0, 0) => format!("{rest} {second}"),
-        (0, _) => format!("{minutes} {minute}"),
-        (_, 0) => format!("{hours} {hour}"),
-        _ => format!("{hours} {hour} {minutes} {minute}"),
-    }
-}
-
-fn glass(side: f32, top: f32, bottom: f32, radius: f32) -> Shell {
+fn panel(side: f32, top: f32, bottom: f32) -> Shell {
     Shell {
         side,
         top,
         bottom,
-        radius,
-        fill: GLASS,
-        edge: Some(GLASS_EDGE),
+        radius: RADIUS,
+        fill: PANEL,
+        edge: None,
     }
 }
 
@@ -133,167 +76,52 @@ fn plate(shell: Shell, child: Node) -> Node {
     }
 }
 
-fn cap(words: &str) -> Node {
-    text(words, Face::Mono, 11.0, MUTED)
+fn boxed(child: Node) -> Node {
+    plate(panel(12.0, 10.0, 11.0), child)
 }
 
-fn fact(value: String, label: String, colour: Rgba, size: f32) -> Node {
-    col(
-        0.0,
-        vec![
-            text(value, Face::MonoBold, size, colour),
-            text(label, Face::Sans, 12.0, MUTED),
-        ],
-    )
+fn title(words: impl Into<String>) -> Node {
+    text(words, Face::Semi, 13.0, INK)
 }
 
-fn small(value: String, label: &str) -> Node {
+fn label(words: impl Into<String>) -> Node {
+    text(words, Face::Sans, 12.0, MUTED)
+}
+
+fn fitted_title(words: &str, most: f32) -> Node {
+    title(fitted(words, Face::Semi, 13.0, most))
+}
+
+fn small(value: String, before: &str) -> Node {
     row(
-        6.0,
-        vec![
-            text(value, Face::MonoBold, 13.0, INK),
-            text(label, Face::Sans, 12.0, MUTED),
-        ],
+        5.0,
+        vec![label(before), text(value, Face::Semi, 13.0, INK)],
     )
 }
 
-fn mod_colour(code: &str) -> Rgba {
-    match code.get(..2).unwrap_or("").to_ascii_uppercase().as_str() {
-        "NM" => rgb(0x5ec2d0, 1.0),
-        "HD" => rgb(0xc9873f, 1.0),
-        "HR" => rgb(0xe0484c, 1.0),
-        "DT" => rgb(0x8c5ad0, 1.0),
-        "FM" => rgb(0xc0487a, 1.0),
-        "TB" => rgb(0xa05a5c, 1.0),
-        _ => rgb(0x9a8f92, 1.0),
-    }
-}
-
-fn chip(code: &str) -> Node {
-    let base = mod_colour(code);
-    plate(
-        Shell {
-            side: 8.0,
-            top: 3.0,
-            bottom: 3.0,
-            radius: 6.0,
-            fill: [base[0], base[1], base[2], 0.2],
-            edge: None,
-        },
-        text(code, Face::MonoBold, 12.0, mix(base, WHITE, 0.45)),
-    )
-}
-
-pub fn star_colour(stars: f64) -> Rgba {
-    const STOPS: [(f64, u32); 10] = [
-        (0.1, 0x4290fb),
-        (1.25, 0x4fc0ff),
-        (2.0, 0x4fffd5),
-        (2.5, 0x7cff4f),
-        (3.3, 0xf6f05c),
-        (4.2, 0xff8068),
-        (4.9, 0xff4e6f),
-        (5.8, 0xc645b8),
-        (6.7, 0x6563de),
-        (7.7, 0x18158e),
-    ];
-    if stars <= STOPS[0].0 {
-        return rgb(STOPS[0].1, 1.0);
-    }
-    for pair in STOPS.windows(2) {
-        if stars <= pair[1].0 {
-            let share = ((stars - pair[0].0) / (pair[1].0 - pair[0].0)) as f32;
-            return mix(rgb(pair[0].1, 1.0), rgb(pair[1].1, 1.0), share);
-        }
-    }
-    rgb(STOPS[9].1, 1.0)
-}
-
-fn stars(value: f64, lang: Lang) -> Node {
-    let fill = star_colour(value);
-    let bright = fill[0] * 0.2126 + fill[1] * 0.7152 + fill[2] * 0.0722 > 0.62;
-    let ink = if bright { rgb(0x1a1016, 1.0) } else { WHITE };
-    plate(
-        Shell {
-            side: 9.0,
-            top: 3.0,
-            bottom: 3.0,
-            radius: 11.0,
-            fill,
-            edge: None,
-        },
-        row(
-            4.0,
-            vec![
-                Node::Star {
-                    side: 10.0,
-                    colour: ink,
-                },
-                text(decimal(value, 2, lang), Face::MonoBold, 12.0, ink),
-            ],
-        ),
-    )
-}
-
-fn tile(lead: Node, words: &str) -> Node {
-    plate(
-        glass(11.0, 7.0, 7.0, 17.0),
-        row(
-            9.0,
-            vec![
-                Node::Logo {
-                    side: 16.0,
-                    colour: ACCENT,
-                },
-                lead,
-                text(words, Face::Semi, 13.0, INK),
-            ],
-        ),
-    )
-}
-
-pub fn tile_connected(lang: Lang) -> Node {
-    tile(
-        Node::Dot {
-            side: 7.0,
-            colour: GOOD,
-            glow: 1.0,
-        },
-        said(lang, "connected"),
-    )
-}
-
-pub fn tile_saved(lang: Lang) -> Node {
-    tile(
-        Node::Tick {
+fn lead(tick: Option<f32>) -> Node {
+    match tick {
+        Some(drawn) => Node::Tick {
             side: 16.0,
             colour: GOOD,
+            drawn,
         },
-        said(lang, "saved"),
-    )
+        None => Node::Logo {
+            side: 16.0,
+            colour: ACCENT,
+        },
+    }
 }
 
-pub fn tile_recording(lang: Lang, shown: f32, glow: f32) -> Node {
-    let lead = || {
-        vec![
-            Node::Logo {
-                side: 16.0,
-                colour: ACCENT,
-            },
-            Node::Dot {
-                side: 7.0,
-                colour: ACCENT,
-                glow,
-            },
-        ]
-    };
-    let mut full = lead();
-    full.push(text(said(lang, "recording"), Face::Semi, 13.0, INK));
+pub fn tile(lang: Lang, greeted: f32, tick: Option<f32>) -> Node {
     Node::Morph {
-        shell: glass(11.0, 7.0, 7.0, 17.0),
-        from: Box::new(row(9.0, lead())),
-        to: Box::new(row(9.0, full)),
-        shown,
+        shell: panel(8.0, 6.0, 6.0),
+        from: Box::new(lead(tick)),
+        to: Box::new(row(
+            8.0,
+            vec![lead(tick), text(said(lang, "connected"), Face::Semi, 12.0, INK)],
+        )),
+        shown: greeted,
     }
 }
 
@@ -302,7 +130,7 @@ pub fn reach(play: &Play, pp: f64, lang: Lang, shown: f32) -> Node {
     let counter = row(
         5.0,
         vec![
-            text(now.clone(), Face::MonoBold, 22.0, INK),
+            text(now.clone(), Face::MonoBold, 20.0, INK),
             text("PP", Face::Semi, 12.0, MUTED),
         ],
     )
@@ -314,7 +142,7 @@ pub fn reach(play: &Play, pp: f64, lang: Lang, shown: f32) -> Node {
         .fold(pp, f64::max)
         .max(1.0);
     let head = vec![
-        text(now, Face::MonoBold, 26.0, INK),
+        text(now, Face::MonoBold, 24.0, INK),
         text("PP", Face::Semi, 13.0, MUTED),
     ];
     let mut lines = vec![
@@ -327,10 +155,7 @@ pub fn reach(play: &Play, pp: f64, lang: Lang, shown: f32) -> Node {
     ];
     let mut facts = Vec::new();
     if let Some(record) = play.record {
-        facts.push(small(
-            decimal(record.round(), 0, lang),
-            said(lang, "record"),
-        ));
+        facts.push(small(decimal(record.round(), 0, lang), said(lang, "record")));
     }
     facts.push(Node::Grow);
     if let Some(clean) = play.clean {
@@ -340,7 +165,7 @@ pub fn reach(play: &Play, pp: f64, lang: Lang, shown: f32) -> Node {
         lines.push(row(8.0, facts));
     }
     Node::Morph {
-        shell: glass(13.0, 7.0, 9.0, 12.0),
+        shell: panel(12.0, 7.0, 9.0),
         from: Box::new(counter),
         to: Box::new(col(8.0, lines).wide(210.0)),
         shown,
@@ -350,11 +175,11 @@ pub fn reach(play: &Play, pp: f64, lang: Lang, shown: f32) -> Node {
 pub fn rate(value: f32, lang: Lang, scale: f32) -> Node {
     let k = scale.clamp(0.75, 2.0);
     plate(
-        glass(9.0 * k, 2.0 * k, 2.0 * k, 10.0 * k),
+        panel(8.0 * k, 2.0 * k, 2.0 * k),
         row(
             6.0 * k,
             vec![
-                text("UR", Face::Mono, 11.0 * k, MUTED),
+                text("UR", Face::Sans, 11.0 * k, MUTED),
                 text(
                     decimal(f64::from(value), 1, lang),
                     Face::MonoBold,
@@ -366,378 +191,158 @@ pub fn rate(value: f32, lang: Lang, scale: f32) -> Node {
     )
 }
 
-fn best(best: &Best, lang: Lang) -> Node {
-    col(
-        6.0,
-        vec![
-            cap(said(lang, "best")),
-            row(
-                10.0,
-                vec![
-                    text(
-                        fitted(&best.title, Face::Semi, 14.0, 190.0),
-                        Face::Semi,
-                        14.0,
-                        INK,
-                    ),
-                    Node::Grow,
-                    text(
-                        format!("{} PP", decimal(best.pp.round(), 0, lang)),
-                        Face::MonoBold,
-                        14.0,
-                        INK,
-                    ),
-                ],
-            ),
-            row(
-                8.0,
-                vec![
-                    chip(if best.mods.is_empty() {
-                        "NM"
-                    } else {
-                        &best.mods
-                    }),
-                    text(
-                        format!("{}%", decimal(best.accuracy, 2, lang)),
-                        Face::MonoBold,
-                        12.0,
-                        MUTED,
-                    ),
-                    stars(best.stars, lang),
-                ],
-            ),
-        ],
-    )
-}
-
-pub fn day(day: &Day, lang: Lang) -> Node {
-    let gain = format!(
-        "{}{} PP",
-        if day.pp_gain >= 0.0 { "+" } else { "−" },
-        decimal(day.pp_gain.abs().round(), 0, lang)
-    );
-    let moved = match day.climbed {
-        0 => said(lang, "world").to_owned(),
-        up if up > 0 => format!("{} {}", said(lang, "higher"), grouped(up as u64)),
-        down => format!("{} {}", said(lang, "lower"), grouped(down.unsigned_abs())),
-    };
-    let mut lines = vec![
-        cap(said(lang, "day")),
-        row(
-            26.0,
-            vec![
-                fact(
-                    gain,
-                    said(lang, "gain").to_owned(),
-                    if day.pp_gain >= 0.0 { GOOD } else { MUTED },
-                    22.0,
-                ),
-                fact(
-                    format!("#{}", grouped(u64::from(day.rank))),
-                    moved,
-                    INK,
-                    22.0,
-                ),
-            ],
-        )
-        .crossed(Cross::Start),
-    ];
-    if let Some(shown) = &day.best {
-        lines.push(Node::Rule);
-        lines.push(best(shown, lang));
-    }
-    lines.push(Node::Rule);
-    let mut tail = vec![
-        small(
-            day.plays.to_string(),
-            counted(lang, day.plays, ["игра", "игры", "игр"], ["play", "plays"]),
-        ),
-        small(lasted(day.seconds, lang), said(lang, "in-game")),
-    ];
-    if day.records > 0 {
-        tail.push(small(
-            day.records.to_string(),
-            counted(
-                lang,
-                day.records,
-                ["рекорд", "рекорда", "рекордов"],
-                ["record", "records"],
-            ),
-        ));
-    }
-    lines.push(row(16.0, tail));
-    plate(glass(16.0, 14.0, 14.0, 12.0), col(11.0, lines).wide(286.0))
-}
-
 pub fn notice(notice: &Notice) -> Node {
-    let colour = match notice.tone {
-        Tone::Good => GOOD,
-        Tone::Blue => BLUE,
-        Tone::Accent => ACCENT,
+    let (colour, sign) = match notice.tone {
+        Tone::Good => (GOOD, "✓"),
+        Tone::Accent => (ACCENT, "!"),
+        Tone::Blue => (QUIET, "i"),
     };
+    let mut lines = vec![fitted_title(&notice.title, 220.0)];
+    if !notice.body.is_empty() {
+        lines.push(label(fitted(&notice.body, Face::Sans, 12.0, 220.0)));
+    }
     plate(
-        glass(14.0, 12.0, 12.0, 12.0),
+        panel(12.0, 10.0, 10.0),
         row(
-            12.0,
+            10.0,
             vec![
                 Node::Badge {
-                    side: 30.0,
-                    radius: 9.0,
+                    side: 28.0,
+                    radius: 14.0,
                     colour,
-                    sign: notice.sign.clone(),
+                    sign: sign.to_owned(),
                 },
-                col(
-                    1.0,
-                    vec![
-                        text(
-                            fitted(&notice.title, Face::Semi, 14.0, 250.0),
-                            Face::Semi,
-                            14.0,
-                            INK,
-                        ),
-                        text(
-                            fitted(&notice.body, Face::Sans, 13.0, 250.0),
-                            Face::Sans,
-                            13.0,
-                            MUTED,
-                        ),
-                    ],
-                ),
+                col(2.0, lines),
             ],
         )
-        .wide(302.0),
+        .wide(262.0),
     )
 }
 
-fn face_colour(name: &str) -> Rgba {
-    const SHADES: [u32; 6] = [0x6ea0f0, 0xe0a84a, 0xc44fc0, 0x58b889, 0xd0705a, 0x8c7ad8];
-    let sum = name.bytes().fold(0usize, |sum, byte| {
-        sum.wrapping_mul(31).wrapping_add(usize::from(byte))
-    });
-    rgb(SHADES[sum % SHADES.len()], 1.0)
-}
+const MEDALS: [u32; 3] = [0xe6b84f, 0xc3c8d0, 0xd08a5c];
 
 fn place(place: &Place, lang: Lang) -> Node {
-    let sign: String = place
-        .name
-        .chars()
-        .next()
-        .map(|sign| sign.to_uppercase().collect())
-        .unwrap_or_default();
-    row(
-        7.0,
-        vec![
-            text(
-                place.place.to_string(),
-                Face::MonoBold,
-                12.0,
-                if place.you { ACCENT } else { MUTED },
-            ),
-            Node::Disc {
-                side: 22.0,
-                colour: if place.you {
-                    ACCENT
-                } else {
-                    face_colour(&place.name)
-                },
-                sign,
-                ring: place.you.then_some([ACCENT[0], ACCENT[1], ACCENT[2], 0.45]),
+    let medal = MEDALS
+        .get(place.place.saturating_sub(1) as usize)
+        .map_or(MUTED, |hex| rgb(*hex, 1.0));
+    let face = if place.you { Face::Semi } else { Face::Sans };
+    Node::Plate {
+        shell: Shell {
+            side: 6.0,
+            top: 4.0,
+            bottom: 4.0,
+            radius: 6.0,
+            fill: if place.you {
+                [ACCENT[0], ACCENT[1], ACCENT[2], 0.16]
+            } else {
+                [0.0, 0.0, 0.0, 0.0]
             },
-            text(
-                format!("{}%", decimal(place.accuracy, 2, lang)),
-                Face::MonoBold,
-                13.0,
-                INK,
-            ),
-        ],
-    )
+            edge: None,
+        },
+        wide: Some(262.0),
+        high: None,
+        child: Box::new(row(
+            10.0,
+            vec![
+                Node::Badge {
+                    side: 20.0,
+                    radius: 6.0,
+                    colour: medal,
+                    sign: place.place.to_string(),
+                },
+                text(fitted(&place.name, face, 13.0, 150.0), face, 13.0, INK),
+                Node::Grow,
+                text(
+                    format!("{}%", decimal(place.accuracy, 2, lang)),
+                    Face::Semi,
+                    13.0,
+                    INK,
+                ),
+            ],
+        )),
+    }
 }
 
 pub fn card(card: &Card, lang: Lang) -> Option<Node> {
-    if card.pool.is_none() && card.places.is_empty() {
+    if card.places.is_empty() {
         return None;
     }
-    let mut head = vec![Node::Logo {
-        side: 16.0,
-        colour: ACCENT,
-    }];
-    if let Some(pool) = &card.pool {
-        head.push(text(
-            fitted(pool, Face::Semi, 13.0, 300.0),
-            Face::Semi,
-            13.0,
-            INK,
-        ));
-    }
-    head.push(Node::Grow);
-    if let Some(value) = card.stars {
-        head.push(stars(value, lang));
-    }
-    let mut lines = vec![row(9.0, head)];
-    if !card.places.is_empty() {
-        let mut places = vec![cap(said(lang, "chat"))];
-        places.extend(card.places.iter().take(3).map(|shown| place(shown, lang)));
-        lines.push(row(14.0, places));
-    }
-    Some(plate(
-        glass(14.0, 11.0, 11.0, 12.0),
-        col(10.0, lines).wide(442.0),
-    ))
+    let mut lines = vec![title(said(lang, "chat"))];
+    lines.extend(card.places.iter().take(3).map(|shown| place(shown, lang)));
+    Some(plate(panel(10.0, 10.0, 8.0), col(4.0, lines)))
 }
 
 fn key_cap(key: &str) -> Node {
     plate(
         Shell {
             side: 7.0,
-            top: 5.0,
-            bottom: 5.0,
-            radius: 7.0,
-            fill: rgb(0xffffff, 0.06),
-            edge: Some(rgb(0xffffff, 0.28)),
+            top: 3.0,
+            bottom: 3.0,
+            radius: 5.0,
+            fill: rgb(0xffffff, 0.08),
+            edge: Some(rgb(0xffffff, 0.24)),
         },
-        text(key, Face::MonoBold, 12.0, INK),
+        text(key, Face::Semi, 12.0, INK),
     )
 }
 
 pub fn offer(key: &str, holding: f32, lang: Lang) -> Node {
     let words = row(
-        12.0,
+        10.0,
         vec![
             key_cap(key),
             col(
-                1.0,
-                vec![
-                    text(said(lang, "offer"), Face::Semi, 14.0, INK),
-                    text(said(lang, "offer-about"), Face::Sans, 12.0, MUTED),
-                ],
+                0.0,
+                vec![title(said(lang, "offer")), label(said(lang, "offer-about"))],
             ),
         ],
     );
-    let wide = words.measure().0;
+    let wide = words.measure().0.max(200.0);
     let bar = Node::Track {
         share: holding,
         mark: None,
         fill: ACCENT,
     };
-    plate(
-        glass(14.0, 10.0, 10.0, 12.0),
-        col(6.0, vec![words, bar]).wide(wide),
+    boxed(col(6.0, vec![words, bar]).wide(wide))
+}
+
+fn hint(keys: &str, words: &str) -> Node {
+    row(
+        12.0,
+        vec![text(keys, Face::Semi, 12.0, INK), Node::Grow, label(words)],
     )
 }
 
-pub fn sent(sent: &Sent, lang: Lang) -> Node {
-    let grade_colour = match sent.grade.as_str() {
-        "SS" | "X" | "XH" | "S" | "SH" => rgb(0xf0c95a, 1.0),
-        "A" => rgb(0x8fd9a0, 1.0),
-        "B" => rgb(0x6ea0f0, 1.0),
-        "C" => rgb(0xc47ae0, 1.0),
-        _ => rgb(0xe07070, 1.0),
-    };
-    let reply = Node::Plate {
-        shell: Shell {
-            side: 10.0,
-            top: 10.0,
-            bottom: 10.0,
-            radius: 10.0,
-            fill: rgb(0x12070a, 1.0),
-            edge: Some(rgb(0x2a161b, 1.0)),
-        },
-        wide: Some(320.0),
-        high: None,
-        child: Box::new(
-            row(
-                10.0,
-                vec![
-                    Node::Cover {
-                        wide: 74.0,
-                        high: 50.0,
-                        radius: 8.0,
-                        from: rgb(0xe8aa54, 1.0),
-                        to: rgb(0x5a3a8a, 1.0),
-                    },
-                    col(
-                        2.0,
-                        vec![
-                            text(
-                                fitted(&sent.title, Face::Semi, 13.0, 150.0),
-                                Face::Semi,
-                                13.0,
-                                INK,
-                            ),
-                            row(
-                                6.0,
-                                vec![
-                                    text(
-                                        fitted(&sent.player, Face::Sans, 12.0, 96.0),
-                                        Face::Sans,
-                                        12.0,
-                                        MUTED,
-                                    ),
-                                    chip(if sent.mods.is_empty() {
-                                        "NM"
-                                    } else {
-                                        &sent.mods
-                                    }),
-                                ],
-                            ),
-                            row(
-                                8.0,
-                                vec![
-                                    text(
-                                        format!("{} PP", decimal(sent.pp.round(), 0, lang)),
-                                        Face::MonoBold,
-                                        12.0,
-                                        INK,
-                                    ),
-                                    text(
-                                        format!("{}%", decimal(sent.accuracy, 2, lang)),
-                                        Face::MonoBold,
-                                        12.0,
-                                        MUTED,
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                    Node::Grow,
-                    Node::Badge {
-                        side: 34.0,
-                        radius: 9.0,
-                        colour: grade_colour,
-                        sign: sent.grade.clone(),
-                    },
-                ],
-            )
-            .wide(300.0),
-        ),
-    };
-    plate(
-        glass(12.0, 11.0, 12.0, 12.0),
+pub fn tuning(scale: u16, lang: Lang) -> Node {
+    boxed(
         col(
-            9.0,
+            6.0,
             vec![
                 row(
-                    9.0,
+                    10.0,
                     vec![
-                        Node::Tick {
-                            side: 18.0,
-                            colour: GOOD,
-                        },
-                        text(said(lang, "sent"), Face::Semi, 14.0, INK),
+                        title(said(lang, "tuning")),
                         Node::Grow,
-                        text(
-                            fitted(&sent.chat, Face::Sans, 12.0, 120.0),
-                            Face::Sans,
-                            12.0,
-                            MUTED,
-                        ),
+                        label(said(lang, "scale")),
+                        title(format!("{scale} %")),
                     ],
                 ),
-                reply,
+                Node::Rule,
+                hint(BIGGER, said(lang, "bigger")),
+                hint(SMALLER, said(lang, "smaller")),
+                hint(HIDE, said(lang, "hide")),
+                hint(OPEN, said(lang, "close")),
             ],
         )
-        .wide(320.0),
+        .wide(250.0),
     )
+}
+
+pub fn hidden(lang: Lang) -> Node {
+    boxed(col(
+        2.0,
+        vec![title(said(lang, "hidden")), label(said(lang, "hidden-about"))],
+    ))
 }
 
 #[cfg(test)]
@@ -748,23 +353,5 @@ mod tests {
     fn numbers_are_worded_the_way_each_language_writes_them() {
         assert_eq!(decimal(98.614, 2, Lang::Ru), "98,61");
         assert_eq!(decimal(98.614, 2, Lang::En), "98.61");
-        assert_eq!(grouped(11_188), "11 188");
-        assert_eq!(grouped(214), "214");
-        assert_eq!(lasted(4_320, Lang::Ru), "1 ч 12 мин");
-        assert_eq!(lasted(231, Lang::En), "3 min");
-        assert_eq!(lasted(51, Lang::Ru), "51 с");
-        let plays = ["игра", "игры", "игр"];
-        assert_eq!(
-            [1, 2, 5, 11, 21, 104].map(|n| counted(Lang::Ru, n, plays, ["play", "plays"])),
-            ["игра", "игры", "игр", "игр", "игра", "игры"]
-        );
-        assert_eq!(counted(Lang::En, 1, plays, ["play", "plays"]), "play");
-    }
-
-    #[test]
-    fn a_star_pill_takes_its_colour_from_the_difficulty() {
-        assert_ne!(star_colour(2.0), star_colour(6.5));
-        assert_eq!(star_colour(9.5), star_colour(8.0));
-        assert!(star_colour(0.0)[2] > 0.9);
     }
 }

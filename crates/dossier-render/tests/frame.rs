@@ -4380,6 +4380,60 @@ SliderTickRate:1
     );
 }
 
+#[test]
+fn under_hidden_the_follow_circle_still_leaves_slowly_after_the_slider_ends() {
+    let map = beatmap(
+        "
+[Difficulty]
+ApproachRate:5
+CircleSize:4
+SliderMultiplier:1.0
+SliderTickRate:1
+
+[TimingPoints]
+0,500,4,2,0,60,1,0
+
+[HitObjects]
+100,192,2000,2,0,L|400:192,1,300
+",
+    );
+    let frames: Vec<_> = (0..80)
+        .map(|i| dossier_replay::ReplayFrame {
+            time_ms: 1900 + i64::from(i) * 25,
+            x: 100.0 + 300.0 * ((i as f32 - 4.0) / 60.0).clamp(0.0, 1.0),
+            y: 192.0,
+            keys: dossier_replay::Keys(if i >= 4 { dossier_replay::Keys::K1 } else { 0 }),
+        })
+        .collect();
+    let mut replay = replay_over(frames);
+    replay.mods = Mods::new(bits::HIDDEN);
+    let state = GameState::new(&map, &replay);
+    let ends = state.timeline().objects[0].end_ms;
+    let skin = Skin::with_combo_colours(map.combo_colours()).with_font(font());
+    let layout = Layout::new(640, 480);
+    let end = state.timeline().objects[0].ball_at(ends).expect("a ball");
+    let (bx, by) = layout.map(end);
+    let lit_around = |at: f64| -> usize {
+        let frame = Scene::new(&state, skin.clone()).frame(at, &layout);
+        let note = layout.length(state.difficulty().circle_radius());
+        let (near, far) = ((note * 1.8) as i32, (note * 3.4) as i32);
+        (-far..=far)
+            .flat_map(|dx| (-far..=far).map(move |dy| (dx, dy)))
+            .filter(|(dx, dy)| (near * near..=far * far).contains(&(dx * dx + dy * dy)))
+            .filter(|(dx, dy)| {
+                frame
+                    .pixel((bx as i32 + dx) as u32, (by as i32 + dy) as u32)
+                    .is_some_and(|p| u32::from(p.red()) + u32::from(p.green()) + u32::from(p.blue()) > 150)
+            })
+            .count()
+    };
+    let (leaving, gone) = (lit_around(ends + 40.0), lit_around(ends + 600.0));
+    assert!(
+        leaving > gone + 20,
+        "the follow circle vanished with the slider: {leaving} lit pixels just after the end, {gone} long after"
+    );
+}
+
 fn write_glyph_sized(
     dir: &std::path::Path,
     name: &str,

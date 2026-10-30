@@ -47,9 +47,73 @@ impl Hold {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Chord {
+    pub ctrl_shift: bool,
+    pub open: bool,
+    pub hide: bool,
+    pub bigger: bool,
+    pub smaller: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Asked {
+    Open,
+    Hide,
+    Bigger,
+    Smaller,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Chords {
+    was: Chord,
+}
+
+impl Chords {
+    pub fn advance(&mut self, now: Chord, front: bool) -> Option<Asked> {
+        let was = std::mem::replace(&mut self.was, now);
+        if !front || !now.ctrl_shift {
+            return None;
+        }
+        [
+            (now.open, was.open, Asked::Open),
+            (now.hide, was.hide, Asked::Hide),
+            (now.bigger, was.bigger, Asked::Bigger),
+            (now.smaller, was.smaller, Asked::Smaller),
+        ]
+        .into_iter()
+        .find(|(down, before, _)| *down && !before)
+        .map(|(_, _, asked)| asked)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_chord_counts_once_per_press_and_only_with_ctrl_and_shift_over_the_game() {
+        let mut chords = Chords::default();
+        let held = Chord {
+            ctrl_shift: true,
+            ..Chord::default()
+        };
+        assert_eq!(chords.advance(held, true), None);
+        let open = Chord { open: true, ..held };
+        assert_eq!(chords.advance(open, true), Some(Asked::Open));
+        assert_eq!(chords.advance(open, true), None, "holding the key does not repeat");
+        assert_eq!(chords.advance(held, true), None);
+        assert_eq!(chords.advance(Chord { bigger: true, ..held }, true), Some(Asked::Bigger));
+        let bare = Chord {
+            hide: true,
+            ..Chord::default()
+        };
+        assert_eq!(chords.advance(bare, true), None, "H alone is the game's");
+        assert_eq!(chords.advance(Chord::default(), true), None);
+        assert_eq!(chords.advance(Chord { hide: true, ..held }, false), None, "another window has the keys");
+        assert_eq!(chords.advance(held, true), None);
+        assert_eq!(chords.advance(Chord { smaller: true, ..held }, true), Some(Asked::Smaller));
+    }
 
     const UP: Keys = Keys {
         key: false,

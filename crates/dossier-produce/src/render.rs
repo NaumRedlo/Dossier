@@ -42,6 +42,7 @@ pub fn render(job: Job<'_>, hitsounds: &Hitsounds<'_>) -> Result<PathBuf, String
     } = job;
 
     let probe = video::Settings {
+        encoder: video::Encoder::Software,
         out: settings.out.clone(),
         ffmpeg: settings.ffmpeg.clone(),
         preset: settings.preset.clone(),

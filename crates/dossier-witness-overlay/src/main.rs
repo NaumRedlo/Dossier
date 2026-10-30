@@ -11,6 +11,7 @@ mod shown {
         hud: Hud,
         panes: Panes,
         keeps: bool,
+        keeps_failed: bool,
         pid: Option<u32>,
         window: Option<isize>,
         display: Option<Display>,
@@ -24,8 +25,8 @@ mod shown {
     }
 
     impl Shown {
-        pub fn new(lang: dossier_hud::Lang, offers: bool, keeps: bool) -> Shown {
-            Shown { hud: Hud::new(lang, offers), panes: Panes::new(), keeps, pid: None, window: None, display: None, fresh: true, place: None, said: String::new(), raised: 0, raised_told: None, window_told: String::new(), monitors_told: system::current_monitors() }
+        pub fn new(lang: dossier_hud::Lang, offers: bool, keeps: bool, keeps_failed: bool) -> Shown {
+            Shown { hud: Hud::new(lang, offers), panes: Panes::new(), keeps, keeps_failed, pid: None, window: None, display: None, fresh: true, place: None, said: String::new(), raised: 0, raised_told: None, window_told: String::new(), monitors_told: system::current_monitors() }
         }
 
         pub fn take(&mut self, frame: &Frame) {
@@ -34,7 +35,7 @@ mod shown {
                     self.pid = Some(*pid);
                     self.window = None;
                 }
-                Message::Kept { passed } if self.keeps => {
+                Message::Kept { passed } if self.keeps && (*passed || self.keeps_failed) => {
                     self.hud.kept(*passed);
                     self.fresh = true;
                 }
@@ -74,11 +75,15 @@ mod shown {
                 self.window = panes::game_window(pid);
             }
             let keys = self.window.map_or_else(Default::default, panes::keys);
-            if self.hud.step(keys, Instant::now()) {
-                use std::io::Write;
-                let mut out = std::io::stdout().lock();
-                let told = writeln!(out, "{{\"event\":\"send\"}}").and_then(|()| out.flush());
-                eprintln!("witness overlay: the send key was held for its time; {}", if told.is_ok() { "Dossier is asked to send the play" } else { "Dossier could not be told" });
+            let now = Instant::now();
+            self.hud.chord(if self.window.is_some() { panes::chord() } else { Default::default() }, keys.front, now);
+            if let Some(scale) = self.hud.take_scale() {
+                let told = super::tell(&format!("{{\"event\":\"look\",\"scale\":{scale}}}"));
+                eprintln!("witness overlay: the plates were set to {scale} %; {}", if told { "Dossier is told" } else { "Dossier could not be told" });
+            }
+            if self.hud.step(keys, now) {
+                let told = super::tell("{\"event\":\"send\"}");
+                eprintln!("witness overlay: the send key was held for its time; {}", if told { "Dossier is asked to send the play" } else { "Dossier could not be told" });
                 self.fresh = true;
             }
             self.fresh |= self.hud.take_dirty();
@@ -144,6 +149,16 @@ mod shown {
 }
 
 #[cfg(windows)]
+fn tell(line: &str) -> bool {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{line}").and_then(|()| out.flush()).is_ok()
+}
+
+#[cfg(windows)]
+const READY: &str = "{\"event\":\"ready\",\"version\":2}";
+
+#[cfg(windows)]
 enum Input {
     Frame(dossier_overlay::Frame),
     Packet(dossier_hud::context::Packet),
@@ -170,6 +185,7 @@ fn listen(frames: std::sync::mpsc::Sender<Input>) {
                 }
                 None => eprintln!("witness overlay: what Dossier told could not be read"),
             },
+            Ok(_) if !line.starts_with(br#"{"event":"overlay""#) => {}
             Ok(_) => match dossier_overlay::Frame::decode(&line) {
                 Ok(frame) => {
                     if frames.send(Input::Frame(frame)).is_err() {
@@ -192,12 +208,16 @@ fn main() {
     let english = args.iter().position(|arg| arg == "--lang").and_then(|at| args.get(at + 1)).is_some_and(|said| said == "en");
     let offers = args.iter().any(|arg| arg == "--offer");
     let keeps = offers || args.iter().any(|arg| arg == "--keeps");
+    let keeps_failed = args.iter().any(|arg| arg == "--keeps-failed");
     for line in dossier_witness_overlay::system::lines() {
         eprintln!("witness overlay: {line}");
     }
-    let (tell, told) = std::sync::mpsc::channel();
-    std::thread::spawn(move || listen(tell));
-    let mut shown = shown::Shown::new(if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, offers, keeps);
+    let (heard, told) = std::sync::mpsc::channel();
+    std::thread::spawn(move || listen(heard));
+    if !tell(READY) {
+        eprintln!("witness overlay: Dossier could not be told the overlay is ready");
+    }
+    let mut shown = shown::Shown::new(if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, offers, keeps, keeps_failed);
     loop {
         loop {
             match told.try_recv() {

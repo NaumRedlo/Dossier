@@ -165,21 +165,20 @@ mod tests {
             lang: dossier_hud::Lang::En,
             map_md5: None,
             card: None,
-            day: Some(dossier_hud::Day::default()),
-            notices: Vec::new(),
-            sent: None,
+            notices: vec![dossier_hud::Notice::default()],
+            look: None,
         }));
         assert!(matches!(
             scene.update(Some(&view), 7, 1280, 720, now),
             Update::Draw(_)
         ));
-        assert!(scene.context.day.is_some());
+        assert_eq!(scene.context.notices.len(), 1);
         scene.supplied.as_mut().unwrap().at_ms = 0;
         assert!(matches!(
             scene.update(Some(&view), 7, 1280, 720, now),
             Update::Draw(_)
         ));
-        assert!(scene.context.day.is_none());
+        assert!(scene.context.notices.is_empty());
     }
 
     fn view() -> View {

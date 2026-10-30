@@ -1,5 +1,3 @@
-pub const MOVE_MS: f64 = 420.0;
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub name: String,
@@ -22,6 +20,10 @@ pub struct Leaderboard {
 
     pub avatar: Option<std::path::PathBuf>,
     pub cover: Option<std::path::PathBuf>,
+
+    pub pace: Vec<(f64, f32)>,
+    pub strains: Vec<f32>,
+    pub span_ms: (f64, f64),
 }
 
 impl Leaderboard {
@@ -63,8 +65,7 @@ impl Leaderboard {
         Self {
             rivals,
             player: player.to_owned(),
-            avatar: None,
-            cover: None,
+            ..Self::default()
         }
     }
 
@@ -91,12 +92,8 @@ impl Leaderboard {
             .unwrap_or(0);
 
         let span = limit.max(1).min(ordered.len());
-
-        let from_bottom = (ordered.len() - 1) - mine;
-        let mut worst = (ordered.len() - 1) - (from_bottom / span) * span;
-        let best = worst.saturating_sub(span - 1);
-
-        worst = worst.max((best + span - 1).min(ordered.len() - 1));
+        let best = mine.saturating_sub(span - 1);
+        let worst = best + span - 1;
         ordered[best..=worst]
             .iter()
             .enumerate()
@@ -104,70 +101,26 @@ impl Leaderboard {
                 entry: entry.clone(),
                 is_player: *is_player,
                 place: best + offset,
-
                 slot: (worst - (best + offset)) as f32,
-                from_slot: (worst - (best + offset)) as f32,
-                moving: 1.0,
-                leaving: false,
-                entering: false,
             })
             .rev()
             .collect()
     }
 
-    pub fn standings_at(&self, track: &dyn ScoreAt, time_ms: f64, limit: usize) -> Vec<Row> {
-        let now = track.at(time_ms);
-        let mut rows = self.standings(now, limit);
-
-        let last_pass = self
-            .rivals
-            .iter()
-            .map(|rival| rival.score)
-            .filter(|score| *score < now)
-            .map(|score| track.reached(score))
-            .fold(f64::NEG_INFINITY, f64::max);
-        if !last_pass.is_finite() || time_ms - last_pass > MOVE_MS {
-            return rows;
+    pub fn pp_at(&self, time_ms: f64) -> Option<f32> {
+        if self.pace.is_empty() {
+            return None;
         }
-        let progress = (((time_ms - last_pass) / MOVE_MS).clamp(0.0, 1.0)) as f32;
-        let before = self.standings(track.at(last_pass - 1.0), limit);
-        let was = |row: &Row| {
-            before
-                .iter()
-                .find(|other| {
-                    other.is_player == row.is_player && other.entry.name == row.entry.name
-                })
-                .map(|other| other.slot)
-        };
-        for row in &mut rows {
-            match was(row) {
-                Some(slot) => row.from_slot = slot,
-
-                None => {
-                    row.from_slot = row.slot;
-                    row.entering = true;
-                }
+        let after = self.pace.partition_point(|(at, _)| *at <= time_ms);
+        Some(match after {
+            0 => 0.0,
+            _ if after == self.pace.len() => self.pace[after - 1].1,
+            _ => {
+                let (from, to) = (self.pace[after - 1], self.pace[after]);
+                let share = ((time_ms - from.0) / (to.0 - from.0).max(1.0)) as f32;
+                from.1 + (to.1 - from.1) * share.clamp(0.0, 1.0)
             }
-            row.moving = progress;
-        }
-
-        for old in &before {
-            if rows
-                .iter()
-                .any(|row| row.is_player == old.is_player && row.entry.name == old.entry.name)
-            {
-                continue;
-            }
-            rows.push(Row {
-                slot: old.slot,
-                from_slot: old.slot,
-                moving: progress,
-                leaving: true,
-                entering: false,
-                ..old.clone()
-            });
-        }
-        rows
+        })
     }
 
     fn ordered(&self, player_score: u64) -> Vec<(Entry, bool)> {
@@ -199,24 +152,8 @@ impl Leaderboard {
 pub struct Row {
     pub entry: Entry,
     pub is_player: bool,
-
     pub place: usize,
-
     pub slot: f32,
-
-    pub from_slot: f32,
-
-    pub moving: f32,
-
-    pub leaving: bool,
-
-    pub entering: bool,
-}
-
-pub trait ScoreAt {
-    fn at(&self, time_ms: f64) -> u64;
-
-    fn reached(&self, score: u64) -> f64;
 }
 
 #[cfg(test)]
@@ -290,54 +227,42 @@ mod tests {
     }
 
     #[test]
-    fn the_board_is_a_page_of_the_table_not_a_window_hung_off_the_player() {
+    fn the_board_moves_one_place_at_a_time_with_the_player_at_its_foot() {
         let field: String = (1..=40).map(|i| format!("p{i}\t{}\n", i * 1000)).collect();
         let b = board(&field);
+        let places = |score: u64| b.standings(score, 5).iter().map(|row| row.place).collect::<Vec<_>>();
 
-        let bottom = b.standings(1, 5);
-        assert_eq!(
-            bottom.iter().map(|row| row.place).collect::<Vec<_>>(),
-            [40, 39, 38, 37, 36]
-        );
-        assert!(bottom[0].is_player);
-        assert_eq!(bottom[0].slot, 0.0, "at the foot of the page");
+        assert_eq!(places(1), [40, 39, 38, 37, 36]);
+        assert!(b.standings(1, 5)[0].is_player);
+        assert_eq!(places(1_500), [39, 38, 37, 36, 35], "one pass, one place");
+        assert_eq!(places(2_500), [38, 37, 36, 35, 34]);
 
-        let climbed = b.standings(3_500, 5);
-        assert_eq!(
-            climbed.iter().map(|row| row.place).collect::<Vec<_>>(),
-            [40, 39, 38, 37, 36],
-            "the same page"
-        );
-        let mine = climbed.iter().find(|row| row.is_player).expect("drawn");
-        assert_eq!(mine.place, 37);
-        assert_eq!(mine.slot, 3.0, "risen three slots up it");
-
-        let top = b.standings(99_999, 5);
-        assert_eq!(
-            top.iter().map(|row| row.place).collect::<Vec<_>>(),
-            [4, 3, 2, 1, 0]
-        );
-        assert!(top.last().expect("five rows").is_player);
+        let near_top = b.standings(38_500, 5);
+        let mine = near_top.iter().find(|row| row.is_player).expect("drawn");
+        assert_eq!(mine.slot, 2.0, "at the top of the field the player rises up the rows");
+        assert_eq!(places(99_999), [4, 3, 2, 1, 0]);
     }
 
     #[test]
     fn passing_somebody_swaps_the_two_rows() {
         let b = board("a\t9000\nb\t8000\nc\t100\n");
-        let before = b.standings_at(&Ramp, 50.0, 5);
-        let after = b.standings_at(&Ramp, 100.0 + MOVE_MS * 2.0, 5);
-        let slot_of = |rows: &[Row], name: &str| {
-            rows.iter()
-                .find(|row| row.entry.name == name)
-                .map(|row| row.slot)
-        };
+        let slot_of = |rows: &[Row], name: &str| rows.iter().find(|row| row.entry.name == name).map(|row| row.slot);
+        let before = b.standings(50, 5);
+        let after = b.standings(200, 5);
         assert_eq!(slot_of(&before, "me"), Some(0.0));
         assert_eq!(slot_of(&before, "c"), Some(1.0));
         assert_eq!(slot_of(&after, "me"), Some(1.0), "the player rose");
-        assert_eq!(
-            slot_of(&after, "c"),
-            Some(0.0),
-            "and the passed row took their place"
-        );
+        assert_eq!(slot_of(&after, "c"), Some(0.0), "and the passed row took their place");
+    }
+
+    #[test]
+    fn the_pp_counter_follows_the_play_between_its_samples() {
+        let mut b = board("a\t100\n");
+        assert_eq!(b.pp_at(10.0), None);
+        b.pace = vec![(100.0, 10.0), (200.0, 30.0)];
+        assert_eq!(b.pp_at(50.0), Some(0.0));
+        assert_eq!(b.pp_at(150.0), Some(20.0));
+        assert_eq!(b.pp_at(900.0), Some(30.0));
     }
 
     #[test]
@@ -385,97 +310,5 @@ mod tests {
     fn the_board_is_never_longer_than_it_is_allowed_to_be() {
         let field: String = (1..=40).map(|i| format!("p{i}\t{}\n", i * 1000)).collect();
         assert_eq!(board(&field).standings(1, 5).len(), 5);
-    }
-
-    struct Ramp;
-
-    impl ScoreAt for Ramp {
-        fn at(&self, time_ms: f64) -> u64 {
-            time_ms.max(0.0) as u64
-        }
-
-        fn reached(&self, score: u64) -> f64 {
-            score as f64
-        }
-    }
-
-    #[test]
-    fn a_row_that_just_changed_place_is_still_arriving() {
-        let b = board("a\t300\nb\t200\nc\t100\n");
-        let moving = b.standings_at(&Ramp, 100.0 + MOVE_MS / 2.0, 5);
-        assert!(
-            moving
-                .iter()
-                .any(|row| row.moving < 1.0 && row.from_slot != row.slot),
-            "somebody should be mid-move: {moving:?}"
-        );
-        let settled = b.standings_at(&Ramp, 100.0 + MOVE_MS * 2.0, 5);
-        assert!(settled.iter().all(|row| row.moving >= 1.0));
-        assert!(settled.iter().all(|row| row.from_slot == row.slot));
-    }
-
-    const PAGED: &str = "a\t9000\nb\t8000\nc\t5000\nd\t1000\ne\t25\n";
-
-    #[test]
-    fn the_row_that_arrives_grows_rather_than_slides() {
-        let b = board(PAGED);
-        let rows = b.standings_at(&Ramp, 1000.0 + MOVE_MS / 2.0, 2);
-        let arriving: Vec<&Row> = rows.iter().filter(|row| row.entering).collect();
-        assert!(
-            !arriving.is_empty(),
-            "somebody should be arriving: {rows:?}"
-        );
-        for row in arriving {
-            assert_eq!(row.from_slot, row.slot, "and it should not be travelling");
-        }
-    }
-
-    #[test]
-    fn nothing_is_moving_before_the_first_pass() {
-        let b = board("a\t300\n");
-        let rows = b.standings_at(&Ramp, 10.0, 5);
-        assert!(rows.iter().all(|row| row.from_slot == row.slot));
-        assert!(rows.iter().all(|row| !row.leaving));
-    }
-
-    #[test]
-    fn the_page_turns_only_once_the_player_reaches_its_top() {
-        let field: String = (1..=40).map(|i| format!("p{i}\t{}\n", i * 1000)).collect();
-        let b = board(&field);
-
-        let mut seen = Vec::new();
-        for place in 0..12 {
-            let score = 500 + place * 1000;
-            let rows = b.standings(score, 5);
-            let me = rows
-                .iter()
-                .find(|row| row.is_player)
-                .expect("the player is always on the board");
-            seen.push(me.slot as usize);
-        }
-        assert_eq!(
-            seen,
-            vec![0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1],
-            "the player did not climb a fixed page and turn it at the top"
-        );
-    }
-
-    #[test]
-    fn turning_the_page_shows_five_new_places() {
-        let field: String = (1..=40).map(|i| format!("p{i}\t{}\n", i * 1000)).collect();
-        let b = board(&field);
-        let places = |score: u64| {
-            b.standings(score, 5)
-                .iter()
-                .map(|row| row.place)
-                .collect::<Vec<_>>()
-        };
-
-        let top = places(4_500);
-        let over = places(5_500);
-        assert!(
-            top.iter().all(|place| !over.contains(place)),
-            "the page overlapped: {top:?} then {over:?}"
-        );
     }
 }

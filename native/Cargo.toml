@@ -33,7 +33,7 @@ md-5 = "0.10"
 sha2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 iana-time-zone = "0.1"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 keepawake = "0.6.1"
 tray-icon = { version = "0.26", default-features = false, features = ["ksni"] }
 dossier-replay = { path = "../crates/dossier-replay" }

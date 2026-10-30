@@ -241,6 +241,7 @@ mod tests {
             hitsound_level: 0.5,
             play: crate::render::Play::default(),
             rivals: Vec::new(),
+            rivals_from: None,
             gpu: false,
         };
         Look::default().dress(&mut ask);

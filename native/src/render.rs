@@ -38,7 +38,91 @@ pub struct Ask {
     pub hitsound_level: f32,
     pub play: Play,
     pub rivals: Vec<dossier_render::Entry>,
+    pub rivals_from: Option<RivalsFrom>,
     pub gpu: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct RivalsFrom {
+    pub server: String,
+    pub token: String,
+    pub device: String,
+    pub chat: Option<i64>,
+    pub from_chat: bool,
+}
+
+fn own_face(player: &str) -> Option<PathBuf> {
+    let card = crate::osu_profile::load_player(player).or_else(|| crate::osu_profile::fetch(player).ok())?;
+    crate::worker::avatar_of(&card.avatar_url)
+}
+
+const PACE_SAMPLES: usize = 160;
+const STRAIN_SECTIONS: usize = 110;
+const STRAIN_REACH: usize = 3;
+
+fn pace_of(text: &str, state: &dossier_sim::GameState, mods: u32) -> Vec<(f64, f32)> {
+    let (Some(judge), Some(mut pace)) = (state.judge(), dossier_witness::pace::Pace::of(text, mods)) else {
+        return Vec::new();
+    };
+    let events = judge.events();
+    let every = (events.len() / PACE_SAMPLES).max(1);
+    let mut times: Vec<f64> = events.iter().step_by(every).map(|event| event.scored_ms).collect();
+    times.extend(events.last().map(|event| event.scored_ms));
+    times
+        .into_iter()
+        .map(|at| {
+            let seen = judge.state_at(at);
+            let counts = dossier_witness::stable::Counts {
+                n300: seen.counts.count_300 as u16,
+                n100: seen.counts.count_100 as u16,
+                n50: seen.counts.count_50 as u16,
+                miss: seen.counts.count_miss as u16,
+                ..dossier_witness::stable::Counts::default()
+            };
+            (at, pace.reach(counts, seen.max_combo).now as f32)
+        })
+        .collect()
+}
+
+fn strains_of(state: &dossier_sim::GameState) -> (Vec<f32>, (f64, f64)) {
+    let objects = &state.timeline().objects;
+    let (Some(first), Some(last)) = (objects.first(), objects.last()) else {
+        return (Vec::new(), (0.0, 0.0));
+    };
+    let (from, to) = (first.start_ms, last.start_ms);
+    let wide = (to - from).max(1.0) / STRAIN_SECTIONS as f64;
+    let mut peaks = vec![0.0_f64; STRAIN_SECTIONS];
+    let mut strain = 0.0_f64;
+    for pair in objects.windows(2) {
+        let gap = (pair[1].start_ms - pair[0].start_ms).max(20.0);
+        let travel = (pair[1].pos.x - pair[0].pos.x).hypot(pair[1].pos.y - pair[0].pos.y);
+        strain = strain * 0.25_f64.powf(gap / 1000.0) + (1.0 + travel / 120.0) * (120.0 / gap);
+        let at = (((pair[1].start_ms - from) / wide) as usize).min(STRAIN_SECTIONS - 1);
+        peaks[at] = peaks[at].max(strain);
+    }
+    let most = peaks.iter().copied().fold(0.0_f64, f64::max).max(0.0001);
+    let smooth: Vec<f32> = (0..STRAIN_SECTIONS)
+        .map(|at| {
+            let (mut sum, mut weight) = (0.0, 0.0);
+            for near in at.saturating_sub(STRAIN_REACH)..(at + STRAIN_REACH + 1).min(STRAIN_SECTIONS) {
+                let close = (STRAIN_REACH + 1 - near.abs_diff(at)) as f64;
+                sum += peaks[near] * close;
+                weight += close;
+            }
+            ((sum / weight / most).powf(1.15) as f32).clamp(0.0, 1.0)
+        })
+        .collect();
+    (smooth, (from, to))
+}
+
+fn rivals_for(ask: &Ask, beatmap: &dossier_beatmap::Beatmap) -> Vec<dossier_render::Entry> {
+    if !ask.rivals.is_empty() {
+        return ask.rivals.clone();
+    }
+    let (Some(from), Some(id)) = (&ask.rivals_from, beatmap.metadata.beatmap_id.filter(|id| *id > 0)) else {
+        return Vec::new();
+    };
+    crate::bot::map_rivals(&from.server, &from.token, &from.device, from.chat, id as u64, from.from_chat).map_or_else(|_| Vec::new(), |board| crate::worker::rivals_of(&board))
 }
 
 pub fn encoder_for(ffmpeg: &str, gpu: bool) -> video::Encoder {
@@ -73,6 +157,8 @@ pub struct Play {
     pub show_300: bool,
     pub storyboard: bool,
     pub map_video: bool,
+    pub pp_counter: bool,
+    pub strain_graph: bool,
     pub cursor_size: u32,
     pub meter_size: u32,
 }
@@ -95,6 +181,8 @@ impl Default for Play {
             show_300: true,
             storyboard: false,
             map_video: false,
+            pp_counter: false,
+            strain_graph: false,
             cursor_size: 100,
             meter_size: 100,
         }
@@ -119,6 +207,8 @@ impl Play {
             show_300: settings.show_300,
             storyboard: settings.storyboard,
             map_video: settings.map_video,
+            pp_counter: settings.video_pp,
+            strain_graph: settings.video_strains,
             cursor_size: settings.cursor_size,
             meter_size: settings.meter_size,
         }
@@ -417,8 +507,12 @@ fn draw(ask: &Ask, tell: &Sender<Step>) -> Result<PathBuf, String> {
         origin: &found.origin,
         skin,
         leaderboard: dossier_render::Leaderboard {
-            rivals: ask.rivals.iter().filter(|rival| !rival.name.eq_ignore_ascii_case(replay.player.trim())).cloned().collect(),
+            rivals: rivals_for(ask, &beatmap).into_iter().filter(|rival| !rival.name.eq_ignore_ascii_case(replay.player.trim())).collect(),
             player: replay.player.clone(),
+            avatar: own_face(replay.player.trim()),
+            pace: if ask.play.pp_counter { pace_of(&found.text, &state, replay.mods.raw()) } else { Vec::new() },
+            strains: if ask.play.strain_graph { strains_of(&state).0 } else { Vec::new() },
+            span_ms: strains_of(&state).1,
             ..dossier_render::Leaderboard::default()
         },
         bare: !ask.play.hud,

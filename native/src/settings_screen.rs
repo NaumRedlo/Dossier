@@ -195,6 +195,7 @@ pub enum Message {
     WitnessOverlay(bool),
     WitnessFailed(bool),
     RenderGpu(bool),
+    VideoBoardChat(bool),
     OverlayScale(f32),
     OverlayShows(&'static str, bool),
     WitnessHistory(bool),
@@ -892,6 +893,12 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 6.0,
             ))
             .width(ELEMENTS_WIDE),
+            container(ui::told(ui::label(w.t("video-board"), MUTED), w.t("video-board-note"), 14.0)).padding(Padding::ZERO.top(10.0)),
+            row![
+                chip(ground, "video-board-global", w.t("video-board-global"), !s.video_board_chat, Message::VideoBoardChat(false)),
+                chip(ground, "video-board-chat", w.t("video-board-chat"), s.video_board_chat, Message::VideoBoardChat(true)),
+            ]
+            .spacing(6),
         ]
         .spacing(4)
         .width(Length::Shrink)

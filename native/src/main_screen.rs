@@ -693,6 +693,8 @@ pub struct Main {
     pub people_from: crate::community_screen::PeopleFrom,
     pub people_query: String,
     pub people_filter: crate::community_screen::PeopleFilter,
+    people_was: HashMap<String, usize>,
+    people_moved_at: Instant,
     pub title_scope: crate::community_screen::TitleScope,
     pub people_order: crate::community_screen::PeopleOrder,
     pub people_orders_open: bool,
@@ -986,6 +988,8 @@ impl Main {
             people_from: crate::community_screen::PeopleFrom::Chat,
             people_query: String::new(),
             people_filter: crate::community_screen::PeopleFilter::All,
+            people_was: HashMap::new(),
+            people_moved_at: Instant::now() - Duration::from_secs(3600),
             title_scope: crate::community_screen::TitleScope::Chat,
             people_order: crate::community_screen::PeopleOrder::Pp,
             people_orders_open: false,
@@ -1433,7 +1437,7 @@ impl Main {
             || self.feed_fold_at.values().any(|at| self.now.saturating_duration_since(*at) < FOLD)
             || self.read_fade.is_animating(self.now)
             || self.person_fade.is_animating(self.now)
-            || (self.overlay == Overlay::Community && [self.section_at, self.shift_at, self.stream_at, self.person_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
+            || (self.overlay == Overlay::Community && [self.people_moved_at, self.section_at, self.shift_at, self.stream_at, self.person_at].iter().any(|at| self.now.saturating_duration_since(*at).as_secs_f32() < ui::APPEAR_ALL))
             || (self.community_reading.is_some() && !self.read_fade.value())
             || self.arrivals.values().any(|a| a.is_animating(self.now))
             || self.leaving.values().any(|a| a.is_animating(self.now))
@@ -3448,9 +3452,18 @@ impl Main {
 
                     }
                     C::PeopleSearch(query) => self.people_query = query,
-                    C::PeopleFilter(filter) => self.people_filter = filter,
-                    C::TitleScope(scope) => self.title_scope = scope,
+                    C::PeopleFilter(filter) => {
+                        self.remember_people_places();
+                        self.people_filter = filter;
+                    }
+                    C::TitleScope(scope) => {
+                        if scope != self.title_scope {
+                            self.shift_at = now;
+                        }
+                        self.title_scope = scope;
+                    }
                     C::PeopleOrder(order) => {
+                        self.remember_people_places();
                         self.people_order = order;
                         self.people_orders_open = false;
                     }
@@ -5265,6 +5278,13 @@ impl Main {
             hitsound_level: self.settings.hitsound_level,
             play: render::Play::of(&self.settings),
             rivals: Vec::new(),
+            rivals_from: (self.settings.video_leaderboard && !self.settings.token.is_empty()).then(|| render::RivalsFrom {
+                server: self.settings.server.clone(),
+                token: self.settings.token.clone(),
+                device: self.settings.device.clone(),
+                chat: self.community_chat(),
+                from_chat: self.settings.video_board_chat,
+            }),
             gpu: self.settings.render_gpu,
         };
         if let Some(look) = self.sharing.looks.get(&entry.path) {
@@ -5765,6 +5785,15 @@ impl Main {
         ui::in_thread(move || Message::OsuProfile(crate::osu_profile::fetch(&name)))
     }
 
+    fn remember_people_places(&mut self) {
+        let Some(catalog) = self.community.as_ref() else {
+            return;
+        };
+        let names = crate::community_screen::people_shown(catalog, self.people_filter, &self.people_query, self.people_order);
+        self.people_was = names.into_iter().enumerate().map(|(at, name)| (name, at)).collect();
+        self.people_moved_at = Instant::now();
+    }
+
     fn dress_staged_you(&mut self) {
         let Some(card) = self.osu_card.clone() else {
             return;
@@ -6155,11 +6184,16 @@ impl Main {
             item("profile", Icon::Person, w.t("community-profile"), section == Section::Profile, Section::Profile, None),
             item("feed", Icon::News, w.t("community-feed"), section == Section::Feed, Section::Feed, None),
             item("people", Icon::Chat, w.t("community-people"), section == Section::People, Section::People, Some(PeopleFrom::Chat)),
-            item("compare", Icon::Compare, w.t("community-compare"), section == Section::Compare, Section::Compare, None),
             Entry::Caption(w.t("community-play")),
-            item("pools", Icon::Pool, w.t("community-pools"), section == Section::Pools, Section::Pools, None),
             item("duels", Icon::Swords, w.t("community-duels"), section == Section::Duels, Section::Duels, None),
         ];
+        if crate::community_screen::COMPARE_OPEN {
+            entries.insert(3, item("compare", Icon::Compare, w.t("community-compare"), section == Section::Compare, Section::Compare, None));
+        }
+        if crate::community_screen::POOLS_OPEN {
+            let at = entries.len() - 1;
+            entries.insert(at, item("pools", Icon::Pool, w.t("community-pools"), section == Section::Pools, Section::Pools, None));
+        }
         if !self.duels.roles.is_empty() {
             entries.push(item("balance", Icon::Scale, w.t("community-balance"), section == Section::Balance, Section::Balance, None));
         }
@@ -6293,6 +6327,8 @@ impl Main {
             compare_query: &self.compare_query,
             people_query: &self.people_query,
             people_filter: self.people_filter,
+            people_was: &self.people_was,
+            people_move_t: self.now.saturating_duration_since(self.people_moved_at).as_secs_f32().min(60.0),
             title_scope: self.title_scope,
             people_order: self.people_order,
             people_orders_open: self.people_orders_open,
@@ -6629,6 +6665,13 @@ impl Main {
                 self.settings.witness_overlay = on;
                 keep(&self.settings);
                 self.witness_shown();
+                Task::none()
+            }
+            P::VideoBoardChat(on) => {
+                self.remember_mark("video-board-chat", on);
+                self.remember_mark("video-board-global", !on);
+                self.settings.video_board_chat = on;
+                keep(&self.settings);
                 Task::none()
             }
             P::RenderGpu(on) => {
@@ -7421,12 +7464,12 @@ fn read_library(sources: Vec<crate::sources::Source>, done: fn(Library) -> Messa
 
 pub fn grade_colour(grade: Grade) -> Color {
     match grade {
-        Grade::Ss => theme::GRADE_SS,
-        Grade::S => theme::GRADE_S,
-        Grade::A => theme::GRADE_A,
-        Grade::B => theme::GRADE_B,
-        Grade::C => theme::GRADE_C,
-        Grade::D | Grade::F => theme::GRADE_D,
+        Grade::Ss => theme::grade_colour("SS"),
+        Grade::S => theme::grade_colour("S"),
+        Grade::A => theme::grade_colour("A"),
+        Grade::B => theme::grade_colour("B"),
+        Grade::C => theme::grade_colour("C"),
+        Grade::D | Grade::F => theme::grade_colour("D"),
     }
 }
 

@@ -386,11 +386,9 @@ impl Scene<'_> {
             return;
         }
 
-        let arrow = self.state.difficulty().circle_radius() * WARNING_SIZE;
-
-        let reach = arrow * (1.0 + f64::from(ARROW_ROUNDING) / 2.0);
-        let size = layout.length(arrow) * scale;
+        let reach = WARNING_REACH;
         let skinned = self.skin_speaks_for(crate::elements::Element::WarningArrow);
+        let size = layout.length(if skinned { WARNING_SPRITE } else { WARNING_ARROW }) * scale;
         for y in WARNING_ROWS {
             for (x, dir) in [
                 (-reach, (1.0, 0.0)),

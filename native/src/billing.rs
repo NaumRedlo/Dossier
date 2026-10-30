@@ -809,7 +809,7 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
             body = body.push(row![ui::primary(words.t("billing-again"), Some(Message::Again)), ui::grow(), close()].align_y(iced::Center));
         }
         _ => {
-            let shut = ui::close_corner(Some(if state.changing { Message::Change(false) } else { Message::Close }), ui::CLOSE_SIDE, 18.0, 28.0, 28.0);
+            let shut = ui::close_square(Some(if state.changing { Message::Change(false) } else { Message::Close }), ui::CLOSE_SIDE);
             let title = text(words.t(if state.changing { "billing-change-heading" } else { "billing-heading" })).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK));
             match (&state.plans, state.plans_failed) {
                 (Some(plans), _) if !plans.is_empty() => {

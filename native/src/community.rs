@@ -329,6 +329,7 @@ pub struct Friend {
     pub online: bool,
     pub seen: Option<i64>,
     pub avatar: String,
+    pub cover: String,
 }
 
 impl Friend {
@@ -706,6 +707,7 @@ impl Catalog {
             play.at = now - (pool - at as i64) * 180;
         }
         let friend = |name: &str, country: &str, pp: u32, rank: u32, online: bool, away: i64| Friend {
+            cover: String::new(),
             osu_id: None,
             supporter: name == "Riv3r",
             support_level: if name == "Riv3r" { 2 } else { 0 },
@@ -850,7 +852,7 @@ impl Catalog {
     pub fn take_friends(&mut self, listed: Vec<wire::Friend>) {
         self.friends = listed
             .into_iter()
-            .map(|friend| Friend { osu_id: friend.osu_id, supporter: friend.supporter, support_level: friend.support_level, name: friend.name, country: friend.country, pp: friend.pp, rank: friend.rank, online: friend.online, seen: friend.seen, avatar: friend.avatar })
+            .map(|friend| Friend { cover: friend.cover.clone(), osu_id: friend.osu_id, supporter: friend.supporter, support_level: friend.support_level, name: friend.name, country: friend.country, pp: friend.pp, rank: friend.rank, online: friend.online, seen: friend.seen, avatar: friend.avatar })
             .collect();
         self.friends_state = Friends::Ready;
     }
@@ -938,6 +940,9 @@ impl Catalog {
         }
         for friend in &self.friends {
             want(&friend.avatar, 128);
+        }
+        for friend in &self.friends {
+            want(&friend.cover, BACKDROP);
         }
         for map in &self.maps {
             if let Some(card) = map.card() {
@@ -1345,6 +1350,8 @@ pub mod wire {
         #[serde(default)]
         pub avatar: String,
         #[serde(default)]
+        pub cover: String,
+        #[serde(default)]
         pub supporter: bool,
         #[serde(default)]
         pub support_level: u8,
@@ -1438,6 +1445,30 @@ pub mod wire {
         pub played: String,
         #[serde(skip)]
         pub hash: String,
+    }
+
+    impl Card {
+        pub fn freshened(mut self, person: &super::Person) -> Card {
+            if person.pp > 0 {
+                self.pp = f64::from(person.pp);
+            }
+            if person.rank > 0 {
+                self.global_rank = f64::from(person.rank);
+            }
+            if person.accuracy > 0.0 {
+                self.accuracy = f64::from(person.accuracy);
+            }
+            if person.plays > 0 {
+                self.play_count = f64::from(person.plays);
+            }
+            if person.hours > 0 && (self.play_seconds / 3600.0).floor() != f64::from(person.hours) {
+                self.play_seconds = f64::from(person.hours) * 3600.0;
+            }
+            if person.score > 0 {
+                self.ranked_score = person.score as f64;
+            }
+            self
+        }
     }
 
     pub fn enriched(bot: Option<&Card>, osu: Option<&Card>) -> Option<Card> {

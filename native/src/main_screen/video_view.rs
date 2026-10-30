@@ -411,7 +411,7 @@ impl Main {
         }
         let title = title
             .push(ui::control_button(ui::Control::Mini, 18.0, Some(Message::PlayerMinimize), false))
-            .push(ui::close_corner(Some(Message::ClosePlayer), ui::CLOSE_SIDE, 18.0, 7.0, 17.0));
+            .push(ui::close_square(Some(Message::ClosePlayer), ui::CLOSE_SIDE));
         let mut inside = column![
             container(title)
                 .height(STAGE_TOP)

@@ -66,11 +66,12 @@ const WARNING_MS: f64 = 900.0;
 
 const WARNING_EXIT_MS: f64 = 130.0;
 
-const WARNING_SIZE: f64 = 0.8;
-
 const ARROW_ROUNDING: f32 = 0.22;
 
-const WARNING_ROWS: [f64; 2] = [42.0, 342.0];
+const WARNING_ROWS: [f64; 2] = [42.667, 341.333];
+const WARNING_REACH: f64 = 72.0;
+const WARNING_ARROW: f64 = 28.0;
+const WARNING_SPRITE: f64 = 56.0;
 
 const WARNING_REST: f32 = 0.42;
 const WARNING_BEAT: f32 = 0.58;
@@ -85,7 +86,11 @@ const SPINNER_DOT: f64 = 20.0;
 const SPINNER_DISC: f64 = 78.0;
 const SPINNER_DISC_BAND: f64 = 5.0;
 
-const BOARD_LEFT: f64 = 0.022;
+const BOARD_LEFT: f64 = 0.012;
+const BOARD_ROOM_SHARE: f32 = 0.22;
+const GAUGE_PP: f32 = 1.0;
+const GAUGE_LINE: f32 = 0.022;
+const GAUGE_GRAPH: f32 = 1.3;
 
 const BOARD_STEP: f64 = 0.067;
 const BOARD_TEXT: f64 = 0.0245;
@@ -111,12 +116,7 @@ const BOARD_FACE: f32 = 0.72;
 
 const BOARD_RANK_COLUMN: f32 = 0.62;
 
-const BOARD_GROW: f32 = 0.55;
-
 const BOARD_RANK_LIFT: f32 = 0.35;
-
-const BOARD_RING: f32 = 0.05;
-const BOARD_GLOW: f32 = 0.06;
 
 const BOARD_CARD_LIFT: f32 = 0.16;
 

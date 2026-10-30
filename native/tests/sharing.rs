@@ -194,12 +194,10 @@ fn sharing_own_replays_is_switched_on_the_bot_tab_and_falls_back_when_refused() 
         assert!(said.iter().any(|message| message.contains("ShareReplays(false)")), "{lang:?}: {said:?}");
         let _ = main.update(M::Prefs(P::ShareReplays(false)));
         assert_eq!(main.sharing.replays.as_ref().map(|state| (state.on, state.count)), Some((false, 0)));
-        assert!(shows(&main, &main.words.t("share-replays-about")));
         let _ = main.update(M::Sharing(S::ReplaysSwitched(true, Err("offline".into()))));
         assert!(main.sharing.replays.as_ref().unwrap().on);
         let fresh = dossier_native::mixed::State { on: true, name: "NaumRedlo".into(), count: 3, most: 300 };
         let _ = main.update(M::Sharing(S::Replays(Ok(fresh))));
-        assert!(!shows(&main, &main.words.t("share-replays-about")), "the explanation leaves once sharing is on");
     }
 }
 

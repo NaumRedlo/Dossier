@@ -1084,7 +1084,7 @@ impl Main {
             column![named, text(ui::shortened(got.map_line(), 62)).font(theme::SANS).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED))].spacing(2),
             ui::grow(),
             self.sender_aside(got),
-            ui::close_corner(Some(Outer::ClosePlayer), ui::CLOSE_SIDE, 18.0, 7.0, 17.0),
+            ui::close_square(Some(Outer::ClosePlayer), ui::CLOSE_SIDE),
         ]
         .spacing(12)
         .align_y(iced::Center);

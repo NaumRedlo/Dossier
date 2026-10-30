@@ -325,6 +325,29 @@ pub const GRADE_A: Color = color!(0x8cd04a);
 pub const GRADE_B: Color = color!(0x58aefc);
 pub const GRADE_C: Color = color!(0xb06ce8);
 pub const GRADE_D: Color = ACCENT;
+pub const GRADE_S_SILVER: Color = color!(0xd4d8e6);
+pub const GRADE_SS_SILVER: Color = color!(0xf0f2fa);
+
+pub fn grade_colour(letter: &str) -> Color {
+    match letter {
+        "XH" | "SSH" => GRADE_SS_SILVER,
+        "SH" => GRADE_S_SILVER,
+        "X" | "SS" => GRADE_SS,
+        "S" => GRADE_S,
+        "A" => GRADE_A,
+        "B" => GRADE_B,
+        "C" => GRADE_C,
+        _ => GRADE_D,
+    }
+}
+
+pub fn grade_shown(letter: &str) -> &str {
+    match letter {
+        "XH" | "SSH" | "X" => "SS",
+        "SH" => "S",
+        other => other,
+    }
+}
 pub const HIT_300: Color = GRADE_B;
 pub const SHARED: Color = color!(0x7fb6f2);
 pub const HIT_100: Color = GRADE_A;

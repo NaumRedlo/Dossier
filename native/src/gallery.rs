@@ -599,6 +599,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
                 hitsound_level: 1.0,
                 play: crate::render::Play::default(),
                 rivals: Vec::new(),
+                rivals_from: None,
                 gpu: false,
             },
         })
@@ -1206,6 +1207,23 @@ fn community_states(
             main
         }),
         ("main-community-people".to_owned(), community(crate::community_screen::Section::People, None)),
+        ("main-community-people-covers".to_owned(), {
+            let mut main = community(crate::community_screen::Section::People, None);
+            let cover = "cover://staged".to_owned();
+            if let Some(handle) = crate::main_screen::decoded(&Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("docs").join("mockups").join("main").join("bg-freedom.jpg"), 720, None) {
+                main.news_pictures.insert(cover.clone(), handle);
+            }
+            if let Some(catalog) = main.community.as_mut() {
+                for person in catalog.people.iter_mut() {
+                    person.cover = cover.clone();
+                }
+                for (at, person) in catalog.people.iter_mut().enumerate() {
+                    person.online = at % 2 == 0;
+                }
+            }
+            main.people_order = crate::community_screen::PeopleOrder::Name;
+            main
+        }),
         ("main-community-people-worn".to_owned(), {
             let mut main = community(crate::community_screen::Section::People, None);
             if let Some(catalog) = main.community.as_mut() {

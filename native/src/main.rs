@@ -75,6 +75,7 @@ fn main() -> iced::Result {
             hitsound_level: said.hitsound_level,
             play: dossier_native::render::Play::of(&said),
             rivals: Vec::new(),
+            rivals_from: None,
             gpu: false,
         };
         println!("skin {:?} · {:?}", ask.skin, ask.play);

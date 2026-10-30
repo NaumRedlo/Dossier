@@ -5114,16 +5114,16 @@ fn close_style(radius: iced::border::Radius) -> impl Fn(&Theme, button::Status) 
     let k = fade();
     move |_, status| {
         let wash = match status {
-            button::Status::Hovered => 0.035,
-            button::Status::Pressed => 0.06,
-            _ => 0.012,
+            button::Status::Hovered => 0.05,
+            button::Status::Pressed => 0.08,
+            _ => 0.02,
         };
         button::Style { background: Some(iced::Background::Color(Color::from_rgba(1.0, 1.0, 1.0, wash * k))), text_color: INK, border: iced::Border { radius, ..iced::Border::default() }, ..button::Style::default() }
     }
 }
 
 fn close_mark<'a, Message: Clone + 'a>(side: f32, radius: iced::border::Radius, press: Option<Message>) -> Element<'a, Message> {
-    let mark = crate::glyphs::glyph(crate::glyphs::Icon::Close, (side * 0.42).round(), MUTED);
+    let mark = crate::glyphs::glyph(crate::glyphs::Icon::Close, (side * 0.42).round(), INK);
     button(container(mark).center_x(side).center_y(side)).padding(0).style(close_style(radius)).on_press_maybe(press).into()
 }
 
@@ -5134,6 +5134,21 @@ pub fn close_square<'a, Message: Clone + 'a>(press: Option<Message>, side: f32) 
 pub fn close_corner<'a, Message: Clone + 'a>(press: Option<Message>, side: f32, round: f32, right: f32, top: f32) -> Element<'a, Message> {
     let radius = iced::border::Radius { top_left: 0.0, top_right: round, bottom_right: 0.0, bottom_left: theme::CONTROL_RADIUS };
     nudged(close_mark(side, radius, press), right, -top)
+}
+
+pub fn grade_tile<'a, Message: 'a>(letter: &str, side: f32) -> Element<'a, Message> {
+    let colour = theme::grade_colour(letter);
+    let k = fade();
+    let ground = mix(theme::SLAB_SOLID, colour, 0.16);
+    let edge = Color { a: 0.4 * k, ..colour };
+    container(text(theme::grade_shown(letter).to_owned()).font(theme::SANS_SEMI).size(side * 0.5).wrapping(text::Wrapping::None).color(faded(colour)))
+        .center(side)
+        .style(move |_| container::Style {
+            background: Some(iced::Background::Color(Color { a: k, ..ground })),
+            border: iced::Border { color: theme::outline(edge), width: 1.0, radius: (side * 0.22).clamp(6.0, 14.0).into() },
+            ..container::Style::default()
+        })
+        .into()
 }
 
 pub fn tip<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, words: String) -> Element<'a, Message> {

@@ -344,6 +344,7 @@ impl Scene<'_> {
                         );
                     }
                 }
+                let tick_alpha = if self.hidden { 1.0 } else { alpha };
                 for &tick in &annotation.ticks_ms {
                     let on_body =
                         path_fraction(object, tick).is_some_and(|frac| frac >= from && frac <= to);
@@ -395,7 +396,7 @@ impl Scene<'_> {
                             annotation.colour,
                             at,
                             radius * grown,
-                            alpha * arriving * left,
+                            tick_alpha * arriving * left,
                             layout,
                         );
                     } else {
@@ -404,7 +405,7 @@ impl Scene<'_> {
                             at,
                             radius * 0.14 * grown,
                             lighten(self.skin.circle_border, 0.5),
-                            alpha * arriving * left,
+                            tick_alpha * arriving * left,
                             layout,
                         );
                     }

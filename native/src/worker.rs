@@ -215,6 +215,7 @@ fn steps(
         hitsound_level: job.settings.hitsounds,
         play: job.settings.play.unwrap_or(render::Play { map_sounds: false, ..render::Play::default() }),
         rivals: rivals_of(&job.leaderboard),
+        rivals_from: None,
         gpu: setup.gpu,
     };
     DRAWING.store(true, Ordering::SeqCst);
@@ -266,7 +267,7 @@ fn steps(
 
 const AVATARS_AT_ONCE: usize = 10;
 
-fn rivals_of(board: &[bot::JobRival]) -> Vec<dossier_render::Entry> {
+pub(crate) fn rivals_of(board: &[bot::JobRival]) -> Vec<dossier_render::Entry> {
     let faces: Vec<Option<PathBuf>> = board
         .chunks(AVATARS_AT_ONCE)
         .flat_map(|chunk| {
@@ -283,16 +284,16 @@ fn rivals_of(board: &[bot::JobRival]) -> Vec<dossier_render::Entry> {
         .collect()
 }
 
-fn avatar_of(url: &str) -> Option<PathBuf> {
+pub(crate) fn avatar_of(url: &str) -> Option<PathBuf> {
     if !url.starts_with("https://a.ppy.sh/") {
         return None;
     }
-    let face = crate::news::picture_path(url).with_extension("face.png");
+    let face = crate::news::picture_path(url).with_extension("face8.png");
     if face.is_file() {
         return Some(face);
     }
     let bytes = crate::news::picture(url)?;
-    let picture = image::load_from_memory(&bytes).ok()?.resize_to_fill(128, 128, image::imageops::FilterType::Triangle);
+    let picture = image::load_from_memory(&bytes).ok()?.resize_to_fill(128, 128, image::imageops::FilterType::Triangle).to_rgba8();
     picture.save_with_format(&face, image::ImageFormat::Png).ok()?;
     Some(face)
 }

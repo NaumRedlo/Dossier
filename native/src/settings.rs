@@ -30,6 +30,7 @@ use crate::sources::Source;
 pub const DEFAULT_SERVER: &str = "https://onenineeightfour.ignorelist.com";
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Settings {
     pub lang: Lang,
     pub sources: Vec<Source>,
@@ -97,6 +98,14 @@ pub struct Settings {
     pub witness_keep_failed: bool,
     #[serde(default)]
     pub render_gpu: bool,
+    #[serde(default = "yes")]
+    pub video_leaderboard: bool,
+    #[serde(default)]
+    pub video_board_chat: bool,
+    #[serde(default)]
+    pub video_pp: bool,
+    #[serde(default)]
+    pub video_strains: bool,
     #[serde(default = "default_overlay_scale")]
     pub overlay_scale: u16,
     #[serde(default = "yes")]
@@ -233,6 +242,9 @@ impl Settings {
             Effect::Show300 => self.show_300,
             Effect::Storyboard => self.storyboard,
             Effect::MapVideo => self.map_video,
+            Effect::Leaderboard => self.video_leaderboard,
+            Effect::PpCounter => self.video_pp,
+            Effect::StrainGraph => self.video_strains,
         }
     }
 
@@ -247,6 +259,9 @@ impl Settings {
             Effect::Show300 => &mut self.show_300,
             Effect::Storyboard => &mut self.storyboard,
             Effect::MapVideo => &mut self.map_video,
+            Effect::Leaderboard => &mut self.video_leaderboard,
+            Effect::PpCounter => &mut self.video_pp,
+            Effect::StrainGraph => &mut self.video_strains,
         };
         *field = on;
     }
@@ -274,10 +289,13 @@ pub enum Effect {
     Show300,
     Storyboard,
     MapVideo,
+    Leaderboard,
+    PpCounter,
+    StrainGraph,
 }
 
 impl Effect {
-    pub const ALL: [Effect; 9] = [
+    pub const ALL: [Effect; 12] = [
         Effect::Snaking,
         Effect::HitLighting,
         Effect::CursorTrail,
@@ -287,6 +305,9 @@ impl Effect {
         Effect::Show300,
         Effect::Storyboard,
         Effect::MapVideo,
+        Effect::Leaderboard,
+        Effect::PpCounter,
+        Effect::StrainGraph,
     ];
 
     pub fn tag(self) -> &'static str {
@@ -300,6 +321,9 @@ impl Effect {
             Effect::Show300 => "show-300",
             Effect::Storyboard => "storyboard",
             Effect::MapVideo => "map-video",
+            Effect::Leaderboard => "video-leaderboard",
+            Effect::PpCounter => "video-pp",
+            Effect::StrainGraph => "video-strains",
         }
     }
 }
@@ -1022,6 +1046,10 @@ impl Default for Settings {
             witness_overlay: false,
             witness_keep_failed: false,
             render_gpu: false,
+            video_leaderboard: true,
+            video_board_chat: false,
+            video_pp: false,
+            video_strains: false,
             overlay_scale: default_overlay_scale(),
             overlay_notices: true,
             overlay_card: true,
@@ -1088,10 +1116,17 @@ pub fn first_run() -> bool {
 
 impl Settings {
     pub fn load() -> Settings {
-        std::fs::read_to_string(path())
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+        Settings::load_from(&path())
+    }
+
+    fn load_from(file: &Path) -> Settings {
+        let Ok(text) = std::fs::read_to_string(file) else {
+            return Settings::default();
+        };
+        serde_json::from_str(&text).unwrap_or_else(|_| {
+            let _ = std::fs::copy(file, file.with_extension("json.unread"));
+            Settings::default()
+        })
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -1146,6 +1181,29 @@ pub fn device_name() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_file_missing_any_one_setting_keeps_all_the_others() {
+        let mut full = serde_json::to_value(Settings { token: "kept".to_owned(), ..Settings::default() }).unwrap();
+        let keys: Vec<String> = full.as_object().unwrap().keys().filter(|key| *key != "token").cloned().collect();
+        for key in keys {
+            let held = full.as_object_mut().unwrap().remove(&key).unwrap();
+            let read: Settings = serde_json::from_value(full.clone()).unwrap_or_else(|why| panic!("without {key}: {why}"));
+            assert_eq!(read.token, "kept", "without {key}");
+            full.as_object_mut().unwrap().insert(key, held);
+        }
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_is_kept_beside_the_defaults() {
+        let dir = std::env::temp_dir().join(format!("dossier-settings-unread-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("dossier.json");
+        std::fs::write(&file, "{ not json").unwrap();
+        assert_eq!(Settings::load_from(&file), Settings::default());
+        assert_eq!(std::fs::read_to_string(file.with_extension("json.unread")).unwrap(), "{ not json");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn automatic_skin_search_stays_inside_connected_sources() {
         let mut source = crate::sources::Source { kind: crate::sources::Kind::Stable, root: PathBuf::from("/chosen/osu"), skins: Some(PathBuf::from("/chosen/osu/Skins")), songs: None, replays: None, maps: None, skin_count: 0, replay_count: 0, scores: 0, on: true };

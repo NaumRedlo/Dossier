@@ -76,12 +76,12 @@ pub const TIDE_LATE: f32 = 6.2;
 
 pub fn grade_colour(grade: Grade) -> Color {
     match grade {
-        Grade::Ss => theme::GRADE_SS,
-        Grade::S => theme::GRADE_S,
-        Grade::A => theme::GRADE_A,
-        Grade::B => theme::GRADE_B,
-        Grade::C => theme::GRADE_C,
-        Grade::D | Grade::F => theme::GRADE_D,
+        Grade::Ss => theme::grade_colour("SS"),
+        Grade::S => theme::grade_colour("S"),
+        Grade::A => theme::grade_colour("A"),
+        Grade::B => theme::grade_colour("B"),
+        Grade::C => theme::grade_colour("C"),
+        Grade::D | Grade::F => theme::grade_colour("D"),
     }
 }
 
@@ -98,10 +98,6 @@ const PANEL: Color = Color::from_rgb(0.055, 0.022, 0.031);
 
 fn paint(colour: Color) -> Color {
     Color { a: colour.a * ui::fade(), ..colour }
-}
-
-fn tinted(colour: Color, a: f32) -> Color {
-    Color { a, ..colour }
 }
 
 fn gently(k: f32) -> f32 {
@@ -909,16 +905,10 @@ impl Main {
     }
 
     pub(super) fn rank_tile<'a>(&'a self, grade: Grade, side: f32, live: bool) -> Element<'a, Message> {
-        let colour = grade_colour(grade);
-        let radius = if side >= RANK_LARGE { 14.0 } else { 10.0 };
-        let letter = text(grade.letter()).font(theme::MONO_BOLD).size(side * 0.5).color(ui::faded(colour));
-        let base = container(letter).center(side).style(move |_| container::Style {
-            background: Some(Background::Color(paint(tinted(colour, 0.14)))),
-            border: Border { color: crate::theme::outline(paint(tinted(colour, if side >= RANK_LARGE { 0.4 } else { 0.0 }))), width: 1.0, radius: radius.into() },
-            ..container::Style::default()
-        });
+        let radius = (side * 0.22).clamp(6.0, 14.0);
+        let base = ui::grade_tile::<Message>(grade.letter(), side);
         if !live || !pulses(grade) {
-            return base.into();
+            return base;
         }
         let glow = canvas(RankGlow { grade, side, radius, seconds: self.glow_seconds(), alpha: ui::fade() }).width(side).height(side);
         stack![base, glow].width(side).height(side).into()
@@ -1005,7 +995,7 @@ impl Main {
         let full = max.is_some_and(|max| u32::from(entry.combo) >= max);
         let mut combo_line = row![value(entry.combo.to_string())].spacing(4).align_y(iced::alignment::Vertical::Bottom);
         if let Some(max) = max {
-            combo_line = combo_line.push(text(format!("{} {}", w.t("combo-of"), max.to_string())).font(theme::MONO).size(theme::CAPTION * grow).wrapping(text::Wrapping::None).color(ui::faded(FAINT)));
+            combo_line = combo_line.push(container(text(format!("{} {}", w.t("combo-of"), max)).font(theme::SANS).size(theme::CAPTION * grow).wrapping(text::Wrapping::None).color(ui::faded(FAINT))).padding(Padding::ZERO.bottom(4.0 * grow)));
         }
         let combo_bar = canvas(ComboBar { share: combo_share, full, alpha: ui::fade() }).width(Length::Fill).height(3.0);
         let [c300, c100, c50, miss] = entry.counts;

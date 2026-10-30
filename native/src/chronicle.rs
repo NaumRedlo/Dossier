@@ -272,7 +272,9 @@ impl Event<'_> {
     }
 }
 
-const POSTS_EACH: usize = 20;
+const POSTS_EACH: usize = 100;
+const FEED_DAYS: i64 = 3;
+const FEED_MOST: usize = 1200;
 
 fn chosen_posts<'a>(news: &'a News, channels: &[String]) -> impl Iterator<Item = &'a news::Post> + 'a {
     let channels: Vec<String> = channels.iter().map(|c| c.to_ascii_lowercase()).collect();
@@ -293,11 +295,13 @@ fn events<'a>(catalog: &'a Catalog, news: &'a News, channels: &[String], live_sh
     let mut out: Vec<Event<'a>> = Vec::new();
     out.extend(catalog.live[..shown].iter().map(|play| Event { at: play.at, item: Item::Play(play), ghost: false }));
     out.extend(catalog.feed.iter().map(|happened| Event { at: happened.at, item: Item::Happened(happened), ghost: false }));
-    out.extend(news.stories.iter().take(12).map(|story| Event { at: story.at, item: Item::Story(story), ghost: false }));
+    out.extend(news.stories.iter().map(|story| Event { at: story.at, item: Item::Story(story), ghost: false }));
     out.extend(chosen_posts(news, channels).map(|post| Event { at: post.at, item: Item::Post(post), ghost: false }));
-    out.extend(news.builds.iter().take(8).map(|build| Event { at: build.at, item: Item::Build(build), ghost: false }));
+    out.extend(news.builds.iter().map(|build| Event { at: build.at, item: Item::Build(build), ghost: false }));
     out.sort_by(|a, b| b.at.cmp(&a.at));
-    out.truncate(90);
+    let since = out.first().map_or(0, |event| event.at - FEED_DAYS * 86_400);
+    out.retain(|event| event.at >= since);
+    out.truncate(FEED_MOST);
     out
 }
 
@@ -324,21 +328,18 @@ fn day_divider<'a>(ground: &Ground<'a>, at: i64, counts: [usize; 3]) -> Element<
         1 => w.t("day-yesterday"),
         _ => w.day(at, ground.now_unix),
     };
-    let k = ui::fade();
-    let mut summary = row![].spacing(12);
+    let mut summary = row![].spacing(14).align_y(iced::Center);
     for (count, key) in counts.into_iter().zip(["day-plays-n", "day-records-n", "day-titles-n"]) {
         if count > 0 {
-            summary = summary.push(ui::mono_small(w.n(key, count as u64), FAINT));
+            summary = summary.push(text(w.n(key, count as u64)).font(theme::SANS).size(12.5).wrapping(text::Wrapping::None).color(ui::faded(FAINT)));
         }
     }
-    row![
-        caption(said),
-        container(Space::new().height(1.0)).width(Length::Fill).style(move |_| container::Style { background: Some(Background::Color(Color { a: theme::LINE.a * k, ..theme::LINE })), ..container::Style::default() }),
-        summary,
+    column![
+        container(text(said).font(theme::SANS_SEMI).size(19.0).wrapping(text::Wrapping::None).color(ui::faded(INK))).center_x(Length::Fill),
+        container(summary).center_x(Length::Fill),
     ]
-    .spacing(12)
-    .align_y(iced::Center)
-    .padding([4, 4])
+    .spacing(4)
+    .padding(Padding { top: 10.0, right: 4.0, bottom: 6.0, left: 4.0 })
     .into()
 }
 
@@ -430,7 +431,7 @@ fn chip<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
 }
 
 fn grade_chip<'a>(grade: &str) -> Element<'a, Message> {
-    chip(text(grade.to_owned()).font(theme::SANS_SEMI).size(12.0).wrapping(text::Wrapping::None).color(ui::faded(screen::grade_colour(grade))).into())
+    ui::grade_tile(grade, 26.0)
 }
 
 fn corner<'a>(base: Element<'a, Message>, badge: Option<Element<'a, Message>>, table: Table, high: f32) -> Element<'a, Message> {
@@ -997,10 +998,14 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
 }
 
 pub fn ring<'a>(ground: &Ground<'a>, you: &Person, side: f32, share: f32, band: f32) -> Element<'a, Message> {
+    ring_in(ground, you, side, share, band, Color::from_rgb(0.894, 0.298, 0.298))
+}
+
+pub fn ring_in<'a>(ground: &Ground<'a>, you: &Person, side: f32, share: f32, band: f32, colour: Color) -> Element<'a, Message> {
     let inner = side - band * 2.0 - 6.0;
     let face = screen::face(ground, you, inner);
     stack![
-        iced::widget::Canvas::new(Arc { share, band, alpha: ui::fade() }).width(side).height(side),
+        iced::widget::Canvas::new(Arc { share, band, alpha: ui::fade(), colour }).width(side).height(side),
         container(face).width(side).height(side).center(side),
     ]
     .width(side)
@@ -1012,6 +1017,7 @@ pub struct Arc {
     pub share: f32,
     pub band: f32,
     pub alpha: f32,
+    pub colour: Color,
 }
 
 impl<M> iced::widget::canvas::Program<M> for Arc {
@@ -1032,7 +1038,7 @@ impl<M> iced::widget::canvas::Program<M> for Arc {
                 end_angle: iced::Radians(-std::f32::consts::FRAC_PI_2 + std::f32::consts::TAU * self.share.clamp(0.0, 1.0)),
             });
         });
-        frame.stroke(&arc, Stroke::default().with_color(Color::from_rgba(0.894, 0.298, 0.298, a)).with_width(self.band).with_line_cap(iced::widget::canvas::LineCap::Round));
+        frame.stroke(&arc, Stroke::default().with_color(Color { a: self.colour.a * a, ..self.colour }).with_width(self.band).with_line_cap(iced::widget::canvas::LineCap::Round));
         vec![frame.into_geometry()]
     }
 }
@@ -1188,20 +1194,8 @@ fn strip_card<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     } else {
         let mut faces = row![].spacing(4.0);
         for (at, (who, _)) in list.order.iter().take(3).enumerate() {
-            let place = at + 1;
-            let k = ui::fade();
-            let colour = screen::medal(place).unwrap_or(INK);
-            let ring = Color::from_rgb(0.071, 0.039, 0.047);
-            let badge = container(text(place.to_string()).font(theme::MONO_BOLD).size(9.0).line_height(1.0).wrapping(text::Wrapping::None).color(Color { a: k, ..Color::from_rgb(0.08, 0.04, 0.05) }))
-                .width(15.0)
-                .height(15.0)
-                .center(15.0)
-                .style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..colour })), border: Border { color: crate::theme::outline(Color { a: k, ..ring }), width: 1.5, radius: 7.5.into() }, ..container::Style::default() });
-            faces = faces.push(
-                stack![container(screen::face(ground, &catalog.people[*who], 26.0)).padding(Padding { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 }), container(badge).width(34.0).height(32.0).align_x(iced::alignment::Horizontal::Right).align_y(iced::alignment::Vertical::Bottom)]
-                    .width(34.0)
-                    .height(32.0),
-            );
+            let colour = screen::medal(at + 1).unwrap_or(INK);
+            faces = faces.push(screen::ringed(ground, &catalog.people[*who], 26.0, colour));
         }
         faces.into()
     };
@@ -1315,7 +1309,7 @@ mod tests {
         let catalog = Catalog::staged(Vec::new(), "", 1_790_000_000);
         let mut news = News { stories: vec![news::Story { url: "old".into(), at: 1_790_000_001, ..news::Story::default() }], ..News::default() };
         let before = event_keys(&catalog, &news, &[], 0);
-        news.stories.push(news::Story { url: "older-but-new-to-the-feed".into(), at: 1_789_000_000, ..news::Story::default() });
+        news.stories.push(news::Story { url: "older-but-new-to-the-feed".into(), at: 1_789_900_000, ..news::Story::default() });
         let current = event_keys(&catalog, &news, &[], 0);
         let mut arrivals = Arrivals::default();
         arrivals.refresh(&before, &current, now);
@@ -1327,7 +1321,7 @@ mod tests {
     #[test]
     fn a_busy_channel_does_not_crowd_out_a_quiet_one() {
         let mut news = News::default();
-        for n in 0..60 {
+        for n in 0..(POSTS_EACH as i64 + 20) {
             news.posts.push(news::Post { channel: "osunow".into(), text: format!("busy {n}"), at: 2_000_000 + n, ..news::Post::default() });
         }
         news.posts.push(news::Post { channel: "osunewsru".into(), text: "quiet".into(), at: 1_000_000, ..news::Post::default() });

@@ -563,6 +563,22 @@ pub fn community(server: &str, token: &str, name: &str, chat: Option<i64>) -> Re
     })
 }
 
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+struct Rivals {
+    #[serde(default)]
+    rivals: Vec<JobRival>,
+}
+
+pub fn map_rivals(server: &str, token: &str, name: &str, chat: Option<i64>, beatmap: u64, from_chat: bool) -> Result<Vec<JobRival>, Refused> {
+    let mut request = client()?.get(format!("{server}/render/maps/{beatmap}/rivals")).header("X-Render-Worker", crate::bot::worker(name)).bearer_auth(token).query(&[("board", if from_chat { "chat" } else { "global" })]);
+    if let Some(chat) = chat {
+        request = request.query(&[("chat", chat)]);
+    }
+    let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
+    let found: Rivals = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
+    Ok(found.rivals)
+}
+
 pub fn map_board(server: &str, token: &str, name: &str, chat: Option<i64>, beatmap: u64, fresh: bool) -> Result<crate::community::wire::MapBoard, Refused> {
     let asking = if fresh { long(BOARD_PATIENCE)? } else { client()? };
     let mut request = asking.get(format!("{server}/render/maps/{beatmap}/board")).header("X-Render-Worker", crate::bot::worker(name)).bearer_auth(token).query(&[("sync", if fresh { "1" } else { "0" })]);

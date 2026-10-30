@@ -68,7 +68,7 @@ pub(super) fn publish_panel<'a>(state: &'a State, editor: &'a Editor, pool: &'a 
     let name = if named { pool.name.clone() } else { words.t(if pool.collection { "collection-name-hint" } else { "pool-name-hint" }) };
     let head = row![
         column![caption("publish-title"), semi(name.clone(), 21.0, if named { INK } else { MUTED })].spacing(5).width(Length::Fill),
-        ui::close_corner(Some(Message::PublishSheet(false)), ui::CLOSE_SIDE, 16.0, 24.0, 24.0),
+        ui::close_square(Some(Message::PublishSheet(false)), ui::CLOSE_SIDE),
     ]
     .spacing(12)
     .align_y(iced::Center);

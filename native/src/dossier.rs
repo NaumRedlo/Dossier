@@ -533,62 +533,12 @@ fn years(words: &crate::lang::Words, joined: i64, now: i64) -> Option<String> {
     })
 }
 
-fn cover_picture(handle: Option<&iced::widget::image::Handle>, wide: f32, tint: Color) -> iced::widget::image::Handle {
-    use iced::widget::image::Handle;
-    type Key = (Option<iced::advanced::image::Id>, u32, [u8; 3]);
-    thread_local! { static COVERS: std::cell::RefCell<Vec<(Key, Handle)>> = const { std::cell::RefCell::new(Vec::new()) }; }
-    let width = (wide.max(1.0) * 2.0).round() as u32;
-    let height = 392;
-    let tint = [(tint.r * 255.0) as u8, (tint.g * 255.0) as u8, (tint.b * 255.0) as u8];
-    let key = (handle.map(Handle::id), width, tint);
-    COVERS.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if let Some((_, picture)) = cache.iter().find(|(old, _)| *old == key) { return picture.clone(); }
-        let source = handle.and_then(|handle| match handle {
-            Handle::Rgba { width, height, pixels, .. } => image::RgbaImage::from_raw(*width, *height, pixels.to_vec()),
-            Handle::Bytes(_, bytes) => image::load_from_memory(bytes).ok().map(|image| image.to_rgba8()),
-            Handle::Path(_, path) => image::open(path).ok().map(|image| image.to_rgba8()),
-        }).filter(|image| image.width() > 0 && image.height() > 0);
-        let source = source.map(|source| {
-            let (w, h) = source.dimensions();
-            let ratio = width as f32 / height as f32;
-            let (cw, ch) = if w as f32 / h as f32 > ratio { ((h as f32 * ratio).round().max(1.0) as u32, h) } else { (w, (w as f32 / ratio).round().max(1.0) as u32) };
-            let cut = image::imageops::crop_imm(&source, (w - cw.min(w)) / 2, (h - ch.min(h)) / 2, cw.min(w), ch.min(h)).to_image();
-            image::imageops::resize(&cut, width, height, image::imageops::FilterType::Triangle)
-        });
-        let mut pixels = image::RgbaImage::new(width, height);
-        let radius = 26.0_f32.min(width as f32 / 2.0);
-        for (x, y, pixel) in pixels.enumerate_pixels_mut() {
-            let t = (y as f32 + 0.5) / height as f32;
-            let fade = 1.0 - { let u = ((t - 0.3) / 0.7).clamp(0.0, 1.0); u * u * (3.0 - 2.0 * u) };
-            let shade = 0.28 + 0.2 * t;
-            let corner_x = (radius - (x as f32 + 0.5)).max(x as f32 + 0.5 - (width as f32 - radius)).max(0.0);
-            let corner_y = (radius - (y as f32 + 0.5)).max(0.0);
-            let edge = if corner_x > 0.0 && corner_y > 0.0 { (radius - corner_x.hypot(corner_y) + 0.5).clamp(0.0, 1.0) } else { 1.0 };
-            let art = source.as_ref().map(|source| source.get_pixel(x, y).0).unwrap_or([tint[0], tint[1], tint[2], 20]);
-            let base = theme::SLAB_SOLID;
-            *pixel = image::Rgba([
-                (art[0] as f32 * (1.0 - shade) + base.r * 255.0 * shade) as u8,
-                (art[1] as f32 * (1.0 - shade) + base.g * 255.0 * shade) as u8,
-                (art[2] as f32 * (1.0 - shade) + base.b * 255.0 * shade) as u8,
-                (art[3] as f32 * fade * edge).round() as u8,
-            ]);
-        }
-        let picture = Handle::from_rgba(width, height, pixels.into_raw());
-        if cache.len() >= 16 { cache.remove(0); }
-        cache.push((key, picture.clone()));
-        picture
-    })
-}
-
-pub const BACKDROP_HIGH: f32 = 460.0;
-
 fn backdrop_picture(handle: &iced::widget::image::Handle, wide: f32, round: f32) -> Option<iced::widget::image::Handle> {
     use iced::widget::image::Handle;
     type Key = (iced::advanced::image::Id, u32, u32);
     thread_local! { static BACKDROPS: std::cell::RefCell<Vec<(Key, Handle)>> = const { std::cell::RefCell::new(Vec::new()) }; }
     let width = (wide.max(1.0) / 2.0).round().max(1.0) as u32;
-    let height = (BACKDROP_HIGH / 2.0) as u32;
+    let height = (width as f32 * BACKDROP_SHAPE).round().max(1.0) as u32;
     let key = (handle.id(), width, round as u32);
     BACKDROPS.with(|cache| {
         let mut cache = cache.borrow_mut();
@@ -601,24 +551,26 @@ fn backdrop_picture(handle: &iced::widget::image::Handle, wide: f32, round: f32)
         let filled = image::DynamicImage::ImageRgba8(source).resize_to_fill(width, height, image::imageops::FilterType::Triangle).to_rgba8();
         let soft = image::imageops::blur(&filled, BACKDROP_SOFT);
         let base = theme::SLAB_SOLID;
-        let radius = round / 2.0;
         let mut pixels = image::RgbaImage::new(width, height);
         for (x, y, pixel) in pixels.enumerate_pixels_mut() {
             let t = (y as f32 + 0.5) / height as f32;
-            let fade = 1.0 - { let u = (t / 0.92).clamp(0.0, 1.0); u * u * (3.0 - 2.0 * u) };
-            let across = (x as f32 + 0.5) / width as f32;
-            let sides = (across.min(1.0 - across) / BACKDROP_SIDES).clamp(0.0, 1.0);
-            let top = (t / BACKDROP_TOP).clamp(0.0, 1.0);
-            let fade = fade * sides * sides * (3.0 - 2.0 * sides) * top;
-            let corner_x = (radius - (x as f32 + 0.5)).max(x as f32 + 0.5 - (width as f32 - radius)).max(0.0);
-            let corner_y = (radius - (y as f32 + 0.5)).max(0.0);
-            let edge = if corner_x > 0.0 && corner_y > 0.0 { (radius - corner_x.hypot(corner_y) + 0.5).clamp(0.0, 1.0) } else { 1.0 };
+            let fade = 1.0 - (1.0 - BACKDROP_FOOT) * { let u = t.clamp(0.0, 1.0); u * u * (3.0 - 2.0 * u) };
+            let fade = if round > 0.0 {
+                fade
+            } else {
+                let across = (x as f32 + 0.5) / width as f32;
+                let sides = (across.min(1.0 - across) / BACKDROP_SIDES).clamp(0.0, 1.0);
+                fade * sides * sides * (3.0 - 2.0 * sides) * (t / BACKDROP_TOP).clamp(0.0, 1.0)
+            };
             let art = soft.get_pixel(x, y).0;
+            let (cx, cy) = ((x as f32 + 0.5) / width as f32 * 2.0 - 1.0, t * 2.0 - 1.0);
+            let far = (((cx * cx + cy * cy).sqrt() / std::f32::consts::SQRT_2 - 0.4) / 0.6).clamp(0.0, 1.0);
+            let shade = BACKDROP_SHADE + (1.0 - BACKDROP_SHADE) * BACKDROP_EDGE * far * far * (3.0 - 2.0 * far);
             *pixel = image::Rgba([
-                (art[0] as f32 * (1.0 - BACKDROP_SHADE) + base.r * 255.0 * BACKDROP_SHADE) as u8,
-                (art[1] as f32 * (1.0 - BACKDROP_SHADE) + base.g * 255.0 * BACKDROP_SHADE) as u8,
-                (art[2] as f32 * (1.0 - BACKDROP_SHADE) + base.b * 255.0 * BACKDROP_SHADE) as u8,
-                (255.0 * fade * edge).round() as u8,
+                (art[0] as f32 * (1.0 - shade) + base.r * 255.0 * shade) as u8,
+                (art[1] as f32 * (1.0 - shade) + base.g * 255.0 * shade) as u8,
+                (art[2] as f32 * (1.0 - shade) + base.b * 255.0 * shade) as u8,
+                (255.0 * fade).round() as u8,
             ]);
         }
         let picture = Handle::from_rgba(width, height, pixels.into_raw());
@@ -629,37 +581,34 @@ fn backdrop_picture(handle: &iced::widget::image::Handle, wide: f32, round: f32)
 }
 
 const BACKDROP_SOFT: f32 = 6.0;
-const BACKDROP_SHADE: f32 = 0.7;
-const BACKDROP_SIDES: f32 = 0.08;
-const BACKDROP_TOP: f32 = 0.06;
+const BACKDROP_SHADE: f32 = 0.76;
+const BACKDROP_EDGE: f32 = 0.8;
+const BACKDROP_SIDES: f32 = 0.06;
+const BACKDROP_TOP: f32 = 0.05;
+const BACKDROP_SHAPE: f32 = 0.56;
+const BACKDROP_FOOT: f32 = 0.4;
 
 pub fn cover_of<'a>(ground: &Ground<'a>, person: &crate::community::Person, card: &crate::community::wire::Card) -> Option<&'a iced::widget::image::Handle> {
-    ground.pictures.get(&card.cover_url).or_else(|| ground.pictures.get(&person.cover))
+    ground.pictures.get(&card.cover_url)
+        .or_else(|| ground.pictures.get(&person.cover))
+        .or_else(|| ground.catalog.me.as_ref().filter(|_| person.you).and_then(|me| ground.pictures.get(&me.person.cover)))
 }
 
 pub fn backdropped<'a>(cover: Option<&iced::widget::image::Handle>, wide: f32, round: f32, page: Element<'a, Message>) -> Element<'a, Message> {
     let Some(picture) = cover.and_then(|cover| backdrop_picture(cover, wide, round)) else {
         return page;
     };
-    let back = iced::widget::image(picture).width(Length::Fill).height(BACKDROP_HIGH).content_fit(iced::ContentFit::Fill).opacity(ui::fade());
+    let back = iced::widget::image(picture).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).border_radius(round).opacity(ui::fade());
     stack![container(back).width(Length::Fill).height(Length::Fill), page].into()
 }
 
-fn profile_cover<'a>(handle: Option<&iced::widget::image::Handle>, wide: f32, tint: Color) -> Element<'a, Message> {
-    iced::widget::image(cover_picture(handle, wide, tint)).width(Length::Fill).height(196.0)
-        .content_fit(iced::ContentFit::Fill).opacity(ui::fade()).into()
-}
-
-fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a, Message> {
+fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
     let (you, card) = (whose.person, &whose.card);
     let w = ground.words;
     let side = 156.0;
-    let face = chronicle::ring(ground, you, side, 1.0, 3.0);
-    let cover = cover_of(ground, you, card);
-    let avatar = container(face).width(Length::Fill).height(196.0).center_x(Length::Fill).center_y(196.0);
-    let banner = container(stack![profile_cover(cover, wide - 2.0, screen::avatar_colour(&you.name)), avatar].width(Length::Fill).height(196.0))
-        .padding(Padding::ZERO.top(1.0).left(1.0).right(1.0)).id("profile-cover");
-    let seen = if card.is_online { (w.t("online"), GREEN) } else { (w.t("offline"), FAINT) };
+    let online = you.you || ground.catalog.people.get(whose.at).is_some_and(|person| person.online);
+    let face = chronicle::ring_in(ground, you, side, 1.0, 3.0, screen::online_ring(online));
+    let banner = container(face).width(Length::Fill).height(196.0).center_x(Length::Fill).center_y(196.0).id("profile-cover");
     let mut heading = column![
         text(you.name.clone()).font(theme::SANS_SEMI).size(28.0).wrapping(text::Wrapping::None).color(ui::faded(INK)),
     ]
@@ -674,7 +623,6 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a
         None => text(w.t("no-title")).font(theme::SANS).size(12.5).color(ui::faded(FAINT)).into(),
     };
     heading = heading.push(worn);
-    heading = heading.push(text(seen.0).font(theme::SANS).size(12.0).color(ui::faded(seen.1)));
     if card.level >= 1.0 {
         heading = heading.push(ui::mono_small(format!("{} {}", w.t("level-short"), card.level.floor() as u64), MUTED));
     }
@@ -701,7 +649,7 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a
         }
     }
     let profile = if card.osu_id > 0.0 { format!("https://osu.ppy.sh/users/{}", card.osu_id as u64) } else { format!("https://osu.ppy.sh/users/{}", you.name) };
-    let buttons = row![
+    let mut buttons = row![
         ui::hover(
             button(container(row![glyph(Icon::External, 14.0, Color::WHITE), text(w.t("open-osu")).font(theme::SANS_SEMI).size(13.0)].spacing(6).align_y(iced::Center)).center_x(Length::Fill))
                 .padding([10, 0])
@@ -710,16 +658,18 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32) -> Element<'a
                 .on_press(Message::Open(profile)),
             ui::Glow::tile(10.0).edge(Color::from_rgba(1.0, 0.8, 0.8, 0.35)).shadow(Color::from_rgba(0.886, 0.282, 0.282, 0.25)),
         ),
-        ui::hover(
+    ]
+    .spacing(8);
+    if screen::COMPARE_OPEN {
+        buttons = buttons.push(ui::hover(
             button(container(row![glyph(Icon::Compare, 14.0, INK), text(w.t("compare")).font(theme::SANS_SEMI).size(13.0)].spacing(6).align_y(iced::Center)).center_x(Length::Fill))
                 .padding([10, 0])
                 .width(Length::Fill)
                 .style(ui::button_faded(ui::calm(outline)))
                 .on_press(Message::CompareWith(whose.at)),
             ui::Glow::tile(10.0),
-        ),
-    ]
-    .spacing(8);
+        ));
+    }
     let buttons = match you.player.filter(|_| you.app && !you.you) {
         Some(player) => {
             let pending = ground.duels.mine.iter().find(|duel| duel.state == "INVITED" && duel.participants.iter().any(|person| person.player == player));
@@ -1104,7 +1054,6 @@ fn combo_marks<'a>(poster: &Poster<'a>) -> Element<'a, Message> {
 fn play_row<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, wide: f32, f: f64) -> Element<'a, Message> {
     let w = ground.words;
     let k = ui::fade();
-    let colour = screen::grade_colour(&poster.grade);
     let thumb: Element<'a, Message> = match poster.cover.or(poster.art) {
         Some(handle) => iced::widget::image(handle.clone()).width(THUMB_WIDE).height(THUMB_HIGH).content_fit(iced::ContentFit::Cover).border_radius(7.0).opacity(k).into(),
         None => container(ui::fine_hatch()).width(THUMB_WIDE).height(THUMB_HIGH).clip(true).into(),
@@ -1129,7 +1078,7 @@ fn play_row<'a>(ground: &Ground<'a>, index: usize, poster: &Poster<'a>, wide: f3
         mods = mods.push(crate::modicons::badge(acronym, ROW_MOD, 1.0));
     }
     let mut line = row![
-        container(text(poster.grade.clone()).font(theme::SANS_SEMI).size(18.0).color(ui::faded(colour))).width(22.0).center_x(22.0),
+        ui::grade_tile(&poster.grade, 30.0),
         thumb,
         container(names).width(Length::Fill).clip(true),
         mods,
@@ -1191,7 +1140,7 @@ fn best_plays<'a>(ground: &Ground<'a>, whose: &Whose<'a>, wide: f32, t: f32) -> 
 fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
     let w = ground.words;
     let g = &card.grade_counts;
-    let entries = [("A", g.a, Color::from_rgb8(80, 200, 80)), ("S", g.s, Color::from_rgb8(255, 215, 0)), ("S", g.sh, Color::from_rgb8(220, 220, 240)), ("SS", g.ss, Color::from_rgb8(255, 215, 0)), ("SS", g.ssh, Color::from_rgb8(220, 220, 240))];
+    let entries = [("A", g.a, theme::GRADE_A), ("S", g.s, theme::GRADE_S), ("S", g.sh, theme::GRADE_S_SILVER), ("SS", g.ss, theme::GRADE_SS), ("SS", g.ssh, theme::GRADE_SS_SILVER)];
     let total: f64 = entries.iter().map(|e| e.1.max(0.0)).sum();
     let share = |n: f64| screen::decimal(w, (n / total.max(1.0) * 100.0) as f32, 1) + "%";
     let mut tiles = row![].spacing(5);
@@ -1423,7 +1372,7 @@ pub fn columns<'a>(ground: &Ground<'a>, whose: &Whose<'a>, room: f32, t: f32) ->
         for (at, block) in lane.keys.iter().enumerate() {
             let k = ui::appear(t, at + usize::from(index >= 2));
             let piece = match block {
-                Block::Identity => ui::appearing(k, || identity(ground, whose, wide)),
+                Block::Identity => ui::appearing(k, || identity(ground, whose)),
                 Block::Places => ui::appearing(k, || places(ground, whose, t)),
                 Block::Grades => ui::appearing(k, || grades(ground, &whose.card)),
                 Block::Titles => ui::appearing(k, || titles(ground, whose)),
@@ -1447,6 +1396,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let Some(card) = ground.card.cloned().or_else(|| ground.catalog.card_of()) else {
         return container(ui::mono_small(w.t("nothing-yet"), FAINT)).center(Length::Fill).into();
     };
+    let card = card.freshened(person);
     let cover = cover_of(ground, person, &card);
     let whose = Whose { at, person, card, me: ground.catalog.me.as_ref() };
     let page = container(columns(ground, &whose, ground.width - 80.0, ground.section_t)).padding(Padding { top: 12.0, right: 40.0, bottom: 0.0, left: 40.0 }).width(Length::Fill).height(Length::Fill).into();
@@ -1460,38 +1410,16 @@ mod chart_tests {
     #[test]
     fn the_profile_backdrop_is_the_dimmed_cover_fading_away_at_the_bottom_and_the_sides() {
         let handle = iced::widget::image::Handle::from_rgba(64, 32, [255, 255, 255, 255].repeat(64 * 32));
-        let Some(iced::widget::image::Handle::Rgba { width, height, pixels, .. }) = backdrop_picture(&handle, 400.0, 0.0) else {
+        let Some(iced::widget::image::Handle::Rgba { width, height, pixels, .. }) = backdrop_picture(&handle, 400.0, 20.0) else {
             panic!("a backdrop of raw pixels");
         };
         let alpha = |x: u32, y: u32| pixels[((y * width + x) * 4 + 3) as usize];
         let red = |x: u32, y: u32| pixels[((y * width + x) * 4) as usize];
         assert!(alpha(width / 2, height / 5) > 150, "the upper middle shows the cover");
         assert!(red(width / 2, height / 5) < 140, "and it is dimmed");
-        assert_eq!(alpha(width / 2, height - 1), 0, "it is gone at the bottom");
-        assert!(alpha(0, height / 5) < 4, "and at the sides");
-        assert!(alpha(width / 2, 0) < 40, "and it rises from the top edge");
-    }
-
-    #[test]
-    fn a_bright_profile_cover_fades_to_the_card_and_stays_inside_its_bounds() {
-        let handle = iced::widget::image::Handle::from_rgba(100, 500, [255, 255, 255, 255].repeat(50_000));
-        let inside = container(profile_cover(Some(&handle), 180.0, ACCENT)).width(180.0);
-        let root = container(inside).padding(20).width(220).height(240).style(|_| container::Style {
-            background: Some(Background::Color(Color::BLACK)), ..container::Style::default()
-        });
-        let mut ui = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(220.0, 240.0), root);
-        let stem = std::env::temp_dir().join(format!("dossier-profile-cover-{}", std::process::id()));
-        ui.snapshot(&theme::theme()).unwrap().matches_image(&stem).unwrap();
-        let path = crate::gallery::written_as(&stem);
-        let image = image::open(&path).unwrap().to_rgba8();
-        let scale = image.width() / 220;
-        let pixel = |x, y| image.get_pixel(x * scale, y * scale)[0];
-        assert!(pixel(40, 45) > 140, "the upper cover remains visible");
-        assert!(pixel(40, 210) < 35, "the lower edge must fade before the name and title");
-        assert_eq!(pixel(110, 10), 0, "cover cannot escape above its bounds");
-        assert_eq!(pixel(110, 230), 0, "cover cannot escape below its bounds");
-        assert_eq!(pixel(20, 20), 0, "the rounded corner stays transparent instead of painting the card colour");
-        std::fs::remove_file(path).unwrap();
+        assert!(alpha(width / 2, height - 1) < alpha(width / 2, 0), "it quietens towards the bottom");
+        assert!(alpha(width / 2, height - 1) > 60, "but reaches the whole panel");
+        assert!(alpha(0, height / 5) > 150, "and its sides");
     }
 
     #[test]

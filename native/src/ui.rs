@@ -5139,25 +5139,13 @@ pub struct Hover<'a, Message> {
     glow: Glow,
 }
 
-pub const TIP_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
-
 pub fn tip<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, words: String) -> Element<'a, Message> {
-    let told = container(text(words).font(theme::SANS_SEMI).size(12.0).wrapping(text::Wrapping::None).color(INK)).padding([6, 10]).style(|_| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb8(0x1d, 0x12, 0x16))),
-        border: iced::Border { color: theme::outline(Color::from_rgb8(0x36, 0x27, 0x2b)), width: 1.0, radius: 8.0.into() },
-        ..container::Style::default()
-    });
-    iced::widget::tooltip(content, told, iced::widget::tooltip::Position::Top).gap(6).delay(TIP_DELAY).into()
+    crate::tip::Tip::new(content, words).into()
 }
 
 pub fn explained<'a, Message: 'a>(words: String, side: f32) -> Element<'a, Message> {
-    let told = container(text(words).font(theme::SANS).size(13.0).line_height(1.35).color(INK)).padding([10, 12]).max_width(340.0).style(|_| container::Style {
-        background: Some(iced::Background::Color(Color::from_rgb8(0x1d, 0x12, 0x16))),
-        border: iced::Border { color: theme::outline(Color::from_rgb8(0x36, 0x27, 0x2b)), width: 1.0, radius: 10.0.into() },
-        ..container::Style::default()
-    });
     let mark = container(crate::glyphs::glyph(crate::glyphs::Icon::Help, side, theme::FAINT)).padding(2);
-    iced::widget::tooltip(mark, told, iced::widget::tooltip::Position::Top).gap(6).delay(TIP_DELAY).into()
+    crate::tip::Tip::new(mark, words).into()
 }
 
 pub fn hover<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, glow: Glow) -> Element<'a, Message> {

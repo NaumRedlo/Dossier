@@ -811,16 +811,11 @@ fn refresh_button<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
         screen::Fetch::Fresh(at) | screen::Fetch::Failed(Some(at), _) => Some(at),
         _ => None,
     };
-    let mut told = column![text(w.t(key)).font(theme::SANS_SEMI).size(12.0).wrapping(text::Wrapping::None).color(INK)].spacing(2);
+    let mut tip = crate::tip::Tip::new(made, w.t(key)).side(crate::tip::Side::Bottom);
     if let Some(at) = stamp {
-        told = told.push(text(w.with("refresh-when", &[("when", format!("{} {}", w.day(at, ground.now_unix), w.clock(at)))])).font(theme::SANS).size(11.5).wrapping(text::Wrapping::None).color(MUTED));
+        tip = tip.under(w.with("refresh-when", &[("when", format!("{} {}", w.day(at, ground.now_unix), w.clock(at)))]));
     }
-    let tip = container(told).padding([6, 10]).style(|_| container::Style {
-        background: Some(Background::Color(Color::from_rgb8(0x1d, 0x12, 0x16))),
-        border: Border { color: crate::theme::outline(Color::from_rgb8(0x36, 0x27, 0x2b)), width: 1.0, radius: 8.0.into() },
-        ..container::Style::default()
-    });
-    Some(iced::widget::tooltip(made, tip, iced::widget::tooltip::Position::Bottom).gap(6).into())
+    Some(tip.into())
 }
 
 fn empty_card<'a>(ground: &Ground<'a>, icon: Icon, title: String, said: String, action: Option<(String, Message, bool)>) -> Element<'a, Message> {

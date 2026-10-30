@@ -68,6 +68,7 @@ pub mod theme;
 pub mod tray;
 pub mod unfold;
 pub mod updates;
+pub mod tip;
 pub mod ui;
 pub mod videos;
 pub mod witness;

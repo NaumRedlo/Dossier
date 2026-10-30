@@ -11,12 +11,32 @@ pub struct Mirror {
     pub api: &'static str,
     pub look_up: &'static str,
     pub download: &'static str,
+    pub tail: &'static str,
 }
 
-pub const MIRRORS: [Mirror; 2] = [
-    Mirror { name: "osu.direct", api: "https://osu.direct/api/v2/", look_up: "https://osu.direct/api/v2/md5/", download: "https://osu.direct/api/d/" },
-    Mirror { name: "catboy.best", api: "https://catboy.best/api/v2/", look_up: "https://catboy.best/api/v2/md5/", download: "https://catboy.best/d/" },
+pub const MIRRORS: [Mirror; 5] = [
+    Mirror { name: "osu.direct", api: "https://osu.direct/api/v2/", look_up: "https://osu.direct/api/v2/md5/", download: "https://osu.direct/api/d/", tail: "" },
+    Mirror { name: "nekoha.moe", api: "", look_up: "", download: "https://mirror.nekoha.moe/api4/download/", tail: "" },
+    Mirror { name: "beatconnect.io", api: "", look_up: "", download: "https://beatconnect.io/b/", tail: "/" },
+    Mirror { name: "sayobot.cn", api: "", look_up: "", download: "https://dl.sayobot.cn/beatmaps/download/novideo/", tail: "" },
+    Mirror { name: "catboy.best", api: "https://catboy.best/api/v2/", look_up: "https://catboy.best/api/v2/md5/", download: "https://catboy.best/d/", tail: "" },
 ];
+
+const MIRROR_REST: Duration = Duration::from_secs(600);
+
+static RESTING: std::sync::Mutex<Vec<(&'static str, Instant)>> = std::sync::Mutex::new(Vec::new());
+
+fn awake(name: &str) -> bool {
+    let mut held = RESTING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    held.retain(|(_, until)| *until > Instant::now());
+    !held.iter().any(|(rests, _)| *rests == name)
+}
+
+fn turned_away(name: &'static str, status: reqwest::StatusCode) {
+    if status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        RESTING.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push((name, Instant::now() + MIRROR_REST));
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Found {
@@ -57,7 +77,7 @@ pub fn known(hash: &str) -> Option<Known> {
         }
     }
     let mut answer: Option<Option<Known>> = None;
-    for mirror in &MIRRORS {
+    for mirror in MIRRORS.iter().filter(|mirror| !mirror.look_up.is_empty() && awake(mirror.name)) {
         match ask(mirror, hash) {
             Answer::Found(found) => {
                 answer = Some(Some(Known { set: found.set, artist: found.artist, title: found.title, version: found.version }));
@@ -216,9 +236,13 @@ fn said(value: &serde_json::Value, paths: &[&[&str]]) -> String {
 }
 
 pub fn parse_look_up(mirror: &'static Mirror, body: &serde_json::Value) -> Option<Found> {
+    found_from(mirror.name, body)
+}
+
+fn found_from(from: &'static str, body: &serde_json::Value) -> Option<Found> {
     let set = body.get("beatmapset_id").and_then(serde_json::Value::as_u64)?;
     Some(Found {
-        from: mirror.name,
+        from,
         set,
         artist: tidy(&said(body, &[&["beatmapset", "artist"], &["set", "artist"], &["artist"]])),
         title: tidy(&said(body, &[&["beatmapset", "title"], &["set", "title"], &["title"]])),
@@ -244,6 +268,7 @@ fn ask(mirror: &'static Mirror, hash: &str) -> Answer {
         return Answer::Unknown;
     }
     if !reply.status().is_success() {
+        turned_away(mirror.name, reply.status());
         return Answer::Silent(format!("{} answered {}", mirror.name, reply.status()));
     }
     match reply.json::<serde_json::Value>() {
@@ -257,8 +282,9 @@ fn ask(mirror: &'static Mirror, hash: &str) -> Answer {
 
 fn download(mirror: &'static Mirror, set: u64, into: &Path, leash: &mut Leash) -> Result<(), String> {
     let http = client(1800)?;
-    let mut reply = http.get(format!("{}{set}", mirror.download)).send().map_err(|e| e.to_string())?;
+    let mut reply = http.get(format!("{}{set}{}", mirror.download, mirror.tail)).send().map_err(|e| e.to_string())?;
     if !reply.status().is_success() {
+        turned_away(mirror.name, reply.status());
         return Err(format!("{} answered {}", mirror.name, reply.status()));
     }
     let total = reply.content_length();
@@ -465,7 +491,20 @@ pub fn fetch(hash: String, songs: PathBuf, stop: Arc<AtomicBool>) -> iced::Task<
     })
 }
 
+fn by_the_bot(hash: &str) -> Option<Found> {
+    let settings = crate::settings::Settings::load();
+    if settings.token.is_empty() {
+        return None;
+    }
+    let body = crate::bot::map_by_hash(&settings.server, &settings.token, &settings.device, hash).ok()?;
+    found_from("osu!", &body)
+}
+
 pub fn bring(hash: &str, songs: &Path, stop: &AtomicBool, report: &mut dyn FnMut(Step) -> bool) -> Step {
+    bring_from(hash, None, songs, stop, report)
+}
+
+pub fn bring_from(hash: &str, set: Option<u64>, songs: &Path, stop: &AtomicBool, report: &mut dyn FnMut(Step) -> bool) -> Step {
     let hash = match hex(hash) {
         Ok(hash) => hash,
         Err(why) => return Step::Failed(why),
@@ -474,7 +513,8 @@ pub fn bring(hash: &str, songs: &Path, stop: &AtomicBool, report: &mut dyn FnMut
     leash.tell(Step::Looking);
     let mut found = None;
     let mut silence = None;
-    for mirror in MIRRORS.iter() {
+    let mut unknown = false;
+    for mirror in MIRRORS.iter().filter(|mirror| !mirror.look_up.is_empty() && awake(mirror.name)) {
         if leash.stopped() {
             return Step::Stopped;
         }
@@ -483,12 +523,15 @@ pub fn bring(hash: &str, songs: &Path, stop: &AtomicBool, report: &mut dyn FnMut
                 found = Some(got);
                 break;
             }
-            Answer::Unknown => {}
+            Answer::Unknown => unknown = true,
             Answer::Silent(why) => silence = Some(why),
         }
     }
+    let found = found
+        .or_else(|| by_the_bot(&hash))
+        .or_else(|| set.filter(|set| *set > 0).map(|set| Found { from: "osu!", set, artist: String::new(), title: String::new(), version: String::new() }));
     let Some(found) = found else {
-        return match silence {
+        return match silence.filter(|_| !unknown) {
             Some(why) => Step::Failed(why),
             None => Step::Nowhere,
         };
@@ -511,8 +554,8 @@ pub fn bring(hash: &str, songs: &Path, stop: &AtomicBool, report: &mut dyn FnMut
         return Step::Done(map);
     }
     let archive = songs.join(format!(".{}.osz.download", found.set));
-    let mut order: Vec<&'static Mirror> = MIRRORS.iter().filter(|m| m.name == found.from).collect();
-    order.extend(MIRRORS.iter().filter(|m| m.name != found.from));
+    let mut order: Vec<&'static Mirror> = MIRRORS.iter().filter(|m| m.name == found.from && awake(m.name)).collect();
+    order.extend(MIRRORS.iter().filter(|m| m.name != found.from && awake(m.name)));
     let mut fetched = Err("no mirror gave the map".to_owned());
     for mirror in order {
         if leash.stopped() {
@@ -609,6 +652,18 @@ mod tests {
         let bare: serde_json::Value = serde_json::from_str(r#"{"beatmapset_id": 7}"#).unwrap();
         assert_eq!(parse_look_up(&MIRRORS[1], &bare).unwrap().folder(), "7");
         assert!(parse_look_up(&MIRRORS[1], &serde_json::json!({"nothing": 1})).is_none());
+    }
+
+    #[test]
+    fn a_mirror_that_turns_us_away_rests_and_the_others_stay_in_line() {
+        assert!(MIRRORS.len() >= 4 && MIRRORS[0].name != "catboy.best");
+        assert!(MIRRORS.iter().all(|mirror| !mirror.download.contains("ppy.sh")));
+        assert!(awake("test-mirror-a"));
+        turned_away("test-mirror-a", reqwest::StatusCode::NOT_FOUND);
+        assert!(awake("test-mirror-a"), "a map it does not have is no reason to rest");
+        turned_away("test-mirror-a", reqwest::StatusCode::FORBIDDEN);
+        assert!(!awake("test-mirror-a"));
+        assert!(awake("test-mirror-b"));
     }
 
     #[test]

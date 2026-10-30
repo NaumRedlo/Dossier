@@ -693,6 +693,7 @@ pub struct Main {
     pub people_from: crate::community_screen::PeopleFrom,
     pub people_query: String,
     pub people_filter: crate::community_screen::PeopleFilter,
+    feed_rows: usize,
     people_was: HashMap<String, usize>,
     people_moved_at: Instant,
     pub title_scope: crate::community_screen::TitleScope,
@@ -988,6 +989,7 @@ impl Main {
             people_from: crate::community_screen::PeopleFrom::Chat,
             people_query: String::new(),
             people_filter: crate::community_screen::PeopleFilter::All,
+            feed_rows: crate::chronicle::FEED_PAGE,
             people_was: HashMap::new(),
             people_moved_at: Instant::now() - Duration::from_secs(3600),
             title_scope: crate::community_screen::TitleScope::Chat,
@@ -3682,12 +3684,24 @@ impl Main {
                         self.fresh_from(before);
                     }
                     C::Filter(filter) => {
+                        self.feed_rows = crate::chronicle::FEED_PAGE;
                         if filter != self.feed_filter {
                             self.stream_at = now;
                         }
                         self.feed_filter = filter;
                     }
-                    C::Search(query) => self.feed_query = query,
+                    C::Search(query) => {
+                        self.feed_query = query;
+                        self.feed_rows = crate::chronicle::FEED_PAGE;
+                    }
+                    C::FeedMore(offset) => {
+                        self.feed_offset = offset;
+                        self.feed_rows += crate::chronicle::FEED_PAGE;
+                        if offset <= crate::chronicle::READING_BELOW {
+                            self.release_held();
+                        }
+                        return self.community_pictures_task();
+                    }
                     C::FeedScrolled(offset) => {
                         self.feed_offset = offset;
                         if offset <= crate::chronicle::READING_BELOW {
@@ -5282,7 +5296,6 @@ impl Main {
                 server: self.settings.server.clone(),
                 token: self.settings.token.clone(),
                 device: self.settings.device.clone(),
-                chat: self.community_chat(),
                 from_chat: self.settings.video_board_chat,
             }),
             gpu: self.settings.render_gpu,
@@ -6082,7 +6095,7 @@ impl Main {
         let Some(catalog) = self.community.as_ref() else {
             return Task::none();
         };
-        let mut wanted: Vec<(String, u32)> = catalog.pictures();
+        let mut wanted: Vec<(String, u32)> = catalog.pictures_with(self.feed_rows);
         for dossier in self.people_dossiers.values() {
             if !dossier.person.avatar.is_empty() { wanted.push((dossier.person.avatar.clone(), 256)); }
             if !dossier.person.cover.is_empty() { wanted.push((dossier.person.cover.clone(), crate::community::COVER)); }
@@ -6327,6 +6340,7 @@ impl Main {
             compare_query: &self.compare_query,
             people_query: &self.people_query,
             people_filter: self.people_filter,
+            feed_rows: self.feed_rows,
             people_was: &self.people_was,
             people_move_t: self.now.saturating_duration_since(self.people_moved_at).as_secs_f32().min(60.0),
             title_scope: self.title_scope,

@@ -17,8 +17,7 @@ impl Scene<'_> {
         let size = (height * BOARD_TEXT) as f32;
         let step = (height * BOARD_STEP) as f32;
         let width = (height * BOARD_WIDTH) as f32;
-        let (field_left, _) = layout.map(dossier_beatmap::Point { x: 0.0, y: 0.0 });
-        let left = ((field_left - width) * BOARD_ROOM_SHARE).max((height * BOARD_LEFT) as f32);
+        let left = (height * BOARD_LEFT) as f32;
         let card_height = step * BOARD_CARD_FILL;
 
         let pp = self.leaderboard.pp_at(time_ms);
@@ -46,7 +45,7 @@ impl Scene<'_> {
             y += step * GAUGE_PP;
         }
         if graph {
-            self.draw_strains(pixmap, left, y, width, step * GAUGE_GRAPH * 0.86, time_ms);
+            self.draw_strains(pixmap, 0.0, y, left + width, step * GAUGE_GRAPH * 0.86, time_ms);
             y += step * GAUGE_GRAPH;
         }
         let top = y + (drawn - 1.0) * step;
@@ -276,8 +275,8 @@ impl Scene<'_> {
             Label {
                 text: &format!("{}", row.place + 1),
                 x: left + width - card_height * 0.18,
-                y: baseline + size * 0.62,
-                size: size * 1.75,
+                y: baseline + size * 0.46,
+                size: size * BOARD_RANK_SIZE,
                 colour: with_alpha(rank_colour, 0.95 * presence),
                 align: Align::Right,
             },
@@ -285,13 +284,16 @@ impl Scene<'_> {
 
         let text_x = face_x + face + card_height * 0.2;
         let text_room = left + width - rank_column - text_x;
+        let wanted = name_size(&row.entry.name, font, size);
+        let wide = font.width(&row.entry.name, wanted);
+        let fitted = if wide > text_room && wide > 0.0 { wanted * text_room / wide } else { wanted };
         font.draw(
             pixmap,
             Label {
                 text: &row.entry.name,
                 x: text_x,
                 y: baseline,
-                size: name_size(&row.entry.name, font, size),
+                size: fitted,
                 colour: with_alpha(colour, 0.95 * presence),
                 align: Align::Left,
             },

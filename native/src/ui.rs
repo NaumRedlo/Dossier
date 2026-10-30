@@ -4670,6 +4670,116 @@ pub fn appearing<'a, M: 'a>(k: f32, build: impl FnOnce() -> Element<'a, M>) -> E
     if k >= 0.999 { build() } else { fading(fade() * k, build) }
 }
 
+pub const PICTURE_SAFE: f32 = 2.0;
+
+pub fn inset_picture<'a, M: 'a>(handle: iced::widget::image::Handle, radius: f32) -> Element<'a, M> {
+    let picture = iced::widget::image(handle).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).border_radius((radius - PICTURE_SAFE).max(0.0)).opacity(fade());
+    container(picture).padding(PICTURE_SAFE).width(Length::Fill).height(Length::Fill).into()
+}
+
+pub fn veiled<'a, M: 'a>(handle: iced::widget::image::Handle, radius: f32, tone: Color, top: f32, middle: f32, foot: f32) -> Element<'a, M> {
+    let k = fade();
+    let shade = container(Space::new().width(Length::Fill).height(Length::Fill)).width(Length::Fill).height(Length::Fill).style(move |_| container::Style {
+        background: Some(iced::Background::Gradient(iced::Gradient::Linear(
+            iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
+                .add_stop(0.0, Color { a: top * k, ..tone })
+                .add_stop(0.45, Color { a: middle * k, ..tone })
+                .add_stop(1.0, Color { a: foot * k, ..tone }),
+        ))),
+        border: iced::Border { radius: (radius - PICTURE_SAFE / 2.0).max(0.0).into(), ..iced::Border::default() },
+        ..container::Style::default()
+    });
+    iced::widget::stack![inset_picture(handle, radius), container(shade).padding(PICTURE_SAFE / 2.0).width(Length::Fill).height(Length::Fill)].width(Length::Fill).height(Length::Fill).into()
+}
+
+pub fn behind<'a, M: 'a>(front: impl Into<Element<'a, M>>, back: impl Into<Element<'a, M>>) -> Element<'a, M> {
+    Element::new(Behind { front: front.into(), back: back.into() })
+}
+
+struct Behind<'a, Message> {
+    front: Element<'a, Message>,
+    back: Element<'a, Message>,
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Behind<'_, Message> {
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.front), iced::advanced::widget::Tree::new(&self.back)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(&[&self.front, &self.back]);
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.front.as_widget().size()
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        let front = self.front.as_widget_mut().layout(&mut tree.children[0], renderer, limits);
+        let size = front.size();
+        let back = self.back.as_widget_mut().layout(&mut tree.children[1], renderer, &iced::advanced::layout::Limits::new(size, size));
+        iced::advanced::layout::Node::with_children(size, vec![front, back])
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        let front = layout.children().next().expect("laid out");
+        self.front.as_widget_mut().operate(&mut tree.children[0], front, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let front = layout.children().next().expect("laid out");
+        self.front.as_widget_mut().update(&mut tree.children[0], event, front, cursor, renderer, clipboard, shell, viewport);
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        let front = layout.children().next().expect("laid out");
+        self.front.as_widget().mouse_interaction(&tree.children[0], front, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let mut parts = layout.children();
+        let (front, back) = (parts.next().expect("laid out"), parts.next().expect("laid out"));
+        self.back.as_widget().draw(&tree.children[1], renderer, theme, style, back, cursor, viewport);
+        if let Some(seen) = layout.bounds().intersection(viewport) {
+            use iced::advanced::Renderer as _;
+            renderer.with_layer(seen, |renderer| {
+                self.front.as_widget().draw(&tree.children[0], renderer, theme, style, front, cursor, viewport);
+            });
+        }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        let front = layout.children().next().expect("laid out");
+        self.front.as_widget_mut().overlay(&mut tree.children[0], front, renderer, viewport, translation)
+    }
+}
+
 pub fn nudged<'a, M: 'a>(content: Element<'a, M>, dx: f32, dy: f32) -> Element<'a, M> {
     Element::new(Lift { content, dx, dy })
 }

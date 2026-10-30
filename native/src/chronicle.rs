@@ -275,6 +275,8 @@ impl Event<'_> {
 const POSTS_EACH: usize = 100;
 const FEED_DAYS: i64 = 3;
 const FEED_MOST: usize = 1200;
+pub const FEED_PAGE: usize = 60;
+const FEED_NEAR: f32 = 1400.0;
 
 fn chosen_posts<'a>(news: &'a News, channels: &[String]) -> impl Iterator<Item = &'a news::Post> + 'a {
     let channels: Vec<String> = channels.iter().map(|c| c.to_ascii_lowercase()).collect();
@@ -687,6 +689,9 @@ fn fresh_age(ground: &Ground<'_>, event: &Event<'_>) -> Option<f32> {
     if event.ghost {
         return None;
     }
+    if ground.arrivals.is_empty() {
+        return None;
+    }
     ground.arrivals.get(&event.key(ground.catalog)).copied()
 }
 
@@ -727,12 +732,13 @@ fn day_counts(list: &[Event<'_>], day: i64, day_of: &dyn Fn(i64) -> i64) -> [usi
     counts
 }
 
-fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], t: f32, from: usize, draw: impl Fn(&Event<'a>) -> Option<Element<'a, Message>>) -> Vec<Element<'a, Message>> {
+fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], rows: usize, t: f32, from: usize, draw: impl Fn(&Event<'a>) -> Option<Element<'a, Message>>) -> Vec<Element<'a, Message>> {
     let day_of = |at: i64| ground.words.days_back(at, ground.now_unix);
-    let settled_days: std::collections::HashSet<i64> = list.iter().filter(|event| !event.ghost && fresh_age(ground, event).is_none()).map(|event| day_of(event.at)).collect();
+    let shown = &list[..list.len().min(rows)];
+    let settled_days: std::collections::HashSet<i64> = shown.iter().filter(|event| !event.ghost && fresh_age(ground, event).is_none()).map(|event| day_of(event.at)).collect();
     let mut last: Option<i64> = None;
     let mut out = Vec::new();
-    for event in list {
+    for event in shown {
         let day = day_of(event.at);
         let open = opened(ground, event);
         let spaced = |made: Element<'a, Message>| -> Element<'a, Message> { container(made).padding(Padding::ZERO.bottom(ROW_GAP)).into() };
@@ -905,8 +911,14 @@ fn skeleton_rows<'a>(ground: &Ground<'a>, table: Table) -> Element<'a, Message> 
 fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     let w = ground.words;
     let everything = events(ground.catalog, ground.news, ground.channels, ground.live_shown);
-    let waiting = everything.iter().filter(|event| ground.held.contains(&event.key(ground.catalog))).count();
-    let all: Vec<Event<'a>> = everything.into_iter().filter(|event| !ground.held.contains(&event.key(ground.catalog))).collect();
+    let (all, waiting): (Vec<Event<'a>>, usize) = if ground.held.is_empty() {
+        (everything, 0)
+    } else {
+        let before = everything.len();
+        let kept: Vec<Event<'a>> = everything.into_iter().filter(|event| !ground.held.contains(&event.key(ground.catalog))).collect();
+        let waiting = before - kept.len();
+        (kept, waiting)
+    };
     let mut list: Vec<Event<'a>> = all.iter().copied().filter(|event| event.found(ground.catalog, ground.query) && event.admitted(ground.filter)).collect();
     if let Some(leave) = ground.leaving {
         let frozen = leave.frozen;
@@ -959,7 +971,7 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     if list.is_empty() {
         rows = rows.push(empty_rows(ground, all.is_empty(), table));
     } else {
-        for made in by_day(ground, &list, lately, 2, |event| {
+        for made in by_day(ground, &list, ground.feed_rows, lately, 2, |event| {
             let on = if event.ghost { ground.ghost.as_deref().unwrap_or(ground) } else { ground };
             match event.item {
                 Item::Play(_) | Item::Happened(_) => journal_row(on, event, table),
@@ -972,7 +984,14 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     page = page.push(rows);
     let rolled = scrollable(container(page).padding(Padding { top: 2.0, right: 10.0, bottom: PAGE_BELOW - ROW_GAP, left: 2.0 }))
         .id(iced::widget::Id::new("community-feed"))
-        .on_scroll(|viewport| Message::FeedScrolled(viewport.absolute_offset().y))
+        .on_scroll(|viewport| {
+            let offset = viewport.absolute_offset().y;
+            if offset + viewport.bounds().height + FEED_NEAR >= viewport.content_bounds().height {
+                Message::FeedMore(offset)
+            } else {
+                Message::FeedScrolled(offset)
+            }
+        })
         .style(ui::thin_scroll)
         .direction(ui::hidden_bar())
         .width(Length::Fill)

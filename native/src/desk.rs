@@ -357,11 +357,11 @@ pub struct About {
 pub const MIRROR_AGENT: &str = concat!("Dossier/", env!("CARGO_PKG_VERSION"), " (+https://github.com/NaumRedlo/Dossier)");
 
 pub fn about_address(beatmap: i64) -> String {
-    format!("https://catboy.best/api/v2/b/{beatmap}")
+    format!("https://osu.direct/api/v2/b/{beatmap}")
 }
 
 pub fn spare_address(beatmap: i64) -> String {
-    format!("https://osu.direct/api/v2/b/{beatmap}")
+    format!("https://catboy.best/api/v2/b/{beatmap}")
 }
 
 pub fn spare_set_address(set: i64) -> String {
@@ -682,7 +682,7 @@ mod tests {
 
     #[test]
     fn a_map_is_described_by_the_mirror_and_never_by_osu() {
-        assert!(about_address(5687673).starts_with("https://catboy.best/") && !about_address(1).contains("ppy.sh"));
+        assert!(about_address(5687673).starts_with("https://osu.direct/") && !about_address(1).contains("ppy.sh"));
         let found = serde_json::json!({ "beatmapset_id": 2300330, "difficulty_rating": 5.86, "bpm": 137.8, "total_length": 216, "version": "YO SAY!", "owners": [{ "username": "Pata-Mon" }], "set": { "title": "HOT LIMIT", "artist": "T.M.Revolution", "creator": "Wanpachi" } });
         let about = read_about(&found).expect("an about");
         assert_eq!((about.set, about.title.as_str(), about.mapper.as_str(), about.seconds), (Some(2300330), "HOT LIMIT", "Pata-Mon", Some(216)));

@@ -250,6 +250,7 @@ pub enum Message {
     Filter(crate::chronicle::Filter),
     Search(String),
     FeedScrolled(f32),
+    FeedMore(f32),
     ShowNew,
     PeopleSearch(String),
     PeopleFilter(PeopleFilter),
@@ -333,6 +334,7 @@ pub struct Ground<'a> {
     pub section_t: f32,
     pub people_was: &'a HashMap<String, usize>,
     pub people_move_t: f32,
+    pub feed_rows: usize,
     pub shift_t: f32,
     pub stream_t: f32,
     pub person_t: f32,
@@ -1018,15 +1020,11 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
     let friends = friend_names(catalog);
     let is_friend = |person: &Person| friends.contains(&person.name.to_lowercase());
     let everyone = everyone_of(catalog);
-    let takes = |filter: PeopleFilter, one: &Someone<'_>| takes_one(filter, one, &friends);
     let mut members: Vec<usize> = catalog.people.iter().enumerate().filter(|(_, person)| !person.outside).map(|(at, _)| at).collect();
     members.sort_by(|a, b| catalog.people[*b].pp.cmp(&catalog.people[*a].pp));
     let place_of = |at: usize| members.iter().position(|member| *member == at).map(|place| place + 1);
 
-    let tabs = segmented_compact(PeopleFilter::ALL.iter().map(|filter| {
-        let count = everyone.iter().filter(|one| takes(*filter, one)).count();
-        (format!("{} {}", w.t(filter.key()), w.lang().group(count as u64)), ground.people_filter == *filter, Message::PeopleFilter(*filter))
-    }).collect());
+    let tabs = segmented_compact(PeopleFilter::ALL.iter().map(|filter| (w.t(filter.key()), ground.people_filter == *filter, Message::PeopleFilter(*filter))).collect());
 
     let mut search = row![text_input(&w.t("people-search"), ground.people_query).id(iced::widget::Id::new("community-people-search"))
         .on_input(Message::PeopleSearch).font(theme::SANS).size(14.0).padding([10, 14]).width(Length::Fill).style(theme::field_faded(ui::fade()))].spacing(8).align_y(iced::Center);
@@ -1055,7 +1053,8 @@ fn people<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         container(list).padding(6).width(240).style(ui::box_faded(theme::slab)).into()
     });
     let order_button = ui::under_leaning(order_button, orders, Message::PeopleOrders(false), ui::Lean::Right, 6.0);
-    let head = row![tabs, container(search).width(Length::Fill).max_width(280.0), order_button].spacing(16).align_y(iced::Center);
+    let search_wide = (ground.width - 780.0).clamp(160.0, 300.0);
+    let head = row![tabs, ui::grow(), container(search).width(search_wide), order_button].spacing(16).align_y(iced::Center);
 
     let shown = shown_of(&everyone, &friends, ground.people_filter, ground.people_query, ground.people_order);
     let body: Element<'a, Message> = if everyone.is_empty() {
@@ -1121,8 +1120,7 @@ fn someone_card<'a>(ground: &Ground<'a>, one: &Someone<'a>, place: Option<usize>
         Someone::Friend(friend) if !friend.online => friend.seen.map(|_| ago(w, friend.minutes_away(ground.now_unix))).unwrap_or_default(),
         _ => String::new(),
     };
-    let by_name = ground.people_order == PeopleOrder::Name;
-    let said = text(one.name().to_owned()).font(theme::SANS_SEMI).size(if by_name { 22.0 } else { 19.0 }).wrapping(text::Wrapping::None).color(ui::faded(if by_name { PEOPLE_RED } else { INK }));
+    let said = text(one.name().to_owned()).font(theme::SANS_SEMI).size(19.0).wrapping(text::Wrapping::None).color(ui::faded(INK));
     let (supporter, level, osu_id) = match one {
         Someone::Member(_, person) => (person.supporter, person.support_level, person.osu_id),
         Someone::Friend(friend) => (friend.supporter, friend.support_level, friend.osu_id),
@@ -1167,8 +1165,8 @@ fn someone_card<'a>(ground: &Ground<'a>, one: &Someone<'a>, place: Option<usize>
     }
     let words = column![name, under, marks].spacing(5).width(Length::Fill);
     let main = w.lang().group(u64::from(one.pp()));
-    let side_fact = format!("{} {}", rank_of(w, one.rank()), w.t("people-in-world"));
-    let main_colour = if by_name { INK } else { PEOPLE_RED };
+    let side_fact = rank_of(w, one.rank());
+    let main_colour = PEOPLE_RED;
     let numbers = column![
         text(main).font(theme::SANS_SEMI).size(26.0).wrapping(text::Wrapping::None).color(ui::faded(main_colour)),
         text(side_fact).font(theme::SANS).size(13.0).wrapping(text::Wrapping::None).color(ui::faded(MUTED)),
@@ -1184,7 +1182,7 @@ fn someone_card<'a>(ground: &Ground<'a>, one: &Someone<'a>, place: Option<usize>
     let cover = one.cover();
     let back = {
         let shown = ground.picture_shown(cover);
-        ui::fading(ui::fade() * shown.max(0.001), || backdrop_under(ground.pictures.get(cover), PERSON_HIGH, 14.0, avatar_colour(one.name()), true, (0.9, 0.8, 0.93)))
+        ui::fading(ui::fade() * shown.max(0.001), || backdrop_under(ground.pictures.get(cover), PERSON_HIGH, 14.0, avatar_colour(one.name()), true, (0.93, 0.88, 0.95)))
     };
     let card = button(stack![back, container(inside).padding([14, 22]).height(PERSON_HIGH).center_y(PERSON_HIGH)])
         .padding(0)

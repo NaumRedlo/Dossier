@@ -551,6 +551,9 @@ fn backdrop_picture(handle: &iced::widget::image::Handle, wide: f32, round: f32)
         let filled = image::DynamicImage::ImageRgba8(source).resize_to_fill(width, height, image::imageops::FilterType::Triangle).to_rgba8();
         let soft = image::imageops::blur(&filled, BACKDROP_SOFT);
         let base = theme::SLAB_SOLID;
+        let count = (soft.width() * soft.height()).max(1) as f32;
+        let bright = soft.pixels().map(|p| 0.2126 * f32::from(p.0[0]) + 0.7152 * f32::from(p.0[1]) + 0.0722 * f32::from(p.0[2])).sum::<f32>() / count;
+        let middle = (1.0 - BACKDROP_BRIGHT / bright.max(1.0)).clamp(BACKDROP_SHADE_LEAST, BACKDROP_SHADE_MOST);
         let mut pixels = image::RgbaImage::new(width, height);
         for (x, y, pixel) in pixels.enumerate_pixels_mut() {
             let t = (y as f32 + 0.5) / height as f32;
@@ -565,7 +568,7 @@ fn backdrop_picture(handle: &iced::widget::image::Handle, wide: f32, round: f32)
             let art = soft.get_pixel(x, y).0;
             let (cx, cy) = ((x as f32 + 0.5) / width as f32 * 2.0 - 1.0, t * 2.0 - 1.0);
             let far = (((cx * cx + cy * cy).sqrt() / std::f32::consts::SQRT_2 - 0.4) / 0.6).clamp(0.0, 1.0);
-            let shade = BACKDROP_SHADE + (1.0 - BACKDROP_SHADE) * BACKDROP_EDGE * far * far * (3.0 - 2.0 * far);
+            let shade = middle + (1.0 - middle) * BACKDROP_EDGE * far * far * (3.0 - 2.0 * far);
             *pixel = image::Rgba([
                 (art[0] as f32 * (1.0 - shade) + base.r * 255.0 * shade) as u8,
                 (art[1] as f32 * (1.0 - shade) + base.g * 255.0 * shade) as u8,
@@ -580,9 +583,15 @@ fn backdrop_picture(handle: &iced::widget::image::Handle, wide: f32, round: f32)
     })
 }
 
+const CARD_ROUND: f32 = 14.0;
+const CARD_SHADE_TOP: f32 = 0.5;
+const CARD_SHADE_MID: f32 = 0.9;
+const CARD_SHADE_FOOT: f32 = 0.98;
 const BACKDROP_SOFT: f32 = 6.0;
-const BACKDROP_SHADE: f32 = 0.76;
-const BACKDROP_EDGE: f32 = 0.8;
+const BACKDROP_BRIGHT: f32 = 40.0;
+const BACKDROP_SHADE_LEAST: f32 = 0.35;
+const BACKDROP_SHADE_MOST: f32 = 0.88;
+const BACKDROP_EDGE: f32 = 0.7;
 const BACKDROP_SIDES: f32 = 0.06;
 const BACKDROP_TOP: f32 = 0.05;
 const BACKDROP_SHAPE: f32 = 0.56;
@@ -598,8 +607,7 @@ pub fn backdropped<'a>(cover: Option<&iced::widget::image::Handle>, wide: f32, r
     let Some(picture) = cover.and_then(|cover| backdrop_picture(cover, wide, round)) else {
         return page;
     };
-    let back = iced::widget::image(picture).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).border_radius(round).opacity(ui::fade());
-    stack![container(back).width(Length::Fill).height(Length::Fill), page].into()
+    stack![ui::inset_picture(picture, round), page].into()
 }
 
 fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> {
@@ -687,7 +695,11 @@ fn identity<'a>(ground: &Ground<'a>, whose: &Whose<'a>) -> Element<'a, Message> 
         None => buttons,
     };
     let details = container(column![heading, rows, buttons].spacing(12)).padding(Padding { top: 0.0, right: 18.0, bottom: 18.0, left: 18.0 });
-    slab(column![banner, details].spacing(6), 0).id("profile-identity").into()
+    let inside: Element<'a, Message> = slab(column![banner, details].spacing(6), 0).id("profile-identity").into();
+    match cover_of(ground, you, card) {
+        Some(cover) => ui::behind(inside, ui::veiled(cover.clone(), CARD_ROUND, theme::SLAB_SOLID, CARD_SHADE_TOP, CARD_SHADE_MID, CARD_SHADE_FOOT)),
+        None => inside,
+    }
 }
 
 fn standing<'a>(share: f32, colour: Color) -> Element<'a, Message> {
@@ -1406,6 +1418,31 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
 #[cfg(test)]
 mod chart_tests {
     use super::*;
+
+    #[test]
+    fn a_bright_picture_never_shows_as_a_thin_light_edge_around_its_shade() {
+        let white = iced::widget::image::Handle::from_rgba(32, 32, [255, 255, 255, 255].repeat(32 * 32));
+        let round = 14.0;
+        let card = container(ui::veiled::<()>(white, round, Color::from_rgb(0.05, 0.03, 0.04), 0.5, 0.9, 0.98)).width(200).height(120);
+        let page: Element<'_, ()> = container(card).padding(20).width(240).height(160).style(|_| container::Style {
+            background: Some(Background::Color(Color::BLACK)),
+            ..container::Style::default()
+        }).into();
+        let mut ui = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(240.0, 160.0), page);
+        let stem = std::env::temp_dir().join(format!("dossier-light-edge-{}", std::process::id()));
+        ui.snapshot(&theme::theme()).unwrap().matches_image(&stem).unwrap();
+        let picture = image::open(crate::gallery::written_as(&stem)).unwrap().to_rgba8();
+        let scale = picture.width() / 240;
+        let light = |x: u32, y: u32| { let p = picture.get_pixel(x * scale, y * scale).0; u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]) };
+        for (x0, x1) in [(18, 34), (206, 222)] {
+            for y in 124..=142 {
+                let inner = light(120, y.min(136));
+                for x in x0..=x1 {
+                    assert!(light(x, y) <= inner + 12, "a light edge at {x},{y}: {} over {inner}", light(x, y));
+                }
+            }
+        }
+    }
 
     #[test]
     fn the_profile_backdrop_is_the_dimmed_cover_fading_away_at_the_bottom_and_the_sides() {

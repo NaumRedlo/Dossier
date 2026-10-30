@@ -47,7 +47,6 @@ pub struct RivalsFrom {
     pub server: String,
     pub token: String,
     pub device: String,
-    pub chat: Option<i64>,
     pub from_chat: bool,
 }
 
@@ -122,7 +121,7 @@ fn rivals_for(ask: &Ask, beatmap: &dossier_beatmap::Beatmap) -> Vec<dossier_rend
     let (Some(from), Some(id)) = (&ask.rivals_from, beatmap.metadata.beatmap_id.filter(|id| *id > 0)) else {
         return Vec::new();
     };
-    crate::bot::map_rivals(&from.server, &from.token, &from.device, from.chat, id as u64, from.from_chat).map_or_else(|_| Vec::new(), |board| crate::worker::rivals_of(&board))
+    crate::bot::map_rivals(&from.server, &from.token, &from.device, id as u64, from.from_chat).map_or_else(|_| Vec::new(), |board| crate::worker::rivals_of(&board))
 }
 
 pub fn encoder_for(ffmpeg: &str, gpu: bool) -> video::Encoder {

@@ -175,7 +175,7 @@ fn get(bases: &[&str], path: &str) -> Result<Option<serde_json::Value>, String> 
 }
 
 pub fn resolve(target: &Target) -> Result<Found, Why> {
-    let bases: Vec<&str> = crate::maps::MIRRORS.iter().map(|mirror| mirror.api).collect();
+    let bases: Vec<&str> = crate::maps::MIRRORS.iter().map(|mirror| mirror.api).filter(|api| !api.is_empty()).collect();
     resolve_with(&bases, target)
 }
 

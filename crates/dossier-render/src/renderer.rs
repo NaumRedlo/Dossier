@@ -86,8 +86,7 @@ const SPINNER_DOT: f64 = 20.0;
 const SPINNER_DISC: f64 = 78.0;
 const SPINNER_DISC_BAND: f64 = 5.0;
 
-const BOARD_LEFT: f64 = 0.012;
-const BOARD_ROOM_SHARE: f32 = 0.22;
+const BOARD_LEFT: f64 = 0.008;
 const GAUGE_PP: f32 = 1.0;
 const GAUGE_LINE: f32 = 0.022;
 const GAUGE_GRAPH: f32 = 1.3;
@@ -114,7 +113,8 @@ const BOARD_DARK_KNEE: f32 = 0.86;
 
 const BOARD_FACE: f32 = 0.72;
 
-const BOARD_RANK_COLUMN: f32 = 0.62;
+const BOARD_RANK_COLUMN: f32 = 0.5;
+const BOARD_RANK_SIZE: f32 = 1.2;
 
 const BOARD_RANK_LIFT: f32 = 0.35;
 

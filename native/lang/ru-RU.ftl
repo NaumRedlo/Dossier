@@ -1405,7 +1405,6 @@ people-order-online = сначала в сети
 people-mark-chat = Из беседы
 people-mark-app = Из Dossier
 people-mark-friend = Из друзей
-people-in-world = в мире
 people-online = в сети
 
 video-open-failed = Не удалось открыть видео. Проверьте, доступен ли файл.

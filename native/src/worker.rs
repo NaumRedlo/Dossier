@@ -192,7 +192,7 @@ fn steps(
     let replay = folder.join("replay.osr");
     bot::job_file(&setup.server, &setup.token, &setup.name, &job.id, "replay", &replay).map_err(|e| format!("the replay: {e}"))?;
     gone(push, Step::Getting { title: title.to_owned(), what: Getting::Map })?;
-    let map = map_for(setup, &job.beatmap_md5)?;
+    let map = map_for(setup, &job.beatmap_md5, job.beatmapset_id)?;
     let skin = match &job.skin {
         Some(skin) => {
             gone(push, Step::Getting { title: title.to_owned(), what: Getting::Skin })?;
@@ -298,12 +298,12 @@ pub(crate) fn avatar_of(url: &str) -> Option<PathBuf> {
     Some(face)
 }
 
-fn map_for(setup: &Setup, hash: &str) -> Result<PathBuf, String> {
+fn map_for(setup: &Setup, hash: &str, set: Option<u64>) -> Result<PathBuf, String> {
     let index = crate::library::Index::load(&setup.songs);
     if let Some(map) = index.by_hash.get(&hash.to_ascii_lowercase()) {
         return Ok(map.file.clone());
     }
-    match crate::maps::bring(hash, &setup.own_songs, &AtomicBool::new(false), &mut |_| ON.load(Ordering::SeqCst)) {
+    match crate::maps::bring_from(hash, set, &setup.own_songs, &AtomicBool::new(false), &mut |_| ON.load(Ordering::SeqCst)) {
         crate::maps::Step::Done(map) => Ok(map.file),
         crate::maps::Step::Nowhere => Err("no mirror has the map".to_owned()),
         crate::maps::Step::Failed(why) => Err(format!("the map: {why}")),

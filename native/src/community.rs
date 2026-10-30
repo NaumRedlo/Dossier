@@ -922,6 +922,10 @@ impl Catalog {
     }
 
     pub fn pictures(&self) -> Vec<(String, u32)> {
+        self.pictures_with(crate::chronicle::FEED_PAGE)
+    }
+
+    pub fn pictures_with(&self, rows: usize) -> Vec<(String, u32)> {
         let mut wanted: Vec<(String, u32)> = Vec::new();
         let mut want = |url: &str, side: u32| {
             if !url.is_empty() && !wanted.iter().any(|(kept, _)| kept == url) {
@@ -944,9 +948,13 @@ impl Catalog {
         for friend in &self.friends {
             want(&friend.cover, BACKDROP);
         }
-        for map in &self.maps {
-            if let Some(card) = map.card() {
-                want(&card, 400);
+        let later: std::collections::HashSet<usize> = self.live.iter().skip(rows).map(|play| play.map).collect();
+        let sooner: std::collections::HashSet<usize> = self.live.iter().take(rows).map(|play| play.map).collect();
+        for (at, map) in self.maps.iter().enumerate() {
+            if !later.contains(&at) || sooner.contains(&at) {
+                if let Some(card) = map.card() {
+                    want(&card, 400);
+                }
             }
         }
         let tops: Vec<usize> = self.people.iter().filter(|person| person.you).flat_map(|person| person.top.iter().map(|play| play.map)).collect();

@@ -271,7 +271,7 @@ fn cover_back<'a>(ground: &Ground<'a>, scored: &Scored) -> Element<'a, Message> 
         Some(handle) => {
             let shown = scored.map.sharp_cover().map_or(1.0, |url| ground.picture_shown(&screen::wide(&url)));
             let picture = soft(handle).unwrap_or_else(|| handle.clone());
-            stack![under, image(picture).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(HEAD).border_radius(15.0).opacity(COVER_SEEN * k * shown), fade].into()
+            stack![under, container(image(picture).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(HEAD).border_radius(15.0 - ui::PICTURE_SAFE).opacity(COVER_SEEN * k * shown)).padding(Padding { top: ui::PICTURE_SAFE, right: ui::PICTURE_SAFE, bottom: 0.0, left: ui::PICTURE_SAFE }), fade].into()
         }
         None => under.into(),
     }

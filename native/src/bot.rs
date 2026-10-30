@@ -569,11 +569,13 @@ struct Rivals {
     rivals: Vec<JobRival>,
 }
 
-pub fn map_rivals(server: &str, token: &str, name: &str, chat: Option<i64>, beatmap: u64, from_chat: bool) -> Result<Vec<JobRival>, Refused> {
-    let mut request = client()?.get(format!("{server}/render/maps/{beatmap}/rivals")).header("X-Render-Worker", crate::bot::worker(name)).bearer_auth(token).query(&[("board", if from_chat { "chat" } else { "global" })]);
-    if let Some(chat) = chat {
-        request = request.query(&[("chat", chat)]);
-    }
+pub fn map_by_hash(server: &str, token: &str, name: &str, hash: &str) -> Result<serde_json::Value, Refused> {
+    let response = client()?.get(format!("{server}/render/maps/lookup/{hash}")).header("X-Render-Worker", crate::bot::worker(name)).bearer_auth(token).send().map_err(|e| Refused::Network(e.to_string()))?;
+    status(response)?.json().map_err(|e| Refused::Network(e.to_string()))
+}
+
+pub fn map_rivals(server: &str, token: &str, name: &str, beatmap: u64, from_chat: bool) -> Result<Vec<JobRival>, Refused> {
+    let request = client()?.get(format!("{server}/render/maps/{beatmap}/rivals")).header("X-Render-Worker", crate::bot::worker(name)).bearer_auth(token).query(&[("board", if from_chat { "chat" } else { "global" })]);
     let response = request.send().map_err(|e| Refused::Network(e.to_string()))?;
     let found: Rivals = status(response)?.json().map_err(|e| Refused::Network(e.to_string()))?;
     Ok(found.rivals)

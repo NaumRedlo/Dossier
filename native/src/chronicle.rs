@@ -274,7 +274,7 @@ impl Event<'_> {
 
 const POSTS_EACH: usize = 100;
 const FEED_DAYS: i64 = 3;
-const FEED_MOST: usize = 1200;
+pub const FEED_MOST: usize = 1200;
 pub const FEED_PAGE: usize = 60;
 const FEED_NEAR: f32 = 1400.0;
 
@@ -751,6 +751,20 @@ fn in_the_fade(ground: &Ground<'_>, key: u64) -> Option<(f32, f32)> {
     (at < ui::TOP_FADE && at + row.height > 0.0).then_some((at, row.height))
 }
 
+pub(crate) fn far_from_view(at: f32, high: f32, view: f32) -> bool {
+    at + high < -view || at > view * 2.0
+}
+
+fn far_row(ground: &Ground<'_>, key: u64) -> Option<f32> {
+    let (origin, row) = ui::noted_place(FEED_ORIGIN).zip(ui::noted_place(key))?;
+    let at = row.y - origin.y + FEED_TOP_PADDING - ground.feed_offset;
+    far_from_view(at, row.height, ground.feed_view).then_some(row.height)
+}
+
+fn stand_in<'a>(key: u64, high: f32) -> Element<'a, Message> {
+    ui::noted(key, Space::new().width(Length::Fill).height(high))
+}
+
 fn at_the_top<'a>(ground: &Ground<'a>, (at, full): (f32, f32), build: &dyn Fn() -> Element<'a, Message>) -> Element<'a, Message> {
     let reach = (ground.feed_offset / ui::TOP_FADE_ONSET).clamp(0.0, 1.0);
     ui::top_faded(at, full, reach, |alpha| if alpha < 1.0 { ui::fading(alpha, build) } else { build() })
@@ -768,26 +782,38 @@ fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], rows: usize, t: f32, from
         let spaced = |made: Element<'a, Message>| -> Element<'a, Message> { container(made).padding(Padding::ZERO.bottom(ROW_GAP)).into() };
         if last != Some(day) {
             let index = from + out.len();
-            let counts = day_counts(list, day, &day_of);
             let key = key_of(("day", day));
             let settled = settled_days.contains(&day);
-            let divider = || spaced(ui::appearing(ui::appear(t, index), || day_divider(ground, event.at, counts)));
-            out.push(ui::noted(key, match in_the_fade(ground, key).filter(|_| settled) {
-                Some(place) => at_the_top(ground, place, &divider),
-                None if settled => divider(),
-                None => opening(divider(), open),
-            }));
             last = Some(day);
+            match far_row(ground, key).filter(|_| settled && ui::appear(t, index) >= 0.999) {
+                Some(high) => out.push(stand_in(key, high)),
+                None => {
+                    let counts = day_counts(list, day, &day_of);
+                    let divider = || spaced(ui::appearing(ui::appear(t, index), || day_divider(ground, event.at, counts)));
+                    out.push(ui::noted(key, match in_the_fade(ground, key).filter(|_| settled) {
+                        Some(place) => at_the_top(ground, place, &divider),
+                        None if settled => divider(),
+                        None => opening(divider(), open),
+                    }));
+                }
+            }
         }
         let k = open.min(ui::appear(t, from + out.len()));
         let key = key_of(event.key(ground.catalog));
-        let place = in_the_fade(ground, key).filter(|_| k >= 0.999 && open >= 0.999);
+        let rested = k >= 0.999 && open >= 0.999;
+        if let Some(high) = far_row(ground, key).filter(|_| rested && !event.ghost) {
+            out.push(stand_in(key, high));
+            continue;
+        }
+        if let Some(place) = in_the_fade(ground, key).filter(|_| rested) {
+            if draw(event).is_some() {
+                out.push(ui::noted(key, at_the_top(ground, place, &|| spaced(draw(event).unwrap_or_else(|| Space::new().into())))));
+            }
+            continue;
+        }
         let made = if k >= 0.999 { draw(event) } else { ui::fading(k, || draw(event)) };
         if let Some(made) = made {
-            out.push(ui::noted(key, match place {
-                Some(place) => at_the_top(ground, place, &|| spaced(draw(event).unwrap_or_else(|| Space::new().into()))),
-                None => opening(spaced(made), open),
-            }));
+            out.push(ui::noted(key, opening(spaced(made), open)));
         }
     }
     out

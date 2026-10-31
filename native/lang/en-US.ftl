@@ -1160,7 +1160,7 @@ overlay-show-notices = Notices in the menu
 overlay-show-card = Chat top in song select
 overlay-show-pp = PP while playing
 overlay-show-rate = UR over the hit error meter
-overlay-keys = In game: Ctrl+Shift+O opens the settings, Ctrl+Shift+= and Ctrl+Shift+− change the size, Ctrl+Shift+H hides the overlay.
+overlay-keys = In game: Ctrl+Shift+= and Ctrl+Shift+− change the size, Ctrl+Shift+H hides the overlay.
 overlay-off-note = The overlay runs with Witness. Turn Witness on first.
 witness-experimental = experimental
 overlay-running = The overlay is in the game now
@@ -1592,6 +1592,8 @@ desk-feature-speed-px-ms-p99 = Fastest movement
 desk-feature-rhythm-change-median = Rhythm changes
 desk-feature-rhythm-change-p90 = Sharp rhythm changes
 desk-feature-streams-share = Share of streams
+desk-feature-snaps-triplet = Share of triplets
+desk-feature-snaps-change = Beat division changes
 desk-feature-streams-chains = Number of streams
 desk-feature-streams-lengths-3-5 = Short bursts of 3–5 notes
 desk-feature-streams-lengths-6-15 = Streams of 6–15 notes
@@ -1984,8 +1986,8 @@ duels-room-unresponsive = The osu! room did not confirm setup or the start of th
 duels-room-lost = The osu! room stopped answering and the map could not be stopped. The duel was cancelled without a rating change.
 duels-evidence-missing = The map's result never reached the osu! API. The duel was cancelled without a rating change.
 
-desk-skill-hd4 = Hidden
-desk-skill-hr4 = HardRock
+desk-skill-hd4 = HD Flex
+desk-skill-hr4 = HR Flex
 
 desk-reviewed-by = Reviewed by { $name }
 desk-discovery-no-model = Searching requires a published Kamerton model compatible with the current analyser.

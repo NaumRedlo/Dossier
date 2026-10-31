@@ -336,6 +336,7 @@ pub struct Ground<'a> {
     pub people_move_t: f32,
     pub feed_rows: usize,
     pub feed_offset: f32,
+    pub feed_view: f32,
     pub shift_t: f32,
     pub stream_t: f32,
     pub person_t: f32,

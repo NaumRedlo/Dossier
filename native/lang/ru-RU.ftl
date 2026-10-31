@@ -1197,7 +1197,7 @@ overlay-show-notices = Уведомления в меню
 overlay-show-card = Топ беседы при выборе карты
 overlay-show-pp = PP во время игры
 overlay-show-rate = UR над шкалой попаданий
-overlay-keys = В игре: Ctrl+Shift+O открывает настройки, Ctrl+Shift+= и Ctrl+Shift+− меняют размер, Ctrl+Shift+H прячет оверлей.
+overlay-keys = В игре: Ctrl+Shift+= и Ctrl+Shift+− меняют размер, Ctrl+Shift+H прячет оверлей.
 overlay-off-note = Оверлей работает вместе с Witness. Сначала включите его.
 witness-experimental = эксперимент
 overlay-running = Оверлей сейчас в игре
@@ -1634,6 +1634,8 @@ desk-feature-speed-px-ms-p99 = Самые быстрые перемещения
 desk-feature-rhythm-change-median = Смена ритма
 desk-feature-rhythm-change-p90 = Резкая смена ритма
 desk-feature-streams-share = Доля стримов
+desk-feature-snaps-triplet = Доля триолей
+desk-feature-snaps-change = Смены деления ритма
 desk-feature-streams-chains = Число стримов
 desk-feature-streams-lengths-3-5 = Короткие группы по 3–5 нот
 desk-feature-streams-lengths-6-15 = Стримы по 6–15 нот
@@ -2028,8 +2030,8 @@ duels-room-unresponsive = Комната osu! не подтвердила нас
 duels-room-lost = Комната osu! перестала отвечать, и карту не удалось остановить. Дуэль отменена без изменения рейтинга.
 duels-evidence-missing = Результат карты так и не появился в API osu!. Дуэль отменена без изменения рейтинга.
 
-desk-skill-hd4 = Hidden
-desk-skill-hr4 = HardRock
+desk-skill-hd4 = Флекс на HD
+desk-skill-hr4 = Флекс на HR
 
 desk-reviewed-by = Проверил { $name }
 desk-discovery-no-model = Для поиска нужна опубликованная модель Kamerton, совместимая с текущим анализатором.

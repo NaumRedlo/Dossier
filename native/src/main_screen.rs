@@ -56,8 +56,9 @@ const NEWS_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
 const CARD_EVERY: Duration = Duration::from_secs(300);
 const COMMUNITY_SCALE: f32 = 0.84;
-const SIDE_OPEN: Duration = Duration::from_millis(340);
-const SIDE_STAYS: Duration = Duration::from_millis(170);
+const SIDE_OPEN: Duration = Duration::from_millis(200);
+const FEED_MORE_GAP: Duration = Duration::from_millis(250);
+const SIDE_STAYS: Duration = Duration::from_millis(110);
 const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
 pub const BRAND_WIDTH: f32 = 144.0;
@@ -221,7 +222,6 @@ pub enum Message {
     RevealVideo,
     FolderOpened(Result<(), String>),
     AskDelete,
-    AskDeleteOf(usize),
     KeepVideo,
     DeleteVideo,
     Choose(usize),
@@ -672,6 +672,7 @@ pub struct Main {
     pub live_shown: usize,
     feed_arrivals: crate::chronicle::Arrivals,
     feed_offset: f32,
+    feed_more_at: Option<Instant>,
     pools_marks: crate::pools_screen::Marks,
     feed_leaving: crate::chronicle::Leaving,
     pub link_shown: Option<crate::bot::Link>,
@@ -973,6 +974,7 @@ impl Main {
             live_shown: LIVE_FIRST,
             feed_arrivals: crate::chronicle::Arrivals::default(),
             feed_offset: 0.0,
+            feed_more_at: None,
             pools_marks: crate::pools_screen::Marks::default(),
             feed_leaving: crate::chronicle::Leaving::default(),
             link_shown: None,
@@ -3187,7 +3189,6 @@ impl Main {
             | Message::PlayerWiden
             | Message::PlayerNeighbour(..)
             | Message::RevealVideo
-            | Message::AskDeleteOf(..)
             | Message::AskDelete
             | Message::KeepVideo
             | Message::DeleteVideo
@@ -3739,19 +3740,26 @@ impl Main {
                         self.feed_rows = crate::chronicle::FEED_PAGE;
                         if filter != self.feed_filter {
                             self.stream_at = now;
+                            ui::forget_noted();
                         }
                         self.feed_filter = filter;
                     }
                     C::Search(query) => {
                         self.feed_query = query;
                         self.feed_rows = crate::chronicle::FEED_PAGE;
+                        ui::forget_noted();
                     }
                     C::FeedMore(offset) => {
                         self.feed_offset = offset;
-                        self.feed_rows += crate::chronicle::FEED_PAGE;
                         if offset <= crate::chronicle::READING_BELOW {
                             self.release_held();
                         }
+                        let rested = self.feed_more_at.is_none_or(|at| now.saturating_duration_since(at) >= FEED_MORE_GAP);
+                        if !rested || self.feed_rows >= crate::chronicle::FEED_MOST {
+                            return Task::none();
+                        }
+                        self.feed_more_at = Some(now);
+                        self.feed_rows += crate::chronicle::FEED_PAGE;
                         return self.community_pictures_task();
                     }
                     C::FeedScrolled(offset) => {
@@ -5258,10 +5266,7 @@ impl Main {
         match (rendering_this, fetching_this, rendered) {
             (Some(rendering), _, _) if !rendering.is_over() => self.render_button(rendering),
             (Some(rendering), _, None) => self.render_button(rendering),
-            (_, _, Some(at)) => row![ui::primary(w.t("open"), Some(Message::OpenVideo(at))), ui::quiet(w.t("delete"), Some(Message::AskDeleteOf(at)))]
-                .spacing(4)
-                .align_y(iced::Center)
-                .into(),
+            (_, _, Some(at)) => ui::primary(w.t("open"), Some(Message::OpenVideo(at))),
             (None, Some(fetching), _) => self.fetch_button(fetching),
             (None, None, None) if entry.map.is_some() => ui::primary(w.t(if busy { "render-later" } else { "render" }), self.ffmpeg.is_some().then_some(Message::Render)),
             (None, None, None) => ui::primary(w.t("get-the-map"), self.fetch_room().then_some(Message::GetMap)),
@@ -6455,6 +6460,7 @@ impl Main {
             people_filter: self.people_filter,
             feed_rows: self.feed_rows,
             feed_offset: self.feed_offset,
+            feed_view: self.height / COMMUNITY_SCALE,
             people_was: &self.people_was,
             people_move_t: self.now.saturating_duration_since(self.people_moved_at).as_secs_f32().min(60.0),
             title_scope: self.title_scope,

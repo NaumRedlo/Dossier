@@ -59,10 +59,8 @@ keep their corners.
 The overlay listens for chords with Ctrl and Shift held and no Alt or Win, only
 while the game is in front (`dossier_hud::hold::Chords`, one action per press):
 
-- **Ctrl+Shift+O** opens or closes the tuning panel at the top centre: the size
-  and the chords. It closes by itself after eight seconds.
 - **Ctrl+Shift+=** and **Ctrl+Shift+−** (or the keypad's + and −) step the size
-  up or down and show the panel. The overlay uses the new size at once and
+  up or down and show the tuning panel at the top centre for eight seconds. The overlay uses the new size at once and
   writes `{"event":"look","scale":N}` on its output; Dossier keeps it in the
   settings and sends it back with the packet. Until that packet arrives, at most
   three seconds, the overlay keeps its own value.

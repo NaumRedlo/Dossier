@@ -9,7 +9,6 @@ const GOOD: Rgba = rgb(0xa2b485, 1.0);
 const QUIET: Rgba = rgb(0xb9aeb0, 1.0);
 const PANEL: Rgba = rgb(0x100a0c, 0.88);
 const RADIUS: f32 = 8.0;
-pub const OPEN: &str = "Ctrl+Shift+O";
 pub const HIDE: &str = "Ctrl+Shift+H";
 pub const BIGGER: &str = "Ctrl+Shift+=";
 pub const SMALLER: &str = "Ctrl+Shift+−";
@@ -38,8 +37,6 @@ fn said(lang: Lang, key: &str) -> &'static str {
         (Lang::En, "smaller") => "smaller",
         (Lang::Ru, "hide") => "спрятать оверлей",
         (Lang::En, "hide") => "hide the overlay",
-        (Lang::Ru, "close") => "закрыть",
-        (Lang::En, "close") => "close",
         (Lang::Ru, "hidden") => "Оверлей спрятан",
         (Lang::En, "hidden") => "Overlay hidden",
         (Lang::Ru, "hidden-about") => "Ctrl+Shift+H, чтобы вернуть",
@@ -331,7 +328,6 @@ pub fn tuning(scale: u16, lang: Lang) -> Node {
                 hint(BIGGER, said(lang, "bigger")),
                 hint(SMALLER, said(lang, "smaller")),
                 hint(HIDE, said(lang, "hide")),
-                hint(OPEN, said(lang, "close")),
             ],
         )
         .wide(250.0),

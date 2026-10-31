@@ -317,13 +317,6 @@ impl Main {
                 }
                 Task::none()
             }
-            Message::AskDeleteOf(at) => {
-                if self.store.videos.get(at).is_some() {
-                    self.open_video = Some(at);
-                    self.asking_delete = true;
-                }
-                Task::none()
-            }
             Message::AskDelete => {
                 self.asking_delete = true;
                 if let Some(player) = &self.player {

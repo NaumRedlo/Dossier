@@ -111,12 +111,6 @@ impl Hud {
                 self.panel = self.hidden.then_some((Panel::Hidden, now));
             }
             _ if playing || self.hidden => return,
-            Asked::Open => {
-                self.panel = match self.panel {
-                    Some((Panel::Tuning, _)) => None,
-                    _ => Some((Panel::Tuning, now)),
-                };
-            }
             Asked::Bigger | Asked::Smaller => {
                 let scale = dossier_hud::scale_step(self.look().scale, if asked == Asked::Bigger { 1 } else { -1 });
                 self.own_scale = Some((scale, now));
@@ -403,7 +397,7 @@ mod tests {
         assert_eq!(keys(&hud), ["tile"], "an older score opened from song select is not this play");
     }
 
-    const CHORD: Chord = Chord { ctrl_shift: true, open: false, hide: false, bigger: false, smaller: false };
+    const CHORD: Chord = Chord { ctrl_shift: true, hide: false, bigger: false, smaller: false };
 
     fn press(hud: &mut Hud, chord: Chord, now: Instant) {
         hud.chord(CHORD, true, now);
@@ -412,13 +406,12 @@ mod tests {
     }
 
     #[test]
-    fn the_keys_open_the_tuning_panel_change_the_scale_and_tell_dossier_once() {
+    fn the_size_keys_change_the_scale_show_the_panel_and_tell_dossier_once() {
         let mut hud = connected(Lang::Ru, false);
         let now = Instant::now();
         hud.told_at(&frame(1, Screen::Menu, false), now);
-        press(&mut hud, Chord { open: true, ..CHORD }, now);
-        assert_eq!(keys(&hud), ["tuning", "tile"]);
         press(&mut hud, Chord { bigger: true, ..CHORD }, now);
+        assert_eq!(keys(&hud), ["tuning", "tile"]);
         assert_eq!(hud.take_scale(), Some(115));
         assert_eq!(hud.take_scale(), None);
         assert_eq!(hud.shown().look.scale, 115, "the overlay follows its own word until Dossier answers");
@@ -445,7 +438,7 @@ mod tests {
         hud.told_at(&frame(1, Screen::Playing, false), now);
         let (_, now) = run(&mut hud, UP, now, 0.5);
         press(&mut hud, Chord { bigger: true, ..CHORD }, now);
-        press(&mut hud, Chord { open: true, ..CHORD }, now);
+        press(&mut hud, Chord { bigger: true, ..CHORD }, now);
         assert_eq!(hud.take_scale(), None);
         assert_eq!(keys(&hud), ["rate", "tile", "pp"]);
         press(&mut hud, Chord { hide: true, ..CHORD }, now);

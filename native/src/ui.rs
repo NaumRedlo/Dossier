@@ -3966,6 +3966,10 @@ pub fn top_faded<'a, Message: 'a>(at: f32, full: f32, reach: f32, place: impl Fn
 
 thread_local! { static NOTED: std::cell::RefCell<std::collections::HashMap<u64, Rectangle>> = std::cell::RefCell::new(std::collections::HashMap::new()); }
 
+pub fn forget_noted() {
+    NOTED.with(|noted| noted.borrow_mut().clear());
+}
+
 pub fn noted_place(key: u64) -> Option<Rectangle> {
     NOTED.with(|noted| noted.borrow().get(&key).copied())
 }

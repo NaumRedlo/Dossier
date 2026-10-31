@@ -50,7 +50,6 @@ impl Hold {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Chord {
     pub ctrl_shift: bool,
-    pub open: bool,
     pub hide: bool,
     pub bigger: bool,
     pub smaller: bool,
@@ -58,7 +57,6 @@ pub struct Chord {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Asked {
-    Open,
     Hide,
     Bigger,
     Smaller,
@@ -76,7 +74,6 @@ impl Chords {
             return None;
         }
         [
-            (now.open, was.open, Asked::Open),
             (now.hide, was.hide, Asked::Hide),
             (now.bigger, was.bigger, Asked::Bigger),
             (now.smaller, was.smaller, Asked::Smaller),
@@ -99,11 +96,10 @@ mod tests {
             ..Chord::default()
         };
         assert_eq!(chords.advance(held, true), None);
-        let open = Chord { open: true, ..held };
-        assert_eq!(chords.advance(open, true), Some(Asked::Open));
-        assert_eq!(chords.advance(open, true), None, "holding the key does not repeat");
+        let bigger = Chord { bigger: true, ..held };
+        assert_eq!(chords.advance(bigger, true), Some(Asked::Bigger));
+        assert_eq!(chords.advance(bigger, true), None, "holding the key does not repeat");
         assert_eq!(chords.advance(held, true), None);
-        assert_eq!(chords.advance(Chord { bigger: true, ..held }, true), Some(Asked::Bigger));
         let bare = Chord {
             hide: true,
             ..Chord::default()

@@ -1864,6 +1864,23 @@ fn the_fan_stays_a_moment_after_the_cursor_leaves_and_a_return_keeps_it_open() {
 }
 
 #[test]
+fn rows_far_from_the_view_are_left_out_and_one_scroll_burst_adds_one_page() {
+    assert!(!crate::chronicle::far_from_view(0.0, 80.0, 800.0));
+    assert!(!crate::chronicle::far_from_view(-800.0, 80.0, 800.0), "a screen above stays built");
+    assert!(crate::chronicle::far_from_view(-1000.0, 80.0, 800.0));
+    assert!(!crate::chronicle::far_from_view(1500.0, 80.0, 800.0), "a screen below stays built");
+    assert!(crate::chronicle::far_from_view(1700.0, 80.0, 800.0));
+    use crate::community_screen::Message as C;
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").expect("a page");
+    let first = main.feed_rows;
+    for _ in 0..5 {
+        let _ = main.update(super::Message::Community(C::FeedMore(4000.0)));
+    }
+    assert_eq!(main.feed_rows, first + crate::chronicle::FEED_PAGE);
+    assert_eq!(main.feed_offset, 4000.0);
+}
+
+#[test]
 fn a_page_leaves_nothing_behind_once_it_has_faded_out() {
     let dir = std::env::temp_dir().join(format!("dossier-leaving-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a folder");

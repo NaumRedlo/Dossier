@@ -24,7 +24,6 @@ const SHIFT: i32 = 0x10;
 const CTRL: i32 = 0x11;
 const ALT: i32 = 0x12;
 const WINDOWS: [i32; 2] = [0x5B, 0x5C];
-const OPEN: i32 = 0x4F;
 const HIDE_KEY: i32 = 0x48;
 const BIGGER: [i32; 2] = [0xBB, 0x6B];
 const SMALLER: [i32; 2] = [0xBD, 0x6D];
@@ -173,7 +172,6 @@ pub fn chord() -> Chord {
     let down = |key: i32| unsafe { GetAsyncKeyState(key) } < 0;
     Chord {
         ctrl_shift: down(CTRL) && down(SHIFT) && !down(ALT) && !WINDOWS.into_iter().any(down),
-        open: down(OPEN),
         hide: down(HIDE_KEY),
         bigger: BIGGER.into_iter().any(down),
         smaller: SMALLER.into_iter().any(down),

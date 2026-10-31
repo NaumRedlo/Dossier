@@ -3482,6 +3482,10 @@ mod tests {
     fn a_slot_without_a_name_shows_only_its_tag() {
         let w = Words::new(crate::lang::Lang::Ru);
         assert_eq!(skill(&w, "NM5"), "Скорость");
+        assert_eq!(skill(&w, "HD4"), "Флекс на HD");
+        assert_eq!(skill(&w, "HR4"), "Флекс на HR");
+        assert_eq!(feature(&w, "snaps.triplet"), "Доля триолей");
+        assert_eq!(feature(&w, "snaps.change"), "Смены деления ритма");
         assert_eq!(skill(&w, "FM2"), "Пресижн и чтение во фримоде");
         assert_eq!(skill(&w, "FM4"), "");
         assert_eq!(skill(&w, "EZ1"), "");

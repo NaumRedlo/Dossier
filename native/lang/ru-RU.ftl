@@ -480,6 +480,7 @@ sound = Звук
 music = Музыка
 hitsounds = Хитсаунды
 player-sound = Плеер
+preview-sound = Прослушивание карт
 rescan = Обновить
 skins-found = { $n ->
     [one] найден { $n } скин

@@ -468,6 +468,7 @@ sound = Sound
 music = Music
 hitsounds = Hitsounds
 player-sound = Player
+preview-sound = Map previews
 rescan = Rescan
 skins-found = { $n ->
     [one] { $n } skin found

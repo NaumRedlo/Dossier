@@ -178,7 +178,7 @@ fn words_of(tile: Tile) -> &'static [&'static str] {
         Tile::Scene => &["scene-tile", "map-backdrop", "live-replay", "pause-unfocused", "auto-flip"],
         Tile::Sources => &["sources", "add-folder", "exported-only"],
         Tile::Skins => &["skins", "more-skins", "add-skin", "skins-folder"],
-        Tile::Sound => &["sound", "music", "hitsounds", "player-sound"],
+        Tile::Sound => &["sound", "music", "hitsounds", "player-sound", "preview-sound"],
         Tile::Play => &["play-tile", "background-dim", "background-blur", "hud", "cursor-grows", "map-sounds", "skin-sounds"],
         Tile::Elements => &["elements-tile", "cursor-size", "meter-size", "video-board", "video-board-global", "video-board-chat"],
         Tile::Videos => &["videos", "in-folder"],
@@ -346,6 +346,7 @@ pub enum Message {
     SkinSounds(bool),
     Hitsounds(f32),
     PlayerLevel(f32),
+    PreviewLevel(f32),
     Unlink,
     SignOut,
     Accept(crate::inbox::Accept),
@@ -971,6 +972,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     slide(ground, "music", w.t("music"), percent(s.music_level), s.music_level, Vec::new(), Message::Music),
                     slide(ground, "hits", w.t("hitsounds"), percent(s.hitsound_level), s.hitsound_level, Vec::new(), Message::Hitsounds),
                     slide(ground, "player", w.t("player-sound"), percent(s.player_level), s.player_level, Vec::new(), Message::PlayerLevel),
+                    slide(ground, "preview", w.t("preview-sound"), percent(s.preview_level), s.preview_level, Vec::new(), Message::PreviewLevel),
                 ]
                 .spacing(6)
                 .width(Length::Fill)

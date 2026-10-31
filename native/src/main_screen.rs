@@ -1069,6 +1069,7 @@ impl Main {
         }
         let pin = self.pin_task();
         let witness = Task::batch([self.witness_task(), self.delivery_task()]);
+        crate::preview::set_level(self.settings.preview_level);
         let pictures = Task::batch([self.preload_pictures(), self.billing_asks(false)]);
         if matches!(crate::updates::place(), crate::updates::Place::Source) {
             self.update = UpdateState::Source;
@@ -5698,6 +5699,7 @@ impl Main {
             ("music".to_owned(), self.settings.music_level),
             ("hits".to_owned(), self.settings.hitsound_level),
             ("player".to_owned(), self.settings.player_level),
+            ("preview".to_owned(), self.settings.preview_level),
             ("dim".to_owned(), self.settings.background_dim),
             ("blur".to_owned(), self.settings.background_blur),
             ("cursor-size".to_owned(), at(self.settings.cursor_size, &CURSOR_SIZES)),
@@ -7144,6 +7146,13 @@ impl Main {
                 if let Some(player) = &self.player {
                     player.borrow_mut().set_level(self.settings.player_level);
                 }
+                Task::none()
+            }
+            P::PreviewLevel(level) => {
+                self.slid_at.insert("preview".to_owned(), Instant::now());
+                self.settings.preview_level = level.clamp(0.0, 1.0);
+                keep(&self.settings);
+                crate::preview::set_level(self.settings.preview_level);
                 Task::none()
             }
             P::Unlink | P::SignOut => self.update(Message::SignOut),

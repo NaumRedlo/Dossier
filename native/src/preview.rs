@@ -1,18 +1,36 @@
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
-const LEVEL: f32 = 0.45;
+const STEADY_LOUDNESS: f32 = 0.11;
+static LEVEL: AtomicU32 = AtomicU32::new(0);
 const FADE_SECONDS: f32 = 0.25;
 const TAIL_SECONDS: f32 = 2.5;
 const STOP_SECONDS: f32 = 0.3;
 const PREVIEW_MOST: usize = 4 * 1024 * 1024;
+
+pub fn set_level(level: f32) {
+    LEVEL.store(level.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+}
+
+fn level() -> f32 {
+    f32::from_bits(LEVEL.load(Ordering::Relaxed))
+}
+
+fn steadied(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 1.0;
+    }
+    let power = samples.iter().map(|sample| f64::from(*sample) * f64::from(*sample)).sum::<f64>() / samples.len() as f64;
+    let loudness = power.sqrt() as f32;
+    if loudness <= STEADY_LOUDNESS { 1.0 } else { STEADY_LOUDNESS / loudness }
+}
 
 pub fn address(beatmap_id: i64) -> String {
     format!("https://osu.direct/api/media/preview/{beatmap_id}")
@@ -155,6 +173,7 @@ impl Preview {
                 return None;
             }
             let total = samples.len();
+            let steady = steadied(&samples);
             let per_second = rate as usize * channels.max(1);
             let fade = (FADE_SECONDS * per_second as f32) as usize;
             let tail = (TAIL_SECONDS * per_second as f32) as usize;
@@ -171,6 +190,7 @@ impl Preview {
                         if ear.load(Ordering::Relaxed) && stopped_at.is_none() {
                             stopped_at = Some(*at);
                         }
+                        let level = level() * steady;
                         for sample in data.iter_mut() {
                             let leaving = stopped_at.map_or(1.0, |from| 1.0 - (*at - from) as f32 / stopping.max(1) as f32);
                             if *at >= total || leaving <= 0.0 {
@@ -180,7 +200,7 @@ impl Preview {
                             }
                             let rise = (*at as f32 / fade.max(1) as f32).min(1.0);
                             let fall = ((total - *at) as f32 / tail.max(1) as f32).min(1.0);
-                            *sample = samples[*at] * LEVEL * rise.min(fall * fall).min(leaving);
+                            *sample = samples[*at] * level * rise.min(fall * fall).min(leaving);
                             *at += 1;
                         }
                     },
@@ -213,6 +233,14 @@ impl std::fmt::Debug for Preview {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_loud_preview_is_brought_down_and_a_quiet_one_is_left_alone() {
+        let loud = vec![0.9_f32; 1000];
+        assert!((super::steadied(&loud) * 0.9 - super::STEADY_LOUDNESS).abs() < 0.001);
+        assert_eq!(super::steadied(&[0.02_f32; 1000]), 1.0);
+        assert_eq!(super::steadied(&[]), 1.0);
+    }
+
     #[test]
     fn previews_come_from_the_mirror_and_never_from_osu() {
         let at = super::address(5379506);

@@ -145,6 +145,7 @@ pub struct Settings {
     pub hitsound_level: f32,
     #[serde(default = "full")]
     pub player_level: f32,
+    pub preview_level: f32,
     #[serde(default)]
     pub player_muted: bool,
     #[serde(default = "full")]
@@ -1069,6 +1070,7 @@ impl Default for Settings {
             music_level: 1.0,
             hitsound_level: 1.0,
             player_level: 1.0,
+            preview_level: 0.6,
             player_muted: false,
             player_rate: 1.0,
             player_loop: false,

@@ -29,15 +29,13 @@ pub const BACKING_FOOT: f32 = 10.0;
 const BACKING_BOTTOM: f32 = 0.0;
 pub const SPRING_STEP: f32 = 1.0 / 240.0;
 pub const SQUEEZED: f32 = 0.72;
-pub const TOP_FADE: f32 = 64.0;
-pub const TOP_FADE_ONSET: f32 = 12.0;
+pub use crate::ui::{top_faded, TOP_FADE, TOP_FADE_ONSET};
 pub const STATS_GAP: f32 = 10.0;
 pub const HIT_SIZE: f32 = 17.0;
 pub const PANEL_WIDE: f32 = 380.0;
 const PP_FC: Color = Color::from_rgb(0.235, 0.549, 0.235);
 const PP_SS: Color = Color::from_rgb(0.627, 0.529, 0.039);
 pub const ACTIONS_SCALE: f32 = 1.25;
-pub const TOP_SLICES: usize = 64;
 pub const SPRING_LAG: f32 = 0.1;
 pub const HEAD_FLOOR: f32 = 0.3;
 use crate::carousel::{HEAD_CLOSED, HEAD_OPEN};
@@ -157,31 +155,6 @@ pub struct Hold {
     pub scroll: f32,
     pub head: Option<(String, usize)>,
     pub nested: Vec<Row>,
-}
-
-pub fn top_faded<'a>(at: f32, full: f32, reach: f32, place: impl Fn(f32) -> Element<'a, Message>) -> Element<'a, Message> {
-    let mut cuts = vec![0.0, full];
-    for slice in 0..=TOP_SLICES {
-        let local = (slice as f32 * TOP_FADE / TOP_SLICES as f32).round() - at;
-        if local > 0.0 && local < full {
-            cuts.push(local);
-        }
-    }
-    cuts.sort_by(f32::total_cmp);
-    cuts.dedup_by(|a, b| (*a - *b).abs() < 0.5);
-    let mut strips = column![].width(Length::Fill);
-    for pair in cuts.windows(2) {
-        let (from, to) = (pair[0], pair[1]);
-        let middle = at + (from + to) / 2.0;
-        let alpha = 1.0 - reach * (1.0 - eased((middle / TOP_FADE).clamp(0.0, 1.0)));
-        let strip: Element<'a, Message> = if alpha < 0.01 {
-            Space::new().width(Length::Fill).height(to - from).into()
-        } else {
-            ui::band(container(place(alpha)).width(Length::Fill).height(full), from, to)
-        };
-        strips = strips.push(strip);
-    }
-    strips.into()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

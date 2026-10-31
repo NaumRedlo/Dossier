@@ -421,7 +421,7 @@ struct BrimState {
 }
 
 pub fn brim<'a, Message: 'a>(content: impl Into<Element<'a, Message>>) -> Brim<'a, Message> {
-    Brim { content: content.into(), colour: crate::theme::GROUND, fade: crate::ui::fade(), foot: false, high: BRIM, header: false }
+    Brim { content: content.into(), colour: crate::ui::page_ground(), fade: crate::ui::fade(), foot: false, high: BRIM, header: false }
 }
 
 impl<Message> Brim<'_, Message> {

@@ -236,7 +236,7 @@ impl Main {
                 self.settings.linked_as = who;
                 let _ = self.settings.save();
                 self.pairing = Pairing::Idle;
-                self.ask_who()
+                Task::batch([self.ask_who(), self.billing_asks(false)])
             }
             Message::Polled(Ok(Paired::Gone)) | Message::Polled(Err(Refused::NotThere)) => {
                 self.pairing = Pairing::Idle;

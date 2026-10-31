@@ -340,8 +340,14 @@ impl State {
                             _ => {}
                         }
 
+                        let on_grid = |value: f32| (value * scale).round() / scale;
                         add_instances(
-                            *bounds,
+                            Rectangle {
+                                x: on_grid(bounds.x),
+                                y: on_grid(bounds.y),
+                                width: on_grid(bounds.width),
+                                height: on_grid(bounds.height),
+                            },
                             *clip_bounds,
                             border::radius(0),
                             f32::from(svg.rotation),

@@ -15,6 +15,8 @@ const IDLE_ICON: f32 = 24.0;
 const OPEN_ICON: f32 = 22.0;
 const PANEL: Color = Color::from_rgb(0.055, 0.025, 0.033);
 const SHADE: Color = Color::from_rgb(0.02, 0.008, 0.012);
+const CHOSEN: Color = Color::from_rgb(0.231, 0.071, 0.086);
+const CHOSEN_EDGE: Color = Color::from_rgb(0.702, 0.227, 0.227);
 
 pub fn width_at(open: f32) -> f32 {
     NARROW + (WIDE - NARROW) * open.clamp(0.0, 1.0)
@@ -91,10 +93,15 @@ fn item<'a, Message: Clone + 'a>(key: &'static str, icon: Icon, label: String, o
     let inside = container(line).padding(Padding { top: 0.0, right: 0.0, bottom: 0.0, left: (SLOT - size) / 2.0 }).height(ITEM).width(Length::Fill).align_y(iced::Center).clip(true);
     container(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(move |theme, status| {
         if open < 0.5 { return theme::side(on)(theme, status); }
+        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
         button::Style {
-            background: matches!(status, button::Status::Hovered | button::Status::Pressed).then_some(Background::Color(Color::from_rgb(0.18, 0.18, 0.18))),
+            background: match (on, lit) {
+                (true, _) => Some(Background::Color(CHOSEN)),
+                (false, true) => Some(Background::Color(theme::workspace::HOVER)),
+                (false, false) => None,
+            },
             text_color: colour,
-            border: Border { radius: 10.0.into(), ..Border::default() },
+            border: Border { color: if on { CHOSEN_EDGE } else { Color::TRANSPARENT }, width: if on { 1.0 } else { 0.0 }, radius: 10.0.into() },
             ..button::Style::default()
         }
     })).on_press(press))

@@ -624,9 +624,9 @@ pub fn switch_row() -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
         button::Style {
-            background: Some(Background::Color(Color { a: if lit { 0.82 } else { 0.62 }, ..GLASS })),
+            background: Some(Background::Color(if lit { workspace::HOVER } else { workspace::ITEM })),
             text_color: INK,
-            border: border(if lit { GLASS_EDGE_LIT } else { GLASS_EDGE }, 12.0),
+            border: border(if lit { GLASS_EDGE_LIT } else { GLASS_EDGE }, 8.0),
             shadow: Shadow::default(),
             snap: true,
         }

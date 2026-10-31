@@ -732,6 +732,30 @@ fn day_counts(list: &[Event<'_>], day: i64, day_of: &dyn Fn(i64) -> i64) -> [usi
     counts
 }
 
+const FEED_ORIGIN: u64 = u64::MAX;
+const FEED_TOP_PADDING: f32 = 2.0;
+
+fn key_of(said: impl std::hash::Hash) -> u64 {
+    use std::hash::Hasher;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    said.hash(&mut hasher);
+    hasher.finish() >> 1
+}
+
+fn in_the_fade(ground: &Ground<'_>, key: u64) -> Option<(f32, f32)> {
+    if ground.feed_offset < 0.1 {
+        return None;
+    }
+    let (origin, row) = ui::noted_place(FEED_ORIGIN).zip(ui::noted_place(key))?;
+    let at = row.y - origin.y + FEED_TOP_PADDING - ground.feed_offset;
+    (at < ui::TOP_FADE && at + row.height > 0.0).then_some((at, row.height))
+}
+
+fn at_the_top<'a>(ground: &Ground<'a>, (at, full): (f32, f32), build: &dyn Fn() -> Element<'a, Message>) -> Element<'a, Message> {
+    let reach = (ground.feed_offset / ui::TOP_FADE_ONSET).clamp(0.0, 1.0);
+    ui::top_faded(at, full, reach, |alpha| if alpha < 1.0 { ui::fading(ui::fade() * alpha, build) } else { build() })
+}
+
 fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], rows: usize, t: f32, from: usize, draw: impl Fn(&Event<'a>) -> Option<Element<'a, Message>>) -> Vec<Element<'a, Message>> {
     let day_of = |at: i64| ground.words.days_back(at, ground.now_unix);
     let shown = &list[..list.len().min(rows)];
@@ -745,14 +769,25 @@ fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], rows: usize, t: f32, from
         if last != Some(day) {
             let index = from + out.len();
             let counts = day_counts(list, day, &day_of);
-            let divider = spaced(ui::appearing(ui::appear(t, index), || day_divider(ground, event.at, counts)));
-            out.push(if settled_days.contains(&day) { divider } else { opening(divider, open) });
+            let key = key_of(("day", day));
+            let settled = settled_days.contains(&day);
+            let divider = || spaced(ui::appearing(ui::appear(t, index), || day_divider(ground, event.at, counts)));
+            out.push(ui::noted(key, match in_the_fade(ground, key).filter(|_| settled) {
+                Some(place) => at_the_top(ground, place, &divider),
+                None if settled => divider(),
+                None => opening(divider(), open),
+            }));
             last = Some(day);
         }
         let k = open.min(ui::appear(t, from + out.len()));
+        let key = key_of(event.key(ground.catalog));
+        let place = in_the_fade(ground, key).filter(|_| k >= 0.999 && open >= 0.999);
         let made = if k >= 0.999 { draw(event) } else { ui::fading(ui::fade() * k, || draw(event)) };
         if let Some(made) = made {
-            out.push(opening(spaced(made), open));
+            out.push(ui::noted(key, match place {
+                Some(place) => at_the_top(ground, place, &|| spaced(draw(event).unwrap_or_else(|| Space::new().into()))),
+                None => opening(spaced(made), open),
+            }));
         }
     }
     out
@@ -930,6 +965,8 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         list.sort_by(|a, b| b.at.cmp(&a.at));
     }
 
+    let filters_k = 1.0 - (ground.feed_offset / ui::TOP_FADE_ONSET).clamp(0.0, 1.0) * (1.0 - ((FILTERS_HIGH - ground.feed_offset) / FILTERS_HIGH).clamp(0.0, 1.0));
+    let top: Element<'a, Message> = ui::fading(ui::fade() * filters_k, || {
     let filters = screen::segmented_compact(Filter::ALL.iter().map(|filter| (w.t(filter.key()), ground.filter == *filter, Message::Filter(*filter))).collect());
     let mut top = row![filters, ui::grow()].spacing(10).align_y(iced::Center);
     if let Some(refresh) = refresh_button(ground) {
@@ -953,9 +990,11 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
             ..container::Style::default()
         })),
     );
+    top.into()
+    });
     let lately = ground.section_t.min(ground.stream_t);
     let below = |made: Element<'a, Message>| -> Element<'a, Message> { container(made).padding(Padding::ZERO.bottom(PAGE_GAP)).into() };
-    let mut page = column![below(ui::appearing(ui::appear(ground.section_t, 0), || top.into()))];
+    let mut page = column![below(ui::appearing(ui::appear(ground.section_t, 0), || top))];
 
     let table = Table::for_width(wide - 12.0);
     let loading = all.is_empty() && matches!(ground.fetch, screen::Fetch::Loading);
@@ -982,7 +1021,7 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         }
     }
     page = page.push(rows);
-    let rolled = scrollable(container(page).padding(Padding { top: 2.0, right: 10.0, bottom: PAGE_BELOW - ROW_GAP, left: 2.0 }))
+    let rolled = scrollable(container(ui::noted(FEED_ORIGIN, page)).padding(Padding { top: FEED_TOP_PADDING, right: 10.0, bottom: PAGE_BELOW - ROW_GAP, left: 2.0 }))
         .id(iced::widget::Id::new("community-feed"))
         .on_scroll(|viewport| {
             let offset = viewport.absolute_offset().y;
@@ -996,7 +1035,7 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         .direction(ui::hidden_bar())
         .width(Length::Fill)
         .height(Length::Fill);
-    let rolled: Element<'a, Message> = crate::glide::brim(rolled).into();
+    let rolled: Element<'a, Message> = rolled.into();
     if waiting == 0 {
         return rolled;
     }
@@ -1065,6 +1104,8 @@ impl<M> iced::widget::canvas::Program<M> for Arc {
 const ME_FACE: f32 = 52.0;
 const ME_LABELLED: f32 = 300.0;
 const STRIP_ROW: f32 = 52.0;
+const FILTERS_HIGH: f32 = 44.0;
+const STRIP_RADIUS: f32 = 14.0;
 
 fn me_card<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     let w = ground.words;
@@ -1180,7 +1221,7 @@ fn strip_row<'a>(left: Element<'a, Message>, label: String, dim: bool, press: Me
             .width(Length::Fill)
             .style(ui::button_faded(ui::calm(theme::row(false))))
             .on_press(press),
-        ui::Glow::row(theme::CONTROL_RADIUS),
+        ui::Glow::row(STRIP_RADIUS),
     )
 }
 

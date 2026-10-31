@@ -79,7 +79,7 @@ impl Filter {
     fn holds(self, task: &Task) -> bool {
         match self {
             Filter::All => true,
-            Filter::Uncertain => task.reason.starts_with("uncertain"),
+            Filter::Uncertain => task.reason.starts_with("uncertain") || task.reason == "doubted",
             Filter::Feedback => task.reason.starts_with("feedback"),
             Filter::Unassigned => task.kind == "unassigned",
         }
@@ -1700,7 +1700,7 @@ fn tabs<'a>(w: &Words, state: &State, roles: &[String], k: f32) -> Element<'a, M
 
 fn reason_colour(task: &Task) -> Color {
     match task.reason.as_str() {
-        "uncertain_revealed" | "uncertain" => UNSURE,
+        "uncertain_revealed" | "uncertain" | "doubted" => UNSURE,
         "unassigned" => MUTED,
         "manual" => MUTED,
         _ => BAD,
@@ -1799,7 +1799,7 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
             (w.with("desk-not-slot", &[("slot", slot.clone())]), w.t("desk-which-then"), answers.into())
         }
         ("review", Some(slot)) => {
-            let caption = if task.reason == "manual" { w.t("desk-edit-map") } else if task.reason.starts_with("uncertain") { w.with("desk-ask-uncertain", &[("slot", slot.clone())]) } else { w.with("desk-ask-feedback", &[("slot", slot.clone())]) };
+            let caption = if task.reason == "manual" { w.t("desk-edit-map") } else if task.reason.starts_with("uncertain") || task.reason == "doubted" { w.with("desk-ask-uncertain", &[("slot", slot.clone())]) } else { w.with("desk-ask-feedback", &[("slot", slot.clone())]) };
             let buttons = row![
                 container(process_button(w, state, w.with("desk-yes", &[("slot", slot.clone())]), ask(Message::Decide("APPROVE", None)), k)).width(Length::Shrink),
                 container(line_button_k(w.with("desk-no", &[("slot", slot.clone())]), (!state.posting).then_some(Message::NotThis(true)), k)).width(Length::Shrink),

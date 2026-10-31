@@ -19,7 +19,7 @@ use iced::{window, Animation, Color, ContentFit, Element, Length, Padding, Point
 use crate::lang::{typed, Words};
 use crate::library::{self, Entry, Grade, Library};
 use crate::bot::{self, Paired, Refused};
-use crate::settings_screen::{self as prefs, Side};
+use crate::settings_screen::{self as prefs};
 use crate::{notices, player, videos};
 use crate::live;
 use crate::maps;
@@ -563,9 +563,11 @@ pub struct Main {
     pub leaving: HashMap<u64, Animation<bool>>,
     pub overlay_fade: Animation<bool>,
     pub ground_fade: Animation<bool>,
+    pub behind_fade: Animation<bool>,
+    pub settings_search: String,
     pub own_cover_fade: Animation<bool>,
     pub overlay_drawn: Overlay,
-    pub side: Side,
+    pub section: prefs::Section,
     pub renaming: Option<String>,
     pub chats: Vec<crate::bot::Chat>,
     everyone: Vec<crate::community::wire::Person>,
@@ -860,9 +862,11 @@ impl Main {
             leaving: HashMap::new(),
             overlay_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
             ground_fade: Animation::new(false).duration(GROUND_UP).easing(Easing::EaseOutCubic),
+            behind_fade: Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic),
             own_cover_fade: Animation::new(false).duration(GROUND_UP).easing(Easing::EaseOutCubic),
             overlay_drawn: Overlay::None,
-            side: Side::App,
+            section: prefs::Section::Look,
+            settings_search: String::new(),
             renaming: None,
             everyone: Vec::new(),
             worn: std::collections::HashMap::new(),
@@ -1065,7 +1069,7 @@ impl Main {
         }
         let pin = self.pin_task();
         let witness = Task::batch([self.witness_task(), self.delivery_task()]);
-        let pictures = self.preload_pictures();
+        let pictures = Task::batch([self.preload_pictures(), self.billing_asks(false)]);
         if matches!(crate::updates::place(), crate::updates::Place::Source) {
             self.update = UpdateState::Source;
             return Task::batch([version, pin, witness, pictures]);
@@ -1433,6 +1437,8 @@ impl Main {
             || self.menu_open.is_animating(self.now)
             || self.overlay_fade.is_animating(self.now)
             || self.ground_fade.is_animating(self.now)
+            || self.behind_fade.is_animating(self.now)
+            || self.map_behind() != self.behind_fade.value()
             || self.own_cover_fade.is_animating(self.now)
             || self.own_cover_wanted() != self.own_cover_fade.value()
             || self.turning.is_some()
@@ -1607,7 +1613,7 @@ impl Main {
         if self.overlay == Overlay::Community {
             parts.push(iced::time::every(NEWS_EVERY).map(|_| Message::NewsTick));
         }
-        if self.overlay == Overlay::Settings && self.side == Side::Bot && !self.settings.token.is_empty() {
+        if self.overlay == Overlay::Settings && self.section == prefs::Section::Device && !self.settings.token.is_empty() {
             parts.push(iced::time::every(Duration::from_secs(10)).map(|_| Message::FarmTick));
         }
         let live_waiting = self.community.as_ref().is_some_and(|catalog| self.live_shown < catalog.live.len());
@@ -2552,6 +2558,10 @@ impl Main {
             let wanted = self.own_cover_wanted();
             self.own_cover_fade.go_mut(wanted, Instant::now());
         }
+        if self.map_behind() != self.behind_fade.value() {
+            let wanted = self.map_behind();
+            self.behind_fade.go_mut(wanted, Instant::now());
+        }
         task
     }
 
@@ -2738,7 +2748,8 @@ impl Main {
             Message::Scene(hash, handle) => {
                 if let Some(handle) = handle {
                     if self.scenes.len() > 24 {
-                        self.scenes.clear();
+                        let shown = self.chosen_entry().map(|entry| entry.map_hash.clone());
+                        self.scenes.retain(|held, _| shown.as_ref() == Some(held));
                     }
                     self.scenes.insert(hash.clone(), handle);
                 }
@@ -3343,10 +3354,8 @@ impl Main {
                     self.release_held();
                 }
                 if overlay == Overlay::Settings {
-                    self.side = match self.settings.settings_tab.as_str() {
-                        "bot" => Side::Bot,
-                        _ => Side::App,
-                    };
+                    self.section = prefs::Section::of(&self.settings.settings_tab);
+                    self.settings_search.clear();
                     let renders = self.settings.renders_dir();
                     let songs = crate::sources::own_root().join("Songs");
                     let root = crate::sources::own_root();
@@ -3555,7 +3564,7 @@ impl Main {
                     }
                     C::Reconnect => {
                         let shown = self.update(Message::Show(Overlay::Settings));
-                        let side = self.update(Message::Prefs(prefs::Message::Side(Side::Bot)));
+                        let side = self.update(Message::Prefs(prefs::Message::Section(prefs::Section::Device)));
                         return Task::batch([shown, side]);
                     }
                     C::Again => {
@@ -4926,12 +4935,14 @@ impl Main {
         if self.minimized {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         }
+        ui::set_page_ground(self.page_ground());
         let k = self.enter.interpolate(0.0, 1.0, self.now);
         let rest = self.resting.interpolate(0.0, 1.0, self.now);
         let awake = 1.0 - rest;
         let s = if self.swap_waits { 0.0 } else { self.swap.interpolate(0.0, 1.0, self.now) };
         let loaded = self.library.is_some();
         let blank = || -> Element<'_, Message> { Space::new().width(Length::Fill).height(Length::Fill).into() };
+        let behind = self.behind_fade.interpolate(0.0, 1.0, self.now);
         let alpha = k.min(1.0);
         let full = |handle: &image::Handle, opacity: f32| -> Element<'_, Message> {
             let picture = image(handle.clone())
@@ -4946,20 +4957,23 @@ impl Main {
         let buried = self.ground_fade.value() && !self.ground_fade.is_animating(self.now);
         let entry = self.chosen_entry();
         let scene_before: Element<'_, Message> = match (&self.scene_before, entry) {
-            (Some(Some(before)), Some(_)) if s < 1.0 => full(before, alpha * (1.0 - s)),
+            _ if behind < 0.001 => blank(),
+            (Some(Some(before)), Some(_)) if s < 1.0 => full(before, alpha * behind * (1.0 - s)),
             _ => blank(),
         };
         let scene: Element<'_, Message> = match entry {
+            _ if behind < 0.001 => blank(),
             Some(entry) => match (self.scenes.get(&entry.map_hash), entry.map.is_some()) {
-                (Some(handle), _) => full(handle, alpha * s),
+                (Some(handle), _) => full(handle, alpha * behind * s),
                 (None, true) => blank(),
-                (None, false) => full(&self.hatch, alpha),
+                (None, false) => full(&self.hatch, alpha * behind),
             },
             None => blank(),
         };
+        let deep = self.ground_fade.interpolate(0.0, 1.0, self.now);
         let body: Element<'_, Message> = match (loaded, self.reading_line()) {
             (true, _) if buried => blank(),
-            (true, _) if awake > 0.001 => ui::fading(k * awake, || self.body(k, s)),
+            (true, _) if awake > 0.001 => ui::fading(k * awake * (1.0 - deep), || self.body(k, s)),
             (true, _) => blank(),
             (false, Some(line)) => pin(ui::fading(self.arrive.interpolate(0.0, 1.0, self.now), || ui::mono_small(line, FAINT))).x(40.0).y((self.height - 40.0).max(0.0)).into(),
             (false, None) => blank(),
@@ -4976,9 +4990,8 @@ impl Main {
         } else {
             blank()
         };
-        let deep = self.ground_fade.interpolate(0.0, 1.0, self.now);
-        let ground: Element<'_, Message> = if deep > 0.001 {
-            ui::fading(deep, || ui::veil(theme::GROUND_VEIL))
+        let ground: Element<'_, Message> = if deep * behind > 0.001 {
+            ui::fading(deep * behind, || ui::veil(theme::GROUND_VEIL))
         } else {
             blank()
         };
@@ -5024,6 +5037,23 @@ impl Main {
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 
+    fn page_ground(&self) -> Color {
+        let behind = self.behind_fade.interpolate(0.0, 1.0, self.now);
+        let scene = self.chosen_entry().and_then(|entry| self.scenes.get(&entry.map_hash)).and_then(ui::scene_top);
+        match scene.filter(|_| behind > 0.001) {
+            Some(top) => {
+                let shaded = ui::over_in_light(top, theme::GROUND, dim_at(0.14));
+                let veiled = ui::over_in_light(shaded, theme::GROUND, theme::GROUND_VEIL.a * self.ground_fade.interpolate(0.0, 1.0, self.now));
+                ui::over_in_light(ui::BACKDROP_TOP, veiled, behind)
+            }
+            None => ui::BACKDROP_TOP,
+        }
+    }
+
+    fn map_behind(&self) -> bool {
+        self.settings.map_backdrop && self.billing.subscription().is_some_and(|held| held.access)
+    }
+
     fn own_cover(&self) -> Option<&image::Handle> {
         let catalog = self.community.as_ref()?;
         let card = self.shown_card.as_ref().map(|card| card.cover_url.as_str());
@@ -5050,7 +5080,7 @@ impl Main {
             .map_or(theme::GROUND, |handle| ui::scene_surface(handle, size));
         let before = self.scene_before.as_ref().and_then(|handle| handle.as_ref())
             .map_or(theme::GROUND, |handle| ui::scene_surface(handle, size));
-        let mut surface = ui::mix(before, surface, s);
+        let mut surface = ui::mix(theme::GROUND, ui::mix(before, surface, s), self.behind_fade.interpolate(0.0, 1.0, self.now));
         if let Some((_, live)) = self.chosen_entry().zip(self.live.as_ref())
             .filter(|(entry, live)| live.for_path == entry.path && (live.frame.is_some() || self.live_before.is_some()) && self.overlay == Overlay::None) {
             let seen = if self.live_before.is_some() { 1.0 } else { live.fade.interpolate(0.0, 1.0, self.now) };
@@ -6259,21 +6289,36 @@ impl Main {
     }
 
     fn settings_entries(&self) -> Vec<crate::sidebar::Entry<Message>> {
-        use crate::glyphs::Icon;
         use crate::sidebar::Entry;
         let w = &self.words;
+        let item = |section: prefs::Section| Entry::Item { key: section.tag(), icon: section.icon(), label: w.t(section.name_key()), on: self.section == section && self.settings_search.trim().is_empty(), press: Message::Prefs(prefs::Message::Section(section)) };
+        use prefs::Section as S;
         vec![
-            Entry::Item { key: "app-side", icon: Icon::Gear, label: w.t("app-side"), on: self.side == Side::App, press: Message::Prefs(prefs::Message::Side(Side::App)) },
-            Entry::Item { key: "bot-side", icon: Icon::Send, label: w.t("bot-side"), on: self.side == Side::Bot, press: Message::Prefs(prefs::Message::Side(Side::Bot)) },
+            Entry::Caption(w.t("settings-group-app")),
+            item(S::Look),
+            item(S::Video),
+            item(S::Playback),
+            item(S::Sound),
+            item(S::Library),
+            Entry::Caption(w.t("settings-group-game")),
+            item(S::Witness),
+            Entry::Caption(w.t("settings-group-community")),
+            item(S::Account),
+            item(S::Device),
+            Entry::Caption(w.t("settings-group-system")),
+            item(S::System),
         ]
+    }
+
+    fn sided_open<'a>(&'a self, entries: Vec<crate::sidebar::Entry<Message>>, body: Element<'a, Message>) -> Element<'a, Message> {
+        let entries = crate::sidebar::arranged(entries, &self.settings.side_order);
+        let side = ui::fading(ui::fade() * self.overlay_fade.interpolate(0.0, 1.0, self.now), || crate::sidebar::view(entries, 1.0, |_| Message::SideOpen(false), Message::SideMoved));
+        let workspace = column![Space::new().height(theme::CONTROL_HEIGHT + 4.0 + 22.0), row![side, body].height(Length::Fill)].width(Length::Fill).height(Length::Fill);
+        crate::glide::brim(workspace).header().into()
     }
 
     fn in_match(&self) -> bool {
         if self.duels.me.is_some() { self.duels.running().is_some() } else { self.settings.duel_running.is_some() }
-    }
-
-    fn sided<'a>(&'a self, entries: Vec<crate::sidebar::Entry<Message>>, body: Element<'a, Message>, scale: f32) -> Element<'a, Message> {
-        self.sided_unless(entries, body, scale, false)
     }
 
     fn sided_unless<'a>(&'a self, entries: Vec<crate::sidebar::Entry<Message>>, body: Element<'a, Message>, scale: f32, tucked: bool) -> Element<'a, Message> {
@@ -6381,6 +6426,7 @@ impl Main {
             people_query: &self.people_query,
             people_filter: self.people_filter,
             feed_rows: self.feed_rows,
+            feed_offset: self.feed_offset,
             people_was: &self.people_was,
             people_move_t: self.now.saturating_duration_since(self.people_moved_at).as_secs_f32().min(60.0),
             title_scope: self.title_scope,
@@ -6436,7 +6482,10 @@ impl Main {
             settings: &self.settings,
             machine: if self.gallery { ui::Machine::Mac } else { ui::Machine::here() },
             machine_name: if self.gallery { "MacBook Pro".to_owned() } else { prefs::machine_name() },
-            side: self.side,
+            section: self.section,
+            search: &self.settings_search,
+            subscribed: self.billing.subscription().is_some_and(|held| held.access),
+            page_wide: self.width - crate::sidebar::WIDE,
             replays: self.entries().len(),
             videos: self.store.videos.len(),
             videos_size: self.sizes.0.max(self.store.total_size()),
@@ -6480,7 +6529,7 @@ impl Main {
             share_replays: self.sharing.replays.as_ref(),
         };
         let body: Element<'_, Message> = Element::from(prefs::view(&ground)).map(Message::Prefs);
-        self.sided(self.settings_entries(), body, 1.0)
+        self.sided_open(self.settings_entries(), body)
     }
 
     fn prefs(&mut self, message: prefs::Message) -> Task<Message> {
@@ -6489,27 +6538,39 @@ impl Main {
             let _ = settings.save();
         };
         match message {
-            P::Side(side) => {
-                let order = |side: Side| match side {
-                    Side::App => 0,
-                    Side::Bot => 1,
-                };
-                if side != self.side {
-                    self.side_swap = if order(side) > order(self.side) { 1.0 } else { -1.0 };
+            P::Section(section) => {
+                let order = |section: prefs::Section| prefs::Section::ALL.iter().position(|one| *one == section).unwrap_or(0);
+                if section != self.section || !self.settings_search.is_empty() {
+                    self.side_swap = if order(section) > order(self.section) { 1.0 } else { -1.0 };
                     self.side_fade = Animation::new(false).duration(TAB_FADE).easing(Easing::EaseOutCubic).go(true, Instant::now());
                 }
-                self.side = side;
-                let name = match side {
-                    Side::App => "app",
-                    Side::Bot => "bot",
-                };
-                if self.settings.settings_tab != name {
-                    self.settings.settings_tab = name.to_owned();
+                self.section = section;
+                self.settings_search.clear();
+                if self.settings.settings_tab != section.tag() {
+                    self.settings.settings_tab = section.tag().to_owned();
                     keep(&self.settings);
                 }
-                if side == Side::Bot {
-                    return self.farm_task();
+                let top = iced::widget::operation::scroll_to(iced::widget::Id::new("settings-tiles"), iced::widget::scrollable::AbsoluteOffset { x: None, y: Some(0.0) });
+                if section == prefs::Section::Device {
+                    return Task::batch([top, self.farm_task()]);
                 }
+                top
+            }
+            P::Search(said) => {
+                self.settings_search = said;
+                iced::widget::operation::scroll_to(iced::widget::Id::new("settings-tiles"), iced::widget::scrollable::AbsoluteOffset { x: None, y: Some(0.0) })
+            }
+            P::MapBackdrop(on) => {
+                self.remember_mark("map-backdrop", on);
+                self.settings.map_backdrop = on;
+                keep(&self.settings);
+                Task::none()
+            }
+            P::Subscribe => self.billing_step(crate::billing::Message::Open),
+            P::Moved(what, before) => {
+                let shown = prefs::shown_tiles(self.section, &self.settings_search, &self.settings.tile_order, &self.words);
+                self.settings.tile_order = prefs::moved(&self.settings.tile_order, &shown, what, before);
+                keep(&self.settings);
                 Task::none()
             }
             P::PickLang(lang) => {
@@ -7086,14 +7147,6 @@ impl Main {
                 Task::none()
             }
             P::Unlink | P::SignOut => self.update(Message::SignOut),
-            P::Moved(what, before) => {
-                match self.side {
-                    Side::App => self.settings.tiles_app = prefs::moved(&self.settings.tiles_app, &prefs::APP, what, before),
-                    Side::Bot => self.settings.tiles_bot = prefs::moved(&self.settings.tiles_bot, &prefs::BOT, what, before),
-                }
-                keep(&self.settings);
-                Task::none()
-            }
         }
     }
 }
@@ -7146,7 +7199,7 @@ impl Main {
     }
 
     pub(crate) fn glass_picture(&self) -> Option<image::Handle> {
-        if self.overlay != Overlay::None || self.player.is_some() {
+        if self.overlay != Overlay::None || self.player.is_some() || !self.behind_fade.value() {
             return None;
         }
         self.chosen_entry().and_then(|entry| self.scenes.get(&entry.map_hash)).cloned()

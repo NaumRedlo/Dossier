@@ -64,10 +64,9 @@ pub struct Settings {
     pub renders_dir: Option<PathBuf>,
     #[serde(default)]
     pub settings_tab: String,
+    pub map_backdrop: bool,
     #[serde(default)]
-    pub tiles_app: Vec<String>,
-    #[serde(default)]
-    pub tiles_bot: Vec<String>,
+    pub tile_order: Vec<String>,
     #[serde(default)]
     pub duel_running: Option<String>,
     #[serde(default)]
@@ -1029,8 +1028,8 @@ impl Default for Settings {
             render_crf: 20,
             renders_dir: None,
             settings_tab: String::new(),
-            tiles_app: Vec::new(),
-            tiles_bot: Vec::new(),
+            map_backdrop: true,
+            tile_order: Vec::new(),
             duel_running: None,
             side_order: Vec::new(),
             inbox_heard: 0,

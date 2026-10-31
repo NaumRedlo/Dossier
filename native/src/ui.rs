@@ -589,6 +589,62 @@ impl<Message> canvas::Program<Message> for SceneShade {
 
 const BACKDROP: (u32, u32) = (490, 360);
 
+thread_local! { static PAGE_GROUND: std::cell::Cell<Color> = const { std::cell::Cell::new(theme::GROUND) }; }
+
+pub fn set_page_ground(colour: Color) {
+    PAGE_GROUND.with(|ground| ground.set(colour));
+}
+
+pub fn page_ground() -> Color {
+    PAGE_GROUND.with(std::cell::Cell::get)
+}
+
+fn to_light(value: f32) -> f32 {
+    if value <= 0.04045 { value / 12.92 } else { ((value + 0.055) / 1.055).powf(2.4) }
+}
+
+fn from_light(value: f32) -> f32 {
+    if value <= 0.0031308 { value * 12.92 } else { 1.055 * value.powf(1.0 / 2.4) - 0.055 }
+}
+
+pub fn over_in_light(under: Color, over: Color, alpha: f32) -> Color {
+    let blend = |a: f32, b: f32| from_light(to_light(a) + (to_light(b) - to_light(a)) * alpha.clamp(0.0, 1.0));
+    Color::from_rgb(blend(under.r, over.r), blend(under.g, over.g), blend(under.b, over.b))
+}
+
+pub fn scene_top(handle: &image::Handle) -> Option<Color> {
+    thread_local! { static SEEN: std::cell::RefCell<Vec<(iced::advanced::image::Id, Option<Color>)>> = const { std::cell::RefCell::new(Vec::new()) }; }
+    SEEN.with(|seen| {
+        if let Some((_, colour)) = seen.borrow().iter().find(|(id, _)| *id == handle.id()) {
+            return *colour;
+        }
+        let colour = match handle {
+            image::Handle::Rgba { width, height, pixels, .. } if *width > 0 && *height > 0 && pixels.len() as u64 >= u64::from(*width) * u64::from(*height) * 4 => {
+                let (mut sum, mut count) = ([0.0f32; 3], 0.0f32);
+                for y in 0..(*height / 4).max(1) {
+                    for x in (0..*width).step_by((*width as usize / 64).max(1)) {
+                        let at = ((y * *width + x) * 4) as usize;
+                        for part in 0..3 {
+                            sum[part] += to_light(pixels[at + part] as f32 / 255.0);
+                        }
+                        count += 1.0;
+                    }
+                }
+                Some(Color::from_rgb(from_light(sum[0] / count), from_light(sum[1] / count), from_light(sum[2] / count)))
+            }
+            _ => None,
+        };
+        let mut seen = seen.borrow_mut();
+        if seen.len() >= 16 {
+            seen.remove(0);
+        }
+        seen.push((handle.id(), colour));
+        colour
+    })
+}
+
+pub const BACKDROP_TOP: Color = Color::from_rgb(0.149, 0.035, 0.059);
+
 pub fn backdrop_pixels() -> Vec<u8> {
     let (w, h) = BACKDROP;
     let stops: [(f32, [f32; 3]); 5] = [
@@ -3823,6 +3879,114 @@ pub struct Band<'a, Message> {
     content: Element<'a, Message>,
     from: f32,
     tall: f32,
+}
+
+pub const TOP_FADE: f32 = 64.0;
+pub const TOP_FADE_ONSET: f32 = 12.0;
+const TOP_SLICES: usize = 64;
+
+fn eased_out(k: f32) -> f32 {
+    1.0 - (1.0 - k.clamp(0.0, 1.0)).powi(4)
+}
+
+pub fn top_faded<'a, Message: 'a>(at: f32, full: f32, reach: f32, place: impl Fn(f32) -> Element<'a, Message>) -> Element<'a, Message> {
+    let mut cuts = vec![0.0, full];
+    for slice in 0..=TOP_SLICES {
+        let local = (slice as f32 * TOP_FADE / TOP_SLICES as f32).round() - at;
+        if local > 0.0 && local < full {
+            cuts.push(local);
+        }
+    }
+    cuts.sort_by(f32::total_cmp);
+    cuts.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+    let mut strips = column![].width(Length::Fill);
+    for pair in cuts.windows(2) {
+        let (from, to) = (pair[0], pair[1]);
+        let middle = at + (from + to) / 2.0;
+        let alpha = 1.0 - reach * (1.0 - eased_out((middle / TOP_FADE).clamp(0.0, 1.0)));
+        let strip: Element<'a, Message> = if alpha < 0.01 {
+            Space::new().width(Length::Fill).height(to - from).into()
+        } else {
+            band(container(place(alpha)).width(Length::Fill).height(full), from, to)
+        };
+        strips = strips.push(strip);
+    }
+    strips.into()
+}
+
+thread_local! { static NOTED: std::cell::RefCell<std::collections::HashMap<u64, Rectangle>> = std::cell::RefCell::new(std::collections::HashMap::new()); }
+
+pub fn noted_place(key: u64) -> Option<Rectangle> {
+    NOTED.with(|noted| noted.borrow().get(&key).copied())
+}
+
+pub fn noted<'a, Message: 'a>(key: u64, content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    Element::new(Noted { key, content: content.into() })
+}
+
+struct Noted<'a, Message> {
+    key: u64,
+    content: Element<'a, Message>,
+}
+
+impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Noted<'_, Message> {
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.content.as_widget().size_hint()
+    }
+
+    fn layout(&mut self, tree: &mut iced::advanced::widget::Tree, renderer: &Renderer, limits: &iced::advanced::layout::Limits) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(&mut self, tree: &mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, renderer: &Renderer, operation: &mut dyn iced::advanced::widget::Operation) {
+        self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
+    }
+
+    fn mouse_interaction(&self, tree: &iced::advanced::widget::Tree, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle, renderer: &Renderer) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
+    }
+
+    fn draw(&self, tree: &iced::advanced::widget::Tree, renderer: &mut Renderer, theme: &Theme, style: &iced::advanced::renderer::Style, layout: iced::advanced::Layout<'_>, cursor: mouse::Cursor, viewport: &Rectangle) {
+        NOTED.with(|noted| noted.borrow_mut().insert(self.key, layout.bounds()));
+        self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &Renderer,
+        viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
+        self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
+    }
 }
 
 pub fn band<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, from: f32, to: f32) -> Element<'a, Message> {

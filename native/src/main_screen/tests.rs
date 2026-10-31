@@ -796,6 +796,7 @@ fn a_failed_refresh_keeps_the_data_shown_remembers_how_old_it_is_and_a_new_try_d
 fn feed_at_rest() -> super::Main {
     let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").unwrap();
     main.now_unix = super::unix_now();
+    main.behind_fade = iced::Animation::new(false);
     let _ = main.update(super::Message::Tick(std::time::Instant::now()));
     main
 }
@@ -872,7 +873,7 @@ fn the_refresh_button_goes_from_ready_to_running_to_done_and_back_and_a_refused_
 
     let _ = main.update(super::Message::Community(crate::community_screen::Message::Reconnect));
     assert_eq!(main.overlay, super::Overlay::Settings);
-    assert_eq!(main.side, super::Side::Bot);
+    assert_eq!(main.section, crate::settings_screen::Section::Device);
 }
 
 #[test]
@@ -1808,4 +1809,40 @@ fn an_animated_avatar_keeps_its_frames_and_turns_them_by_their_delays() {
     ::image::RgbaImage::from_pixel(4, 4, ::image::Rgba([1, 2, 3, 255])).write_to(&mut std::io::Cursor::new(&mut png), ::image::ImageFormat::Png).expect("a png");
     assert!(super::moving_bytes(&png, 16).is_none());
     assert_eq!(super::moving_bytes(&gif_of(4, 0), 16).expect("zero delays").ends_ms, [100, 200, 300, 400], "a zero delay plays like a browser plays it");
+}
+
+#[test]
+fn only_a_subscriber_sees_the_map_behind_the_interface_and_may_turn_it_off() {
+    use std::time::Instant;
+    let plan: crate::bot::Plan = serde_json::from_value(serde_json::json!({ "id": "a", "offer_id": "a", "periodicity": "MONTHLY", "currency": "RUB", "amount": "120.0" })).expect("a plan");
+    let held = |access: bool| crate::bot::Subscription { state: "active".into(), access, plan: plan.clone(), paid_until: None, cancelled_at: None, created_at: Some("2026-10-01T00:00:00Z".into()), payment_url: None, carried_seconds: 0, change: None, badge: None };
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").expect("a frame");
+    main.settings.map_backdrop = true;
+    main.behind_fade = iced::Animation::new(false);
+    let _ = main.update(super::Message::Tick(Instant::now()));
+    assert!(!main.behind_fade.value(), "a free account never got the map");
+    assert!(main.glass_picture().is_none());
+    main.billing.held = Some(Some(held(true)));
+    let _ = main.update(super::Message::Tick(Instant::now()));
+    assert!(main.behind_fade.value(), "a subscriber gets the map");
+    main.settings.map_backdrop = false;
+    let _ = main.update(super::Message::Tick(Instant::now()));
+    assert!(!main.behind_fade.value(), "the subscriber turned it off");
+    main.settings.map_backdrop = true;
+    main.billing.held = Some(Some(held(false)));
+    let _ = main.update(super::Message::Tick(Instant::now()));
+    assert!(!main.behind_fade.value(), "an ended subscription takes the map away");
+}
+
+#[test]
+fn a_full_scene_shelf_keeps_the_scene_on_screen() {
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").expect("a frame");
+    let shown = main.chosen_entry().expect("a chosen replay").map_hash.clone();
+    let picture = iced::widget::image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]);
+    main.scenes.insert(shown.clone(), picture.clone());
+    for at in 0..30 {
+        let _ = main.update(super::Message::Scene(format!("other-{at}"), Some(picture.clone())));
+    }
+    assert!(main.scenes.contains_key(&shown));
+    assert!(main.scenes.len() <= 26);
 }

@@ -1405,7 +1405,7 @@ fn the_break_arrows_sit_outside_the_field_and_inside_the_frame() {
     let background = skin.background.to_color_u8();
     let scene = Scene::new(&state, skin);
 
-    for (w, h) in [(640u32, 480u32), (1280, 720), (1920, 1080)] {
+    for (w, h) in [(640u32, 480u32), (854, 480), (1024, 768), (1280, 720), (1920, 1080)] {
         let layout = Layout::new(w, h);
         let frame = scene.frame(8500.0, &layout);
         let (x0, y0) = layout.map(dossier_beatmap::Point { x: 0.0, y: 0.0 });

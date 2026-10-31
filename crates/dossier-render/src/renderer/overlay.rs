@@ -386,8 +386,9 @@ impl Scene<'_> {
             return;
         }
 
-        let reach = WARNING_REACH;
         let skinned = self.skin_speaks_for(crate::elements::Element::WarningArrow);
+        let room = f64::from(layout.map(Point { x: 0.0, y: 0.0 }).0 / layout.length(1.0));
+        let reach = warning_reach(room, skinned);
         let size = layout.length(if skinned { WARNING_SPRITE } else { WARNING_ARROW }) * scale;
         for y in WARNING_ROWS {
             for (x, dir) in [
@@ -427,6 +428,17 @@ impl Scene<'_> {
             self.draw_sprite(pixmap, element, 0, at, size, alpha, layout);
         }
     }
+}
+
+fn warning_reach(room: f64, skinned: bool) -> f64 {
+    let swell = 1.0 + f64::from(WARNING_SWELL);
+    let stroke = f64::from(ARROW_ROUNDING) / 2.0;
+    let (behind, ahead) = if skinned {
+        (WARNING_SPRITE * swell / 2.0, WARNING_SPRITE * swell / 2.0)
+    } else {
+        (WARNING_ARROW * swell * (0.55 + stroke), WARNING_ARROW * swell * (1.0 + stroke))
+    };
+    (room - behind - 1.0).clamp(ahead, WARNING_REACH)
 }
 
 fn verdict_kind(verdict: Judgement) -> crate::elements::Verdict {
@@ -635,6 +647,17 @@ impl Scene<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_break_arrows_keep_their_place_where_there_is_room_and_come_in_where_there_is_not() {
+        assert_eq!(warning_reach(160.0, false), WARNING_REACH);
+        assert_eq!(warning_reach(160.0, true), WARNING_REACH);
+        for skinned in [false, true] {
+            let narrow = warning_reach(64.0, skinned);
+            assert!(narrow < 64.0 && narrow > 0.0, "{skinned}: {narrow}");
+        }
+        assert!(warning_reach(0.0, false) > 0.0, "with no room at all they still stay off the field");
+    }
 
     fn slider(slides: u32) -> dossier_sim::GameState {
         let map = dossier_beatmap::Beatmap::parse(&format!(

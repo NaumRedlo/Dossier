@@ -1065,11 +1065,22 @@ impl Main {
         }
         let pin = self.pin_task();
         let witness = Task::batch([self.witness_task(), self.delivery_task()]);
+        let pictures = self.preload_pictures();
         if matches!(crate::updates::place(), crate::updates::Place::Source) {
             self.update = UpdateState::Source;
-            return Task::batch([version, pin, witness]);
+            return Task::batch([version, pin, witness, pictures]);
         }
-        Task::batch([version, self.check_update(), pin, witness])
+        Task::batch([version, self.check_update(), pin, witness, pictures])
+    }
+
+    fn preload_pictures(&mut self) -> Task<Message> {
+        if self.settings.token.is_empty() {
+            return Task::none();
+        }
+        if self.community.is_none() {
+            self.community = Some(self.first_community());
+        }
+        Task::batch([self.community_pictures_task(), self.news_pictures_task()])
     }
 
     pub fn witness_source(&mut self) {
@@ -7314,11 +7325,14 @@ const PICTURE_LANES: usize = 6;
 
 fn warm_pictures() -> Task<Message> {
     ui::in_thread(|| {
-        std::thread::sleep(Duration::from_secs(4));
+        std::thread::sleep(Duration::from_secs(2));
         let mut wanted: Vec<(String, u32)> = Vec::new();
         if let Some(kept) = crate::community::wire::load() {
-            wanted.extend(crate::community::Catalog::from_wire(kept).pictures());
+            wanted.extend(crate::community::Catalog::from_wire(kept).pictures_with(usize::MAX));
         }
+        let news = crate::news::News::load();
+        wanted.extend(news.stories.iter().filter_map(|story| story.image.clone()).map(|url| (url, 0)));
+        wanted.extend(news.posts.iter().filter_map(|post| post.cover().map(str::to_owned)).map(|url| (url, 0)));
         for card in [crate::community::wire::load_card(), crate::osu_profile::load()].into_iter().flatten() {
             wanted.extend(card.pictures());
         }

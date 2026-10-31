@@ -948,10 +948,16 @@ impl Catalog {
         for friend in &self.friends {
             want(&friend.cover, BACKDROP);
         }
-        let later: std::collections::HashSet<usize> = self.live.iter().skip(rows).map(|play| play.map).collect();
-        let sooner: std::collections::HashSet<usize> = self.live.iter().take(rows).map(|play| play.map).collect();
+        let mut newest: Vec<&LivePlay> = self.live.iter().collect();
+        newest.sort_by_key(|play| std::cmp::Reverse(play.at));
+        for play in newest.iter().take(rows) {
+            if let Some(card) = self.maps.get(play.map).and_then(MapRef::card) {
+                want(&card, 400);
+            }
+        }
+        let later: std::collections::HashSet<usize> = newest.iter().skip(rows).map(|play| play.map).collect();
         for (at, map) in self.maps.iter().enumerate() {
-            if !later.contains(&at) || sooner.contains(&at) {
+            if !later.contains(&at) {
                 if let Some(card) = map.card() {
                     want(&card, 400);
                 }
@@ -1712,6 +1718,22 @@ pub mod wire {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_newest_plays_get_their_map_pictures_first_whatever_order_they_came_in() {
+        let shape = MapRef { hash: String::new(), line: String::new(), set: Some(1), stars: None, beatmap: None };
+        let mut catalog = Catalog::staged(vec![shape.clone()], "someone", 2000);
+        catalog.maps = (0..4).map(|set| MapRef { set: Some(set), ..shape.clone() }).collect();
+        let play = catalog.live[0].clone();
+        catalog.live = (0..4).map(|at| LivePlay { map: at, at: 1000 + at as i64, ..play.clone() }).collect();
+        catalog.people.clear();
+        catalog.friends.clear();
+        catalog.me = None;
+        let wanted: Vec<String> = catalog.pictures_with(1).into_iter().map(|(url, _)| url).collect();
+        assert_eq!(wanted, [catalog.maps[3].card().expect("a picture")], "the feed opens on the newest play");
+        let wanted: Vec<String> = catalog.pictures_with(2).into_iter().map(|(url, _)| url).collect();
+        assert_eq!(wanted, [catalog.maps[3].card().expect("a picture"), catalog.maps[2].card().expect("a picture")]);
+    }
 
     #[test]
     fn the_bot_card_borrows_what_osu_says_of_its_plays() {

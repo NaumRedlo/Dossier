@@ -56,7 +56,7 @@ const NEWS_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
 const CARD_EVERY: Duration = Duration::from_secs(300);
 const COMMUNITY_SCALE: f32 = 0.84;
-const SIDE_OPEN: Duration = Duration::from_millis(280);
+const SIDE_OPEN: Duration = Duration::from_millis(340);
 const SIDE_STAYS: Duration = Duration::from_millis(170);
 const HOVER_REST: Duration = Duration::from_millis(160);
 pub const LIVE_FADE: Duration = Duration::from_millis(640);
@@ -589,6 +589,7 @@ pub struct Main {
     pub side_open: Animation<bool>,
     side_leaving: Option<Instant>,
     side_lean: Option<&'static str>,
+    side_on: Option<&'static str>,
     pub side_swap: f32,
     pub sizes: (u64, u64, u64),
     pub storage: prefs::Storage,
@@ -889,6 +890,7 @@ impl Main {
             side_open: Animation::new(false).duration(SIDE_OPEN).easing(Easing::Linear),
             side_leaving: None,
             side_lean: None,
+            side_on: None,
             side_swap: 0.0,
             sizes: (0, 0, 0),
             storage: prefs::Storage::default(),
@@ -2558,6 +2560,7 @@ impl Main {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         let task = self.handle(message);
         self.watch_pools();
+        self.watch_side_choice();
         if self.own_cover_wanted() != self.own_cover_fade.value() {
             let wanted = self.own_cover_wanted();
             self.own_cover_fade.go_mut(wanted, Instant::now());
@@ -6322,6 +6325,32 @@ impl Main {
             Entry::Item { key: "app-side", icon: Icon::Gear, label: w.t("app-side"), on: self.side == Side::App, press: Message::Prefs(prefs::Message::Side(Side::App)) },
             Entry::Item { key: "bot-side", icon: Icon::Send, label: w.t("bot-side"), on: self.side == Side::Bot, press: Message::Prefs(prefs::Message::Side(Side::Bot)) },
         ]
+    }
+
+    fn watch_side_choice(&mut self) {
+        let entries = match self.overlay {
+            Overlay::Community => self.community_entries(),
+            Overlay::Settings => self.settings_entries(),
+            _ => return,
+        };
+        let chosen = entries.iter().find_map(|entry| match entry {
+            crate::sidebar::Entry::Item { key, on: true, .. } => Some(*key),
+            _ => None,
+        });
+        if chosen == self.side_on {
+            return;
+        }
+        if let Some(was) = self.side_on.take() {
+            let id = format!("side-on-{was}");
+            self.marks_now.entry(id.clone()).or_insert(1.0);
+            self.remember_mark(&id, false);
+        }
+        if let Some(key) = chosen {
+            let id = format!("side-on-{key}");
+            self.marks_now.entry(id.clone()).or_insert(0.0);
+            self.remember_mark(&id, true);
+        }
+        self.side_on = chosen;
     }
 
     fn in_match(&self) -> bool {

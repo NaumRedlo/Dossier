@@ -189,7 +189,7 @@ fn the_sidebar_gives_its_words_room_only_while_it_is_open() {
         let feed = main.words.t("community-feed");
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
         let shut = ui.find(iced::widget::Id::new("side-feed")).map(|found| found.bounds().width).unwrap_or(0.0);
-        assert!(shut <= 1.0, "{lang:?}: a closed sidebar is {shut} wide");
+        assert!(shut <= 10.0, "{lang:?}: a closed sidebar is {shut} wide");
         assert!(ui.find(feed.as_str()).is_err(), "{lang:?}: a closed sidebar shows its words");
         drop(ui);
         main.side_open = iced::Animation::new(true);

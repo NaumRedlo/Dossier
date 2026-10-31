@@ -1,3 +1,5 @@
+const MOVE_MS: f64 = 340.0;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub name: String,
@@ -108,9 +110,44 @@ impl Leaderboard {
                 is_player: *is_player,
                 place: best + offset,
                 slot: (worst - (best + offset)) as f32,
+                presence: 1.0,
             })
             .rev()
             .collect()
+    }
+
+    pub fn moving(&self, score_at: impl Fn(f64) -> u64, time_ms: f64, limit: usize) -> Vec<Row> {
+        let now = self.standings(score_at(time_ms), limit);
+        let place = |at: f64| self.place_of(score_at(at));
+        let here = place(time_ms);
+        let (mut earlier, mut passed) = (time_ms - MOVE_MS, time_ms);
+        if place(earlier) == here {
+            return now;
+        }
+        for _ in 0..12 {
+            let middle = (earlier + passed) / 2.0;
+            if place(middle) == here { passed = middle } else { earlier = middle }
+        }
+        let share = (((time_ms - passed) / MOVE_MS).clamp(0.0, 1.0)) as f32;
+        let k = 1.0 - (1.0 - share).powi(3);
+        let was = self.standings(score_at(earlier), limit);
+        let same = |a: &Row, b: &Row| a.is_player == b.is_player && a.entry.name == b.entry.name;
+        let mut rows: Vec<Row> = Vec::with_capacity(now.len() + 1);
+        for old in &was {
+            if !now.iter().any(|row| same(row, old)) {
+                rows.push(Row { slot: old.slot - k, presence: 1.0 - k, ..old.clone() });
+            }
+        }
+        for row in now {
+            let (from, presence) = was.iter().find(|old| same(old, &row)).map_or((row.slot + 1.0, k), |old| (old.slot, 1.0));
+            rows.push(Row { slot: from + (row.slot - from) * k, presence, ..row });
+        }
+        rows.sort_by_key(|row| row.is_player);
+        rows
+    }
+
+    fn place_of(&self, player_score: u64) -> usize {
+        self.rivals.iter().filter(|rival| rival.score >= player_score).count()
     }
 
     pub fn pp_at(&self, time_ms: f64) -> Option<f32> {
@@ -162,6 +199,7 @@ pub struct Row {
     pub is_player: bool,
     pub place: usize,
     pub slot: f32,
+    pub presence: f32,
 }
 
 #[cfg(test)]
@@ -261,6 +299,33 @@ mod tests {
         assert_eq!(slot_of(&before, "c"), Some(1.0));
         assert_eq!(slot_of(&after, "me"), Some(1.0), "the player rose");
         assert_eq!(slot_of(&after, "c"), Some(0.0), "and the passed row took their place");
+    }
+
+    #[test]
+    fn a_pass_slides_the_rows_instead_of_swapping_them_at_once() {
+        let b = board("a\t9000\nb\t8000\nc\t100\n");
+        let score = |at: f64| if at < 1000.0 { 50 } else { 200 };
+        let slot = |rows: &[Row], name: &str| rows.iter().find(|row| row.entry.name == name).map(|row| row.slot).unwrap();
+        let still = b.moving(score, 900.0, 5);
+        assert_eq!(slot(&still, "me"), 0.0);
+        let midway = b.moving(score, 1000.0 + MOVE_MS / 3.0, 5);
+        assert!(slot(&midway, "me") > 0.0 && slot(&midway, "me") < 1.0, "{midway:?}");
+        assert!(slot(&midway, "c") > 0.0 && slot(&midway, "c") < 1.0);
+        assert!(midway.last().unwrap().is_player, "the player's row passes over the others");
+        let settled = b.moving(score, 1000.0 + MOVE_MS + 5.0, 5);
+        assert_eq!(settled, b.standings(200, 5), "and the board comes to rest as it stands");
+    }
+
+    #[test]
+    fn a_row_leaving_the_window_fades_while_a_new_one_comes_in() {
+        let field: String = (1..=40).map(|i| format!("p{i}\t{}\n", i * 1000)).collect();
+        let b = board(&field);
+        let score = |at: f64| if at < 1000.0 { 1_500 } else { 2_500 };
+        let rows = b.moving(score, 1000.0 + MOVE_MS / 3.0, 5);
+        assert_eq!(rows.len(), 6);
+        let fading: Vec<&Row> = rows.iter().filter(|row| row.presence < 1.0).collect();
+        assert_eq!(fading.len(), 2, "{rows:?}");
+        assert!(fading.iter().all(|row| row.presence > 0.0));
     }
 
     #[test]

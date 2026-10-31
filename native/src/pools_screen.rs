@@ -2022,8 +2022,7 @@ fn view_at<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, i
             layers.insert(0, column![container(shown).width(Length::Fill).height(BACKDROP_HIGH), Space::new().height(Length::Fill)].into());
         }
         if let Some(pool) = footed.filter(|_| !(editor.choosing && !editor.marked.is_empty())) {
-            let k = ui::fade() * ui::appear(t, 5);
-            layers.push(ui::fading(k, || {
+            layers.push(ui::fading(ui::appear(t, 5), || {
                 let strip = container(container(pool_foot(state, pool, words)).max_width(max_width)).center_x(Length::Fill).padding(Padding { top: 8.0, right: 24.0, bottom: 18.0, left: 24.0 }).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..theme::GROUND })), ..container::Style::default() });
                 container(column![ui::rise(theme::GROUND, 28.0), strip]).height(Length::Fill).align_y(iced::alignment::Vertical::Bottom).into()
             }));
@@ -2035,9 +2034,9 @@ fn view_at<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, i
         if editor.choosing && !editor.marked.is_empty() {
             layers.push(ui::appearing(k, || bulk_bar(editor, words)));
         } else if let (true, Some(pool)) = (editor.share, pool) {
-            layers.push(ui::fading(ui::fade() * k, || share_modal(pool, words, state.exporting.is_some())));
+            layers.push(ui::fading(k, || share_modal(pool, words, state.exporting.is_some())));
         } else if let (Some(out), Some(pool)) = (leaving(&clocks.shut, "share"), pool) {
-            layers.push(ui::fading(ui::fade() * out * out, || share_modal(pool, words, false)));
+            layers.push(ui::fading(out * out, || share_modal(pool, words, false)));
         } else if let (false, Some(pool)) = (editor.choosing, pool) {
             let open = sheet_of(editor, pool).map(|sheet| (editor, sheet));
             let leaving = editor.gone.as_deref().filter(|_| open.is_none() && clocks.gone < ui::APPEAR).and_then(|was| sheet_of(was, pool).map(|sheet| (was, sheet)));
@@ -2048,7 +2047,7 @@ fn view_at<'a>(state: &'a State, words: &'a Words, thumbs: &'a HashMap<String, i
                     Sheet::Publish => Message::PublishSheet(false),
                     Sheet::Slot(_) => Message::Select(None),
                 };
-                let veil = ui::fading(ui::fade() * k, || iced::widget::opaque(iced::widget::mouse_area(ui::veil(theme::SCRIM)).on_press(close)));
+                let veil = ui::fading(k, || iced::widget::opaque(iced::widget::mouse_area(ui::veil(theme::SCRIM)).on_press(close)));
                 let wide = PANEL_WIDE.min((width - 32.0).max(280.0));
                 let sheet = ui::appearing(k, || {
                     let side = match sheet {

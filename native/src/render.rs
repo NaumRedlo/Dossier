@@ -55,28 +55,64 @@ fn own_face(player: &str) -> Option<PathBuf> {
     crate::worker::avatar_of(&card.avatar_url)
 }
 
+const PACE_GAP_MS: f64 = 250.0;
+const PACE_MOST: f64 = 1200.0;
+const PACE_FRAMES: f64 = 30.0;
 const STRAIN_SECTIONS: usize = 110;
 const STRAIN_REACH: usize = 3;
 
 fn pace_of(text: &str, state: &dossier_sim::GameState, mods: u32) -> Vec<(f64, f32)> {
-    let (Some(judge), Some(pace)) = (state.judge(), dossier_witness::pace::Pace::of(text, mods)) else {
+    let Some(judge) = state.judge() else {
         return Vec::new();
     };
-    judge
-        .events()
-        .iter()
-        .map(|event| {
-            let seen = judge.state_at(event.scored_ms);
-            let counts = dossier_witness::stable::Counts {
-                n300: seen.counts.count_300,
-                n100: seen.counts.count_100,
-                n50: seen.counts.count_50,
-                miss: seen.counts.count_miss,
-                ..dossier_witness::stable::Counts::default()
+    let events = judge.events();
+    let (Some(first), Some(last)) = (events.first(), events.last()) else {
+        return Vec::new();
+    };
+    let rate = dossier_witness::overlay::clock_rate(mods);
+    let step = (PACE_GAP_MS * rate).max((last.scored_ms - first.scored_ms) / PACE_MOST);
+    let times: Vec<f64> = (0..).map(|at| first.scored_ms + f64::from(at) * step).take_while(|at| *at < last.scored_ms + step).collect();
+    let threads = std::thread::available_parallelism().map_or(1, usize::from).clamp(1, 8);
+    let share = times.len().div_ceil(threads).max(1);
+    let reached: Vec<f32> = std::thread::scope(|scope| {
+        let parts: Vec<_> = times.chunks(share).map(|part| scope.spawn(move || {
+            let Some(mut pace) = dossier_witness::pace::Pace::of(text, mods) else {
+                return vec![0.0; part.len()];
             };
-            (event.scored_ms, pace.projected(counts, seen.combo, seen.max_combo) as f32)
-        })
-        .collect()
+            part.iter().map(|at| {
+                let seen = judge.state_at(*at);
+                let counts = dossier_witness::stable::Counts {
+                    n300: seen.counts.count_300,
+                    n100: seen.counts.count_100,
+                    n50: seen.counts.count_50,
+                    miss: seen.counts.count_miss,
+                    ..dossier_witness::stable::Counts::default()
+                };
+                pace.reach(counts, seen.max_combo).now as f32
+            }).collect::<Vec<f32>>()
+        })).collect();
+        parts.into_iter().flat_map(|part| part.join().unwrap_or_default()).collect()
+    });
+    chased(&times.into_iter().zip(reached).collect::<Vec<_>>(), rate)
+}
+
+fn chased(aims: &[(f64, f32)], rate: f64) -> Vec<(f64, f32)> {
+    let Some(&(first, _)) = aims.first() else {
+        return Vec::new();
+    };
+    let frame_ms = 1000.0 / PACE_FRAMES * rate;
+    let keep = 0.5f32.powf(1.0 / PACE_FRAMES as f32 / dossier_hud::RATE_HALF_LIFE);
+    let end = aims[aims.len() - 1].0 + PACE_GAP_MS * rate * 2.0;
+    let (mut out, mut shown, mut at, mut aim) = (Vec::new(), 0.0f32, first, 0);
+    while at <= end {
+        while aim + 1 < aims.len() && aims[aim + 1].0 <= at {
+            aim += 1;
+        }
+        shown = aims[aim].1 + (shown - aims[aim].1) * keep;
+        out.push((at, shown));
+        at += frame_ms;
+    }
+    out
 }
 
 fn in_points_of_the_replay(mut rivals: Vec<dossier_render::Entry>, standardised: bool, objects: usize) -> Vec<dossier_render::Entry> {
@@ -628,6 +664,19 @@ fn draw_mania(ask: &Ask, tell: &Sender<Step>, replay: &dossier_replay::Replay, b
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_video_counter_climbs_towards_the_reached_pp_as_the_overlay_does() {
+        let aims = [(0.0, 0.0), (250.0, 10.0), (500.0, 40.0), (750.0, 40.0)];
+        let seen = chased(&aims, 1.0);
+        assert_eq!(seen[0].1, 0.0);
+        assert!(seen.windows(2).all(|pair| pair[1].1 >= pair[0].1 - 0.001), "a rising play never drops");
+        let at = |ms: f64| seen.iter().find(|point| point.0 >= ms).map(|point| point.1).unwrap();
+        assert!(at(300.0) > 0.0 && at(300.0) < 10.0, "it does not jump: {}", at(300.0));
+        assert!((seen[seen.len() - 1].1 - 40.0).abs() < 0.5, "and arrives");
+        let faster = chased(&aims, 1.5);
+        assert!(faster.len() < seen.len(), "double time spends less map time per second of video");
+    }
+
     #[test]
     fn every_rival_is_shown_in_the_points_of_the_replay() {
         let rival = |stable: Option<u64>, standard: Option<u64>, score: u64| dossier_render::Entry { name: "a".into(), score, stable, standard, accuracy: None, mods: String::new(), avatar: None, cover: None };

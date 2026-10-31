@@ -258,6 +258,7 @@ fn feed_filter_switches_preserve_the_profile_column_pixels() {
     let states = gallery::main_states(Lang::Ru);
     let (_, base) = states.iter().find(|(name, _)| name == "main-community-feed").unwrap();
     let mut main = base.clone();
+    main.behind_fade = iced::Animation::new(false);
     main.width = 980.0;
     main.height = 440.0;
     let mut columns = Vec::new();

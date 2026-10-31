@@ -5,7 +5,7 @@ use iced::widget::{button, column, container, mouse_area, row, stack, Space};
 use iced::{color, Alignment, Background, Border, Color, Element, Length, Padding};
 
 use crate::duels::{Duel, Entry, Participant};
-use crate::duels_screen::{bold, clock, fa, outlined, player_face, phase_of, seconds_left, strong, words, Message, Phase, State, CLOCK, LOST, OUTLINE, ROW, SIDE_A, SIDE_B, WON};
+use crate::duels_screen::{bold, clock, fa, outlined, player_face, phase_of, seconds_left, slab_faded, strong, words, Message, Phase, State, CLOCK, LOST, OUTLINE, ROW, SIDE_A, SIDE_B, WON};
 use crate::glyphs::{glyph, Icon};
 use crate::lang::Words;
 use crate::theme::{self, FAINT, INK, MUTED};
@@ -17,18 +17,6 @@ const WAIT: Color = theme::GRADE_S;
 const GOLD: Color = color!(0xf0c040);
 const CARD_HIGH: f32 = 128.0;
 const HERO_HIGH: f32 = 230.0;
-
-fn slab_faded() -> impl Fn(&iced::Theme) -> container::Style + 'static {
-    let k = ui::fade();
-    move |theme| {
-        let mut style = theme::slab(theme);
-        if let Some(Background::Color(fill)) = style.background {
-            style.background = Some(Background::Color(Color { a: fill.a * k, ..fill }));
-        }
-        style.border.color.a *= k;
-        style
-    }
-}
 
 fn plate(fill: Color, radius: f32) -> impl Fn(&iced::Theme) -> container::Style + 'static {
     let fill = fa(fill);
@@ -268,11 +256,12 @@ fn grid<'a>(cells: Vec<Element<'a, Message>>) -> Element<'a, Message> {
 }
 
 fn edge<'a>(colour: Color, left: bool) -> Element<'a, Message> {
+    let colour = fa(colour);
     container(Space::new().width(Length::Fill).height(Length::Fill))
         .style(move |_| container::Style {
             background: Some(Background::Gradient(iced::gradient::Linear::new(iced::Radians(if left { FRAC_PI_2 } else { FRAC_PI_2 * 3.0 }))
-                .add_stop(0.0, Color { a: 0.26, ..colour })
-                .add_stop(0.16, Color { a: 0.09, ..colour })
+                .add_stop(0.0, Color { a: 0.26 * colour.a, ..colour })
+                .add_stop(0.16, Color { a: 0.09 * colour.a, ..colour })
                 .add_stop(0.34, Color { a: 0.0, ..colour })
                 .into())),
             ..container::Style::default()
@@ -689,7 +678,7 @@ fn result_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> Element<'
         rows = rows.push(made);
     }
     let verdict_wide = ui::text_width(&verdict, theme::SANS_SEMI, 64.0) + 4.0;
-    let wiped = container(iced::widget::text(verdict.clone()).size(64.0).font(theme::SANS_SEMI).color(colour).wrapping(iced::widget::text::Wrapping::None)).width(verdict_wide * span(0.38, 0.56)).clip(true);
+    let wiped = container(iced::widget::text(verdict.clone()).size(64.0).font(theme::SANS_SEMI).color(fa(colour)).wrapping(iced::widget::text::Wrapping::None)).width(verdict_wide * span(0.38, 0.56)).clip(true);
     let header_head = row![container(wiped).width(verdict_wide), ui::fading(span(0.36, 0.46), || bold(format!("{mine_wins} : {their_wins}"), 40.0, INK))].spacing(20).align_y(Alignment::End);
     let left = column![
         ui::fading(span(0.38, 0.5), || words(caption, 15.0, FAINT)),

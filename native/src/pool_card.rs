@@ -92,7 +92,7 @@ pub fn render(pool: &Pool, words: &Words, covers: &HashMap<String, image::Handle
     let size = size(pool)?;
     let settings = crate::gallery::settings_once();
     let mut renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(settings.default_font, settings.default_text_size, Some("wgpu"))).ok_or("Could not create GPU image renderer")?;
-    let mut element = crate::ui::fading(1.0, || view(pool, words, covers, backing));
+    let mut element = view(pool, words, covers, backing);
     let mut tree = Tree::new(&element);
     let node = element.as_widget_mut().layout(&mut tree, &renderer, &layout::Limits::new(size, size));
     let viewport = Rectangle::with_size(size);

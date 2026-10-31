@@ -460,7 +460,7 @@ fn notice_banner<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
         ..container::Style::default()
     }));
     let k = ground.notice_k.clamp(0.0, 1.0);
-    let shown: Element<'a, Message> = ui::fading(ui::fade() * k, || line.into());
+    let shown: Element<'a, Message> = ui::fading(k, || line.into());
     let held = container(shown).padding(Padding { top: 10.0, right: 40.0, bottom: 4.0, left: 40.0 });
     Some(ui::collapsing(held, k))
 }
@@ -843,14 +843,14 @@ fn reader<'a>(ground: &Ground<'a>, reading: &'a Reading) -> Element<'a, Message>
     let w = ground.words;
     let k = ground.read_k;
     if let Reading::Score(_) | Reading::Title { .. } = reading {
-        let sheet = ui::fading(ui::fade() * sheet_seen(k), || match reading {
+        let sheet = ui::fading(sheet_seen(k), || match reading {
             Reading::Score(scored) => crate::sheets::score(ground, scored),
             Reading::Title { code, who } => crate::sheets::title(ground, code, *who),
             _ => Space::new().into(),
         });
         return crate::unfold::unfold(sheet, None, panel_from(ground), k, Message::Unread).wide(crate::sheets::WIDE).room(STAGE_ROOM).look(stage_look()).fit().into();
     }
-    let after = ui::fading(ui::fade() * sheet_seen(k), || -> Element<'a, Message> {
+    let after = ui::fading(sheet_seen(k), || -> Element<'a, Message> {
         let picture = |url: &str| -> Element<'a, Message> {
             ui::smooth(match ground.pictures.get(&wide(url)) {
                 Some(handle) => image(handle.clone()).width(Length::Fill).content_fit(iced::ContentFit::Contain).opacity(ui::fade() * ground.picture_shown(&wide(url))).into(),
@@ -1183,7 +1183,7 @@ fn someone_card<'a>(ground: &Ground<'a>, one: &Someone<'a>, place: Option<usize>
     let cover = one.cover();
     let back = {
         let shown = ground.picture_shown(cover);
-        ui::fading(ui::fade() * shown.max(0.001), || backdrop_under(ground.pictures.get(cover), PERSON_HIGH, 14.0, avatar_colour(one.name()), true, (0.93, 0.88, 0.95)))
+        ui::fading(shown.max(0.001), || backdrop_under(ground.pictures.get(cover), PERSON_HIGH, 14.0, avatar_colour(one.name()), true, (0.93, 0.88, 0.95)))
     };
     let card = button(stack![back, container(inside).padding([14, 22]).height(PERSON_HIGH).center_y(PERSON_HIGH)])
         .padding(0)
@@ -1273,7 +1273,7 @@ const FROST_LIGHT: f32 = 0.34;
 pub(crate) fn cover_backdrop<'a>(ground: &Ground<'a>, url: &str, high: f32, radius: f32, tint: Color, across: bool) -> Element<'a, Message> {
     let cover = ground.pictures.get(url);
     let shown = ground.picture_shown(url);
-    if shown >= 0.999 { backdrop(cover, high, radius, tint, across) } else { ui::fading(ui::fade() * shown, || backdrop(cover, high, radius, tint, across)) }
+    if shown >= 0.999 { backdrop(cover, high, radius, tint, across) } else { ui::fading(shown, || backdrop(cover, high, radius, tint, across)) }
 }
 
 pub(crate) fn backdrop<'a>(handle: Option<&image::Handle>, high: f32, radius: f32, tint: Color, across: bool) -> Element<'a, Message> {
@@ -1793,7 +1793,7 @@ pub(crate) fn profile_panel<'a>(ground: &Ground<'a>, at: usize) -> Element<'a, M
     let k = ground.person_k;
     let person = &ground.catalog.people[at];
     let wide = (ground.width - STAGE_ROOM.left - STAGE_ROOM.right).clamp(640.0, 1560.0);
-    let after = ui::fading(ui::fade() * sheet_seen(k), || -> Element<'a, Message> {
+    let after = ui::fading(sheet_seen(k), || -> Element<'a, Message> {
         let own_card = if person.you { ground.card.cloned().or_else(|| ground.catalog.card_of()) } else { None };
         let person = ground.person_dossier.map(|me| &me.person).unwrap_or(person);
         let card = own_card.or_else(|| ground.person_card.cloned()).unwrap_or_else(|| crate::dossier::card_from(person));

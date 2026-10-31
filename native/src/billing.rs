@@ -642,7 +642,7 @@ fn tier_card<'a>(state: &'a State, tier: &str, name: String, words: &'a Words) -
     let rank = state.tiers().iter().position(|(other, _)| other == tier).unwrap_or(0);
     let tint = tint_at(rank);
     let Some(plan) = state.offered(tier) else {
-        let inside = column![row![ui::fading(0.5 * ui::fade(), || crate::badge::mark(Some(rank), 1, 18.0)), text(name).font(theme::SANS_SEMI).size(16.0).color(ui::faded(FAINT))].spacing(8).align_y(iced::Center), Space::new().height(Length::Fill), text(words.t("billing-month-only")).font(theme::SANS).size(14.0).color(ui::faded(FAINT))];
+        let inside = column![row![ui::fading(0.5, || crate::badge::mark(Some(rank), 1, 18.0)), text(name).font(theme::SANS_SEMI).size(16.0).color(ui::faded(FAINT))].spacing(8).align_y(iced::Center), Space::new().height(Length::Fill), text(words.t("billing-month-only")).font(theme::SANS).size(14.0).color(ui::faded(FAINT))];
         return container(ui::dashed(container(inside).padding(16).width(Length::Fill).height(TIER_HIGH), 16.0, Color::from_rgba(1.0, 1.0, 1.0, 0.2 * k))).width(Length::FillPortion(1)).into();
     };
     let chosen = state.tier.as_deref() == Some(tier);

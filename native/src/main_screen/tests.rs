@@ -873,7 +873,7 @@ fn the_refresh_button_goes_from_ready_to_running_to_done_and_back_and_a_refused_
 
     let _ = main.update(super::Message::Community(crate::community_screen::Message::Reconnect));
     assert_eq!(main.overlay, super::Overlay::Settings);
-    assert_eq!(main.section, crate::settings_screen::Section::Device);
+    assert_eq!(main.side, super::Side::Bot);
 }
 
 #[test]
@@ -1845,4 +1845,66 @@ fn a_full_scene_shelf_keeps_the_scene_on_screen() {
     }
     assert!(main.scenes.contains_key(&shown));
     assert!(main.scenes.len() <= 26);
+}
+
+#[test]
+fn the_fan_stays_a_moment_after_the_cursor_leaves_and_a_return_keeps_it_open() {
+    use std::time::{Duration, Instant};
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-community-feed").expect("a frame");
+    let _ = main.update(super::Message::SideOpen(true));
+    assert!(main.side_open.value());
+    let _ = main.update(super::Message::SideOpen(false));
+    assert!(main.side_open.value(), "the fan shut at once");
+    let _ = main.update(super::Message::SideOpen(true));
+    let _ = main.update(super::Message::Tick(Instant::now() + super::SIDE_STAYS * 2));
+    assert!(main.side_open.value(), "a return of the cursor did not keep the fan open");
+    let _ = main.update(super::Message::SideOpen(false));
+    let _ = main.update(super::Message::Tick(Instant::now() + super::SIDE_STAYS + Duration::from_millis(30)));
+    assert!(!main.side_open.value(), "the fan never shut");
+}
+
+#[test]
+fn a_page_leaves_nothing_behind_once_it_has_faded_out() {
+    let dir = std::env::temp_dir().join(format!("dossier-leaving-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a folder");
+    let shot = |main: &super::Main, name: &str| {
+        let stem = dir.join(name);
+        let size = iced::Size::new(1280.0, 800.0);
+        crate::gallery::snapshot_main(main, size).expect("a frame").matches_image(&stem).expect("written");
+        let path = crate::gallery::written_as(&stem);
+        let image = ::image::open(&path).expect("a picture").to_rgba8();
+        let _ = std::fs::remove_file(path);
+        image
+    };
+    let mut left: Vec<String> = Vec::new();
+    for (name, base) in crate::gallery::main_states(crate::lang::Lang::En) {
+        const PAGES: [&str; 14] = ["main-community-duel-watch", "main-prefs", "main-videos", "main-community-feed", "main-community-profile", "main-community-sidebar", "main-community-people", "main-community-boards", "main-community-titles", "main-community-pools", "main-community-duels", "main-community-duel-room", "main-community-duel-draft", "main-community-duel-result"];
+        if !PAGES.contains(&name.as_str()) {
+            continue;
+        }
+        let mut gone = base.clone();
+        gone.width = 1280.0;
+        gone.height = 800.0;
+        gone.overlay_fade = iced::Animation::new(false);
+        let mut empty = gone.clone();
+        empty.overlay = super::Overlay::None;
+        empty.overlay_drawn = super::Overlay::None;
+        *empty.duels = Default::default();
+        let (seen, bare) = (shot(&gone, &format!("{name}-gone")), shot(&empty, &format!("{name}-bare")));
+        let below_the_bar = 2 * (crate::theme::CONTROL_HEIGHT as u32 + 26);
+        let mut rows: std::collections::BTreeMap<u32, (u32, u32, u8, u32)> = Default::default();
+        for (x, y, pixel) in seen.enumerate_pixels().filter(|(_, y, _)| *y >= below_the_bar) {
+            let other = bare.get_pixel(x, y);
+            let most = pixel.0.iter().zip(other.0.iter()).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+            if most > 8 {
+                let band = y / 100 * 100;
+                let was = rows.entry(band).or_insert((x, x, most, 0));
+                *was = (was.0.min(x), was.1.max(x), was.2.max(most), was.3 + 1);
+            }
+        }
+        if !rows.is_empty() {
+            left.push(format!("{name}: {rows:?}"));
+        }
+    }
+    assert!(left.is_empty(), "these pages stay on screen after they fade out: {left:#?}");
 }

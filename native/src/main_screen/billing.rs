@@ -7,7 +7,7 @@ impl Main {
         }
         let k = self.billing.fade.interpolate(0.0, 1.0, self.now);
         let eased = 1.0 - (1.0 - k).powi(3);
-        ui::fading(ui::fade() * k, || {
+        ui::fading(k, || {
             let card = crate::billing::sheet(&self.billing, &self.words, self.signed_in(), self.now_unix).map(Message::Billing);
             stack![
                 iced::widget::opaque(mouse_area(ui::veil(theme::SCRIM)).on_press(Message::Billing(crate::billing::Message::Close))),

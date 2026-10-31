@@ -1,5 +1,5 @@
 use dossier_native::settings::Effect;
-use dossier_native::{gallery, lang::Lang, main_screen::{Main, Message as M, Overlay}, settings_screen::{Message as P, Section as Side}, community_screen::{Message as C, Section, Standing}};
+use dossier_native::{gallery, lang::Lang, main_screen::{Main, Message as M, Overlay}, settings_screen::{Message as P, Side}, community_screen::{Message as C, Section, Standing}};
 use iced::{Size, Point};
 use iced_test::Simulator;
 use iced_test::Selector;
@@ -7,17 +7,6 @@ use iced_test::Selector;
 fn top_label(mut label: &str) -> impl Selector<Output = iced_test::selector::Text> + '_ {
     move |candidate: iced_test::selector::Candidate<'_>| {
         (candidate.bounds().y < 70.0).then(|| label.select(candidate)).flatten()
-    }
-}
-
-fn show_in_tile(ui: &mut Simulator<'_, dossier_native::Message>, tile: &str, label: &str) {
-    let square = ui.find(iced::widget::Id::from(format!("tile-{tile}"))).unwrap().visible_bounds();
-    let Some(square) = square else { return };
-    let wanted = ui.find(label.to_owned()).unwrap().bounds();
-    let y = wanted.y - square.y - 20.0;
-    if y > 0.0 {
-        ui.point_at(Point::new(square.center_x(), square.center_y()));
-        let _ = ui.simulate([iced::Event::Mouse(iced::mouse::Event::WheelScrolled { delta: iced::mouse::ScrollDelta::Pixels { x: 0.0, y: -y } })]);
     }
 }
 
@@ -34,11 +23,11 @@ fn navigation_and_section_tabs_fit_and_route_in_both_languages() {
     let backdrop = dossier_native::ui::backdrop_handle();
     for lang in Lang::ALL {
         for width in [980.0, 1060.0, 1200.0, 1440.0] {
-            let side = dossier_native::sidebar::NARROW;
             for name in ["main-community-profile", "main-prefs"] {
-                let main = staged(lang, name, width);
+                let mut main = staged(lang, name, width);
+                main.side_open = iced::Animation::new(true);
                 let parts: Vec<(&str, M)> = if name == "main-prefs" {
-                    vec![("look", M::Prefs(P::Section(Side::Look))), ("video", M::Prefs(P::Section(Side::Video))), ("account", M::Prefs(P::Section(Side::Account))), ("system", M::Prefs(P::Section(Side::System)))]
+                    vec![("app-side", M::Prefs(P::Side(Side::App))), ("bot-side", M::Prefs(P::Side(Side::Bot)))]
                 } else {
                     vec![
                         ("profile", M::Community(C::Go(Section::Profile, None))),
@@ -52,8 +41,7 @@ fn navigation_and_section_tabs_fit_and_route_in_both_languages() {
                 for (key, expected) in parts {
                     let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, 720.0), gallery::main_frame(&main, &backdrop));
                     let bounds = ui.find(iced::widget::Id::from(format!("side-{key}"))).unwrap_or_else(|_| panic!("{lang:?} {name} {width}: no {key} in the sidebar")).bounds();
-                    let rail = if name == "main-prefs" { dossier_native::sidebar::WIDE } else { side };
-                    assert!(bounds.x >= 0.0 && bounds.x + bounds.width <= rail + 1.0, "{lang:?} {width}: {key} leaves the sidebar: {bounds:?}");
+                    assert!(bounds.x >= 0.0 && bounds.x + bounds.width <= dossier_native::sidebar::WIDE + 1.0, "{lang:?} {width}: {key} leaves the sidebar: {bounds:?}");
                     assert!(bounds.y >= previous_bottom, "{lang:?} {width}: {key} overlaps the item above: {bounds:?}");
                     previous_bottom = bounds.y + bounds.height;
                     ui.point_at(Point::new(bounds.x + bounds.width / 2.0, bounds.y + bounds.height / 2.0));
@@ -95,13 +83,7 @@ fn settings_switches_request_the_opposite_value_after_tiles_are_reordered() {
                 ("builds", vec![("quiet-updates", P::QuietUpdates(!on))]),
             ] {
                 let mut main = staged(lang, "main-prefs", 980.0);
-                main.section = match tile {
-                    "play" => Side::Playback,
-                    "elements" => Side::Video,
-                    "sources" => Side::Library,
-                    "builds" => Side::System,
-                    _ => Side::Look,
-                };
+                main.settings.tiles_app = vec![tile.to_owned()];
                 main.settings.live_scene = on;
                 main.settings.pause_unfocused = on;
                 main.settings.auto_flip = on;
@@ -118,40 +100,14 @@ fn settings_switches_request_the_opposite_value_after_tiles_are_reordered() {
                 }
                 for (key, expected) in controls {
                     let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
-                    show_in_tile(&mut ui, tile, &main.words.t(key));
                     ui.click(main.words.t(key)).unwrap();
                     let messages: Vec<_> = ui.into_messages().collect();
-                    assert!(!messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Prefs(P::Moved(..))))), "clicking a switch must not drag its tile");
                     assert!(messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Prefs(actual)) if format!("{actual:?}") == format!("{expected:?}"))), "{lang:?} {key} {on}: {messages:?}");
+                    assert!(!messages.iter().any(|message| matches!(message, dossier_native::Message::Main(M::Prefs(P::Moved(..))))), "clicking a switch must not drag its tile");
                 }
             }
         }
     }
-}
-
-#[test]
-fn a_settings_tile_moves_by_its_empty_part_and_keeps_its_square() {
-    let backdrop = dossier_native::ui::backdrop_handle();
-    let main = staged(Lang::En, "main-prefs-system", 1280.0);
-    let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(1280.0, 800.0), gallery::main_frame(&main, &backdrop));
-    let storage = ui.find(iced::widget::Id::new("tile-storage")).unwrap().bounds();
-    let builds = ui.find(iced::widget::Id::new("tile-builds")).unwrap().bounds();
-    assert_eq!(storage.width.round(), builds.width.round());
-    assert_eq!(storage.height.round(), builds.height.round());
-    assert!((storage.width - storage.height).abs() < 40.0, "the padding aside, a tile is square: {storage:?}");
-    let from = Point::new(builds.x + builds.width - 4.0, builds.y + builds.height - 4.0);
-    let to = Point::new(storage.x + 8.0, storage.center_y());
-    let now = std::time::Instant::now();
-    ui.point_at(from);
-    ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(now)), iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left))]);
-    ui.point_at(to);
-    ui.simulate([
-        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: to }),
-        iced::Event::Window(iced::window::Event::RedrawRequested(now + std::time::Duration::from_millis(100))),
-        iced::Event::Window(iced::window::Event::RedrawRequested(now + std::time::Duration::from_millis(220))),
-        iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)),
-    ]);
-    assert!(ui.into_messages().any(|message| matches!(message, dossier_native::Message::Main(M::Prefs(P::Moved(dossier_native::settings_screen::Tile::Builds, _))))));
 }
 
 #[test]
@@ -195,7 +151,7 @@ fn language_source_and_chat_choices_route_to_the_exact_item() {
     let backdrop = dossier_native::ui::backdrop_handle();
     for lang in Lang::ALL {
         let mut main = staged(lang, "main-prefs", 980.0);
-        main.section = Side::Look;
+        main.settings.tiles_app = vec!["language".to_owned(), "sources".to_owned()];
         main.settings.sources = [dossier_native::sources::Kind::Stable, dossier_native::sources::Kind::Lazer].into_iter().enumerate().map(|(at, kind)| dossier_native::sources::Source {
             kind, root: std::path::PathBuf::from(format!("/switch-test/game-{at}")), songs: None, skins: None, replays: None,
             maps: None, skin_count: 0, replay_count: 0, scores: 0, on: true,
@@ -205,7 +161,6 @@ fn language_source_and_chat_choices_route_to_the_exact_item() {
             ui.click(label).unwrap();
             assert!(ui.into_messages().any(|message| matches!(message, dossier_native::Message::Main(M::Prefs(P::PickLang(actual))) if actual == selected)));
         }
-        main.section = Side::Library;
         for on in [false, true] {
             for at in 0..main.settings.sources.len() {
                 main.settings.sources[at].on = on;
@@ -216,7 +171,7 @@ fn language_source_and_chat_choices_route_to_the_exact_item() {
             }
         }
         let mut main = staged(lang, "main-prefs-bot", 980.0);
-        main.section = Side::Account;
+        main.settings.tiles_bot = vec!["chats".to_owned()];
         assert!(!main.chats.is_empty(), "the fixture must exercise real chat choices");
         for chat in &main.chats {
             let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
@@ -233,14 +188,13 @@ fn the_sidebar_gives_its_words_room_only_while_it_is_open() {
         let mut main = staged(lang, "main-community-feed", 980.0);
         let feed = main.words.t("community-feed");
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
-        let shut = ui.find(iced::widget::Id::new("side-feed")).unwrap().bounds();
-        assert!(shut.x + shut.width <= dossier_native::sidebar::NARROW + 1.0, "{lang:?}: a closed sidebar is {shut:?}");
+        let shut = ui.find(iced::widget::Id::new("side-feed")).map(|found| found.bounds().width).unwrap_or(0.0);
+        assert!(shut <= 1.0, "{lang:?}: a closed sidebar is {shut} wide");
         assert!(ui.find(feed.as_str()).is_err(), "{lang:?}: a closed sidebar shows its words");
         drop(ui);
         main.side_open = iced::Animation::new(true);
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
         let open = ui.find(iced::widget::Id::new("side-feed")).unwrap().bounds();
-        assert!(open.y == shut.y && open.height == shut.height, "{lang:?}: opening moved the icon from {shut:?} to {open:?}");
         assert!(open.x + open.width > dossier_native::sidebar::NARROW + 40.0 && open.x + open.width <= dossier_native::sidebar::WIDE + 1.0, "{lang:?}: an open sidebar is {open:?}");
         let words = ui.find(feed.as_str()).unwrap().bounds();
         assert!(words.x > open.x && words.x + words.width <= open.x + open.width, "{lang:?}: {feed} sits outside its item: {words:?} in {open:?}");
@@ -256,7 +210,8 @@ fn the_sidebar_gives_its_words_room_only_while_it_is_open() {
 fn a_sidebar_icon_is_dragged_above_its_neighbour_and_a_drag_is_not_a_click() {
     use iced::{mouse, window, Event};
     let backdrop = dossier_native::ui::backdrop_handle();
-    let main = staged(Lang::En, "main-community-feed", 980.0);
+    let mut main = staged(Lang::En, "main-community-feed", 980.0);
+    main.side_open = iced::Animation::new(true);
     let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
     let feed = ui.find(iced::widget::Id::new("side-feed")).unwrap().bounds();
     let profile = ui.find(iced::widget::Id::new("side-profile")).unwrap().bounds();
@@ -277,15 +232,14 @@ fn a_sidebar_icon_is_dragged_above_its_neighbour_and_a_drag_is_not_a_click() {
 }
 
 #[test]
-fn a_lone_private_chat_leaves_the_chat_tile_beside_the_account() {
+fn a_lone_private_chat_keeps_the_chat_tile_beside_another() {
     let backdrop = dossier_native::ui::backdrop_handle();
     for lang in Lang::ALL {
         let mut main = staged(lang, "main-prefs-bot", 980.0);
         main.chats.clear();
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(980.0, 720.0), gallery::main_frame(&main, &backdrop));
-        let account = ui.find(main.words.t("account").as_str()).unwrap().bounds();
         let chats = ui.find(main.words.t("videos-go-to").as_str()).unwrap().bounds();
-        assert!((account.y - chats.y).abs() < 1.0 && chats.x > account.x, "{lang:?}: the chat tile took a row of its own: {chats:?} beside {account:?}");
+        assert!(chats.x > 200.0, "{lang:?}: the chat tile took a row of its own: {chats:?}");
     }
 }
 

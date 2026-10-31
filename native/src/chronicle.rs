@@ -753,7 +753,7 @@ fn in_the_fade(ground: &Ground<'_>, key: u64) -> Option<(f32, f32)> {
 
 fn at_the_top<'a>(ground: &Ground<'a>, (at, full): (f32, f32), build: &dyn Fn() -> Element<'a, Message>) -> Element<'a, Message> {
     let reach = (ground.feed_offset / ui::TOP_FADE_ONSET).clamp(0.0, 1.0);
-    ui::top_faded(at, full, reach, |alpha| if alpha < 1.0 { ui::fading(ui::fade() * alpha, build) } else { build() })
+    ui::top_faded(at, full, reach, |alpha| if alpha < 1.0 { ui::fading(alpha, build) } else { build() })
 }
 
 fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], rows: usize, t: f32, from: usize, draw: impl Fn(&Event<'a>) -> Option<Element<'a, Message>>) -> Vec<Element<'a, Message>> {
@@ -782,7 +782,7 @@ fn by_day<'a>(ground: &Ground<'a>, list: &[Event<'a>], rows: usize, t: f32, from
         let k = open.min(ui::appear(t, from + out.len()));
         let key = key_of(event.key(ground.catalog));
         let place = in_the_fade(ground, key).filter(|_| k >= 0.999 && open >= 0.999);
-        let made = if k >= 0.999 { draw(event) } else { ui::fading(ui::fade() * k, || draw(event)) };
+        let made = if k >= 0.999 { draw(event) } else { ui::fading(k, || draw(event)) };
         if let Some(made) = made {
             out.push(ui::noted(key, match place {
                 Some(place) => at_the_top(ground, place, &|| spaced(draw(event).unwrap_or_else(|| Space::new().into()))),
@@ -827,13 +827,14 @@ fn refresh_button<'a>(ground: &Ground<'a>) -> Option<Element<'a, Message>> {
     };
     let mark: Element<'a, Message> = match pulse {
         screen::Pulse::Idle => glyph(Icon::Refresh, 16.0, MUTED),
-        screen::Pulse::Running => container(
-            container(Space::new()).width(7.0).height(7.0).style(|_| container::Style {
-                background: Some(Background::Color(ui::faded(ACCENT))),
+        screen::Pulse::Running => container({
+            let lit = ui::faded(ACCENT);
+            container(Space::new()).width(7.0).height(7.0).style(move |_| container::Style {
+                background: Some(Background::Color(lit)),
                 border: Border { radius: 3.5.into(), ..Border::default() },
                 ..container::Style::default()
-            }),
-        )
+            })
+        })
         .center(16.0)
         .into(),
         screen::Pulse::Done => glyph(Icon::Check, 16.0, ACCENT),
@@ -966,7 +967,7 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
     }
 
     let filters_k = 1.0 - (ground.feed_offset / ui::TOP_FADE_ONSET).clamp(0.0, 1.0) * (1.0 - ((FILTERS_HIGH - ground.feed_offset) / FILTERS_HIGH).clamp(0.0, 1.0));
-    let top: Element<'a, Message> = ui::fading(ui::fade() * filters_k, || {
+    let top: Element<'a, Message> = ui::fading(filters_k, || {
     let filters = screen::segmented_compact(Filter::ALL.iter().map(|filter| (w.t(filter.key()), ground.filter == *filter, Message::Filter(*filter))).collect());
     let mut top = row![filters, ui::grow()].spacing(10).align_y(iced::Center);
     if let Some(refresh) = refresh_button(ground) {

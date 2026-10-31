@@ -166,7 +166,7 @@ impl Main {
                 (None, Some(coming)) => coming.interpolate(0.0, 1.0, self.now),
                 _ => 1.0,
             };
-            let tile = ui::fading(ui::fade() * alive, || {
+            let tile = ui::fading(alive, || {
                 ui::grown(self.notification_card(notice, None, BELL_W - 32.0), Point::new(1.0, 0.5), 0.0, 1.0)
             });
             let going = self.leaving.contains_key(&notice.id);
@@ -184,7 +184,7 @@ impl Main {
         };
         let w = &self.words;
         let k = self.error_fade.interpolate(0.0, 1.0, self.now);
-        ui::fading(ui::fade() * k, || {
+        ui::fading(k, || {
             let fade = ui::fade();
             let mark = container(text("!").font(theme::MONO_BOLD).size(20.0).color(ui::faded(Color::WHITE)))
                 .center(40.0)
@@ -274,7 +274,7 @@ impl Main {
         for toast in &self.toasts {
             let Some(notice) = self.notices.get(toast.id) else { continue; };
             let k = toast.shown.interpolate(0.0, 1.0, self.now);
-            let sensed = ui::fading(ui::fade() * k, || {
+            let sensed = ui::fading(k, || {
                 ui::grown(mouse_area(iced::widget::opaque(self.notification_card(notice, Some(toast), width)))
                     .on_enter(Message::ToastHover(toast.id, true)).on_exit(Message::ToastHover(toast.id, false)),
                     Point::new(1.0, 0.5), 0.0, 1.0)

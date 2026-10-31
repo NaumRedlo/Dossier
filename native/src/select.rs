@@ -94,8 +94,8 @@ const BACKING: Color = Color::from_rgba(0.024, 0.008, 0.016, 0.72);
 const SCRIM: Color = theme::GROUND;
 const PANEL: Color = Color::from_rgb(0.055, 0.022, 0.031);
 
-fn paint(colour: Color) -> Color {
-    Color { a: colour.a * ui::fade(), ..colour }
+fn fade_by(k: f32, colour: Color) -> Color {
+    Color { a: colour.a * k, ..colour }
 }
 
 fn gently(k: f32) -> f32 {
@@ -462,7 +462,7 @@ impl Main {
         let list = container(list).padding(Padding { top: self.list_top(), right: 0.0, bottom: 0.0, left: 0.0 }).width(wide).height(Length::Fill);
         let search_k = self.search_amount();
         let left: Element<'_, Message> = if search_k > 0.001 || self.search_shown() {
-            let search = ui::fading(ui::fade() * search_k, || self.filters(&laid));
+            let search = ui::fading(search_k, || self.filters(&laid));
             let search = ui::grown(search, Point::new(0.5, 0.0), 0.0, 0.97 + 0.03 * search_k);
             let search = container(search).padding(Padding { top: TOP, right: 0.0, bottom: 0.0, left: 0.0 }).width(wide);
             stack![list, search].width(wide).height(Length::Fill).into()
@@ -498,10 +498,10 @@ impl Main {
             .width(Length::Fill)
             .style(ui::bare_input(ui::fade()));
         let found = text(w.count("replays-count", laid.order.len() as u64)).font(theme::MONO).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED));
-        let escape = container(text("Esc").font(theme::MONO).size(11.0).color(ui::faded(FAINT))).padding([1, 6]).style(|_| container::Style {
-            border: Border { color: crate::theme::outline(paint(Color::from_rgba(1.0, 1.0, 1.0, 0.085))), width: 1.0, radius: 6.0.into() },
+        let escape = container(text("Esc").font(theme::MONO).size(11.0).color(ui::faded(FAINT))).padding([1, 6]).style({ let k = ui::fade(); move |_| container::Style {
+            border: Border { color: crate::theme::outline(fade_by(k, Color::from_rgba(1.0, 1.0, 1.0, 0.085))), width: 1.0, radius: 6.0.into() },
             ..container::Style::default()
-        });
+        } });
         let open = self.filters_open;
         let sliders = button(container(crate::glyphs::glyph(crate::glyphs::Icon::Sliders, 16.0, INK)).center(SEARCH_H - 10.0))
             .padding(0)
@@ -552,7 +552,7 @@ impl Main {
         .wrap()
         .vertical_spacing(6);
         let reset = row![ui::grow(), ui::quiet(w.t("filters-reset"), Some(Message::FiltersReset))];
-        let panel = ui::fading(ui::fade() * panel_k, || ui::glass_clear(container(column![
+        let panel = ui::fading(panel_k, || ui::glass_clear(container(column![
             stars_row,
             column![caption("filter-sort"), sorts].spacing(8),
             column![caption("filter-group"), groups].spacing(8),
@@ -643,7 +643,7 @@ impl Main {
             };
             let place = |alpha: f32| -> Element<'_, Message> {
                 let shown = unfold * squeeze * alpha;
-                let built = if shown < 1.0 { ui::fading(ui::fade() * shown, build) } else { build() };
+                let built = if shown < 1.0 { ui::fading(shown, build) } else { build() };
                 let built: Element<'_, Message> = if squeeze < 1.0 {
                     ui::grown(built, Point::new(0.0, toward), 0.0, SQUEEZED + (1.0 - SQUEEZED) * squeeze).into()
                 } else {
@@ -665,11 +665,11 @@ impl Main {
         let mut trays = iced::widget::Stack::new().width(Length::Fill).height(Length::Fill);
         for (from, bottom, right) in backs {
             let tall = (bottom - from + BACKING_BOTTOM).max(0.0);
-            let tray = container(Space::new().width(Length::Fill).height(tall)).width(Length::Fill).height(tall).style(|_| container::Style {
-                background: Some(Background::Color(paint(BACKING))),
+            let tray = container(Space::new().width(Length::Fill).height(tall)).width(Length::Fill).height(tall).style({ let k = ui::fade(); move |_| container::Style {
+                background: Some(Background::Color(fade_by(k, BACKING))),
                 border: Border { radius: iced::border::Radius { top_left: 0.0, top_right: 12.0, bottom_right: 12.0, bottom_left: 0.0 }, ..Border::default() },
                 ..container::Style::default()
-            });
+            } });
             let tray = container(tray).padding(Padding { top: 0.0, right, bottom: 0.0, left: 0.0 }).width(Length::Fill);
             trays = trays.push(iced::widget::pin(tray).width(Length::Fill).height(Length::Fill).x(-1.0).y(from));
         }
@@ -691,20 +691,20 @@ impl Main {
         for index in 0..SKELETON_ROWS {
             let away = (index as f32 - SKELETON_ROWS as f32 / 2.0).abs().min(carousel::ARC_STEPS as f32);
             let fade = 1.0 - index as f32 / (SKELETON_ROWS as f32 * 1.4);
-            let line = |wide: f32, tall: f32| container(Space::new().width(wide).height(tall)).style(move |_| container::Style {
-                background: Some(Background::Color(paint(Color { a: fade, ..ui::mix(PANEL, Color::WHITE, 0.07) }))),
+            let line = |wide: f32, tall: f32| container(Space::new().width(wide).height(tall)).style({ let k = ui::fade(); move |_| container::Style {
+                background: Some(Background::Color(fade_by(k, Color { a: fade, ..ui::mix(PANEL, Color::WHITE, 0.07) }))),
                 border: Border { radius: (tall / 2.0).into(), ..Border::default() },
                 ..container::Style::default()
-            });
+            } });
             let card = container(column![line(150.0 + (index % 3) as f32 * 40.0, 12.0), line(90.0, 9.0)].spacing(10))
                 .padding(Padding { top: 0.0, right: 20.0, bottom: 0.0, left: SIDE })
                 .center_y(64.0)
                 .width(Length::Fill)
-                .style(move |_| container::Style {
-                    background: Some(Background::Color(paint(Color { a: 0.9 * fade, ..CARD }))),
-                    border: Border { color: crate::theme::outline(paint(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * fade))), width: 1.0, radius: iced::border::Radius { top_left: 0.0, top_right: 12.0, bottom_right: 12.0, bottom_left: 0.0 } },
+                .style({ let k = ui::fade(); move |_| container::Style {
+                    background: Some(Background::Color(fade_by(k, Color { a: 0.9 * fade, ..CARD }))),
+                    border: Border { color: crate::theme::outline(fade_by(k, Color::from_rgba(1.0, 1.0, 1.0, 0.07 * fade))), width: 1.0, radius: iced::border::Radius { top_left: 0.0, top_right: 12.0, bottom_right: 12.0, bottom_left: 0.0 } },
                     ..container::Style::default()
-                });
+                } });
             list = list.push(container(card).padding(Padding { top: 0.0, right: away * carousel::ARC_STEP, bottom: 0.0, left: 0.0 }).width(Length::Fill));
         }
         container(list).width(Length::Fill).height(Length::Fill).into()
@@ -725,15 +725,15 @@ impl Main {
             (None, None) => Space::new().width(Length::Fill).height(height).into(),
         };
         let backdrop = container(picture).padding(Padding { top: 1.0, right: 1.0, bottom: 1.0, left: 0.0 }).width(Length::Fill).height(height);
-        let scrim = container(Space::new().width(Length::Fill).height(height)).style(|_| container::Style {
+        let scrim = container(Space::new().width(Length::Fill).height(height)).style({ let k = ui::fade(); move |_| container::Style {
             background: Some(Background::Gradient(iced::Gradient::Linear(
                 iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2))
-                    .add_stop(0.0, paint(Color { a: 0.62, ..SCRIM }))
-                    .add_stop(0.45, paint(Color { a: 0.42, ..SCRIM }))
-                    .add_stop(1.0, paint(Color { a: 0.0, ..SCRIM })),
+                    .add_stop(0.0, fade_by(k, Color { a: 0.62, ..SCRIM }))
+                    .add_stop(0.45, fade_by(k, Color { a: 0.42, ..SCRIM }))
+                    .add_stop(1.0, fade_by(k, Color { a: 0.0, ..SCRIM })),
             ))),
             ..container::Style::default()
-        });
+        } });
         let shown_title = if title.is_empty() { w.t("unknown-map") } else { title.to_owned() };
         let mut words = column![text(shown_title).font(theme::SANS_SEMI).size(theme::LEAD).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(2);
         if !under.is_empty() {
@@ -745,11 +745,11 @@ impl Main {
         }
         let count_chip = container(text(count.to_string()).font(theme::MONO_BOLD).size(theme::CAPTION).color(ui::faded(INK)))
             .padding([4, 8])
-            .style(|_| container::Style {
-                background: Some(Background::Color(paint(Color { a: 0.92, ..PANEL }))),
+            .style({ let k = ui::fade(); move |_| container::Style {
+                background: Some(Background::Color(fade_by(k, Color { a: 0.92, ..PANEL }))),
                 border: Border { radius: 12.0.into(), ..Border::default() },
                 ..container::Style::default()
-            });
+            } });
         let tail: Element<'_, Message> = if marks.is_empty() {
             count_chip.into()
         } else {
@@ -768,11 +768,11 @@ impl Main {
             }
             container(icons)
                 .padding([4, 7])
-                .style(|_| container::Style {
-                    background: Some(Background::Color(paint(Color { a: 0.92, ..PANEL }))),
+                .style({ let k = ui::fade(); move |_| container::Style {
+                    background: Some(Background::Color(fade_by(k, Color { a: 0.92, ..PANEL }))),
                     border: Border { radius: 12.0.into(), ..Border::default() },
                     ..container::Style::default()
-                })
+                } })
                 .into()
         };
         inside = inside.push(container(words).width(Length::Fill).clip(true)).push(tail);
@@ -835,11 +835,11 @@ impl Main {
         let mut inside = row![rank, container(column![name, sub].spacing(2)).width(Length::Fill).clip(true)].spacing(14).align_y(iced::Center);
         if self.group != Group::Maps {
             let colour = rating.map_or(MUTED, |r| crate::dossier::star_colour(r.stars as f32));
-            let mark = container(canvas(ModeMark { colour, mania: entry.mania.is_some(), alpha: ui::fade() }).width(MARK).height(MARK)).padding(5).style(|_| container::Style {
-                background: Some(Background::Color(paint(Color { a: 0.92, ..PANEL }))),
+            let mark = container(canvas(ModeMark { colour, mania: entry.mania.is_some(), alpha: ui::fade() }).width(MARK).height(MARK)).padding(5).style({ let k = ui::fade(); move |_| container::Style {
+                background: Some(Background::Color(fade_by(k, Color { a: 0.92, ..PANEL }))),
                 border: Border { radius: 14.0.into(), ..Border::default() },
                 ..container::Style::default()
-            });
+            } });
             inside = inside.push(mark);
         }
         let inside = if self.group == Group::Flat { inside } else { inside.push(numbers) };
@@ -923,13 +923,13 @@ impl Main {
                 None => Space::new().width(Length::Fill).height(Length::Fill).into(),
             },
         };
-        let screen = container(ui::clipped(screen)).padding(1).width(wide).height(tall).style(|_| container::Style {
-            background: Some(Background::Color(paint(PANEL))),
-            border: Border { color: crate::theme::outline(paint(Color::from_rgba(1.0, 1.0, 1.0, 0.05))), width: 1.0, radius: theme::CARD_RADIUS.into() },
+        let screen = container(ui::clipped(screen)).padding(1).width(wide).height(tall).style({ let k = ui::fade(); move |_| container::Style {
+            background: Some(Background::Color(fade_by(k, PANEL))),
+            border: Border { color: crate::theme::outline(fade_by(k, Color::from_rgba(1.0, 1.0, 1.0, 0.05))), width: 1.0, radius: theme::CARD_RADIUS.into() },
             ..container::Style::default()
-        });
+        } });
         let rating = self.ratings.known.get(&entry.replay_hash).copied();
-        let told = ui::fade() * (TOLD_FLOOR + (1.0 - TOLD_FLOOR) * self.told.interpolate(0.0, 1.0, self.now));
+        let told = TOLD_FLOOR + (1.0 - TOLD_FLOOR) * self.told.interpolate(0.0, 1.0, self.now);
         let (head, stats) = ui::fading(told, || {
             let mut name = row![text(entry.player.clone()).font(theme::SANS_SEMI).size(24.0 * grow).wrapping(text::Wrapping::None).color(ui::faded(INK))].spacing(10).align_y(iced::Center);
             for acronym in entry.mods.iter().filter(|acronym| crate::modicons::shown(acronym)) {
@@ -997,11 +997,11 @@ impl Main {
                 .padding([12.0 * grow, 12.0 * grow])
                 .width(Length::FillPortion(share))
                 .height(STATS_H * grow)
-                .style(|_| container::Style {
-                    background: Some(Background::Color(paint(CARD))),
-                    border: Border { color: crate::theme::outline(paint(Color::from_rgba(1.0, 1.0, 1.0, 0.05))), width: 1.0, radius: theme::CARD_RADIUS.into() },
+                .style({ let k = ui::fade(); move |_| container::Style {
+                    background: Some(Background::Color(fade_by(k, CARD))),
+                    border: Border { color: crate::theme::outline(fade_by(k, Color::from_rgba(1.0, 1.0, 1.0, 0.05))), width: 1.0, radius: theme::CARD_RADIUS.into() },
                     ..container::Style::default()
-                })
+                } })
                 .into()
         };
         let spread = |top: Element<'a, Message>, middle: Element<'a, Message>, bottom: Element<'a, Message>| -> Element<'a, Message> {
@@ -1063,10 +1063,11 @@ impl Main {
         if video.is_none() {
             list = list.push(container(text(w.t("share-needs-video")).font(theme::SANS).size(theme::CAPTION).color(ui::faded(FAINT))).padding([6, 12]));
         }
-        let menu = container(list).padding(4).width(240.0).style(|_| container::Style {
-            background: Some(Background::Color(Color { a: ui::fade(), ..Color::from_rgb(0.09, 0.027, 0.043) })),
-            border: Border { color: crate::theme::outline(paint(Color::from_rgba(1.0, 1.0, 1.0, 0.07))), width: 1.0, radius: 10.0.into() },
-            shadow: iced::Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45 * ui::fade()), offset: Vector::new(0.0, 16.0), blur_radius: 40.0 },
+        let k = ui::fade();
+        let menu = container(list).padding(4).width(240.0).style(move |_| container::Style {
+            background: Some(Background::Color(Color { a: k, ..Color::from_rgb(0.09, 0.027, 0.043) })),
+            border: Border { color: crate::theme::outline(Color::from_rgba(1.0, 1.0, 1.0, 0.07 * k)), width: 1.0, radius: 10.0.into() },
+            shadow: iced::Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.45 * k), offset: Vector::new(0.0, 16.0), blur_radius: 40.0 },
             ..container::Style::default()
         });
         let veil = mouse_area(Space::new().width(Length::Fill).height(Length::Fill)).on_press(Message::ShareMenu(false));

@@ -86,9 +86,9 @@ impl Main {
         let opened = self.stage_open.interpolate(0.0, 1.0, self.now);
         let shown = !self.mini_player && opened > 0.001;
         let stage: Element<'_, Message> = match (&self.player, self.open_video.and_then(|at| self.store.videos.get(at)), self.sharing.opened()) {
-            (Some(player), Some(video), _) if shown => ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.video_bill(video))),
-            (Some(player), None, Some(got)) if shown => ui::fading(ui::fade() * opened, || self.stage(&player.borrow(), self.received_bill(got))),
-            (None, None, Some(got)) if shown => ui::fading(ui::fade() * opened, || self.received_stage(got)),
+            (Some(player), Some(video), _) if shown => ui::fading(opened, || self.stage(&player.borrow(), self.video_bill(video))),
+            (Some(player), None, Some(got)) if shown => ui::fading(opened, || self.stage(&player.borrow(), self.received_bill(got))),
+            (None, None, Some(got)) if shown => ui::fading(opened, || self.received_stage(got)),
             _ => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
         let sheet: Element<'_, Message> = match (self.player.is_some() || self.sharing.open.is_some()) && !self.mini_player && opened >= 0.999 {
@@ -97,7 +97,7 @@ impl Main {
         };
         let watching = 1.0 - self.cinema.interpolate(0.0, 1.0, self.now);
         let crest: Element<'_, Message> = match watching > 0.001 {
-            true => pin(ui::fading(ui::fade() * watching, ui::brand)).x(CREST_HOME.0).y(CREST_HOME.1).into(),
+            true => pin(ui::fading(watching, ui::brand)).x(CREST_HOME.0).y(CREST_HOME.1).into(),
             false => Space::new().width(Length::Fill).height(Length::Fill).into(),
         };
         stack![sheet, crest, stage].width(Length::Fill).height(Length::Fill).into()
@@ -264,7 +264,7 @@ impl Main {
             Some((words, since)) => {
                 let gone = self.now.saturating_duration_since(*since).as_secs_f32() / HINT_SHOWN.as_secs_f32();
                 let k = (1.0 - gone).clamp(0.0, 1.0);
-                container(ui::fading(ui::fade() * k, || {
+                container(ui::fading(k, || {
                     container(text(words.clone()).font(theme::SANS_SEMI).size(theme::BODY).color(ui::faded(INK)))
                         .padding(Padding { top: 6.0, right: 12.0, bottom: 6.0, left: 12.0 })
                         .style(ui::box_at(theme::bubble, ui::fade() * k))
@@ -285,7 +285,7 @@ impl Main {
         let screen_w = (screen_h * 16.0 / 9.0).min(room_w).floor();
         let out = self.controls.interpolate(0.0, 1.0, self.now);
         let controls: Element<'_, Message> = match out > 0.004 && self.video_request.is_none() {
-            true => ui::fading(ui::fade() * out, || {
+            true => ui::fading(out, || {
                 let shown = self.scrubbing.unwrap_or_else(|| player.fraction());
                 let length_ms = player.length_ms;
                 let seek = iced::widget::canvas(ui::Seek {

@@ -93,10 +93,60 @@ mod adaptive_text {
         });
         assert_eq!(faded(FAINT), FAINT);
     }
+
+    #[test]
+    fn a_fade_inside_a_fade_multiplies() {
+        fading(0.5, || {
+            fading(0.5, || assert_eq!(fade(), 0.25));
+            assert_eq!(fade(), 0.5);
+        });
+        assert_eq!(fade(), 1.0);
+    }
+
+    fn sources(dir: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("a folder").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                sources(&path, found);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                found.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn a_style_takes_its_fade_while_it_is_built() {
+        const READS: [&str; 5] = ["fade()", "faded(", " fa(", "(fa(", "paint("];
+        let mut files = Vec::new();
+        sources(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        let mut late = Vec::new();
+        for file in files {
+            let said = std::fs::read_to_string(&file).expect("a source file");
+            for (start, _) in said.match_indices(".style(") {
+                let open = start + ".style(".len();
+                if !said[open..].trim_start().starts_with(['|', 'm']) {
+                    continue;
+                }
+                let mut depth = 1;
+                let end = said[open..].char_indices().find_map(|(at, letter)| {
+                    depth += match letter { '(' => 1, ')' => -1, _ => 0 };
+                    (depth == 0).then_some(open + at)
+                });
+                let closure = &said[open..end.unwrap_or(said.len())];
+                if closure.starts_with("move |") || closure.starts_with('|') {
+                    if READS.iter().any(|read| closure.contains(read)) {
+                        let line = said[..start].matches('\n').count() + 1;
+                        late.push(format!("{}:{line}", file.display()));
+                    }
+                }
+            }
+        }
+        assert!(late.is_empty(), "these styles run while drawing, when the page's fade is no longer known; read it before the closure: {late:#?}");
+    }
 }
 
 pub fn fading<T>(k: f32, build: impl FnOnce() -> T) -> T {
-    let before = FADE.with(|f| f.replace(k.clamp(0.0, 1.0)));
+    let before = FADE.with(|f| f.replace(f.get() * k.clamp(0.0, 1.0)));
     let made = build();
     FADE.with(|f| f.set(before));
     made
@@ -4831,7 +4881,7 @@ pub fn appear(t: f32, index: usize) -> f32 {
 }
 
 pub fn appearing<'a, M: 'a>(k: f32, build: impl FnOnce() -> Element<'a, M>) -> Element<'a, M> {
-    if k >= 0.999 { build() } else { fading(fade() * k, build) }
+    if k >= 0.999 { build() } else { fading(k, build) }
 }
 
 pub const PICTURE_SAFE: f32 = 2.0;
@@ -5854,7 +5904,7 @@ pub struct Reveal<'a, Message> {
 
 pub fn reveal<'a, Message: 'a>(k: f32, build: impl FnOnce() -> Element<'a, Message>) -> Element<'a, Message> {
     let k = k.clamp(0.0, 1.0);
-    let content = if k >= 0.999 { build() } else { fading(fade() * k, build) };
+    let content = if k >= 0.999 { build() } else { fading(k, build) };
     Element::new(Reveal { content, k })
 }
 

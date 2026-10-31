@@ -1168,9 +1168,8 @@ fn grades<'a>(ground: &Ground<'a>, card: &wire::Card) -> Element<'a, Message> {
     for (index, (letter, n, colour)) in entries.iter().enumerate() {
         let on = ground.grade_hover == Some(index);
         let dim = ground.grade_hover.is_some() && !on;
-        let k = ui::fade() * if dim { 0.5 } else { 1.0 };
         let colour = *colour;
-        let tile = ui::fading(k, || -> Element<'a, Message> {
+        let tile = ui::fading(if dim { 0.5 } else { 1.0 }, || -> Element<'a, Message> {
             let k = ui::fade();
             container(
                 column![

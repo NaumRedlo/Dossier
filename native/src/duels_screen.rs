@@ -778,19 +778,33 @@ fn face<'a, M: 'a>(name: &str, side: f32, ring: f32) -> Element<'a, M> {
         .into()
 }
 
+pub(crate) fn slab_faded() -> impl Fn(&iced::Theme) -> container::Style + 'static {
+    let k = ui::fade();
+    move |theme| {
+        let mut style = theme::slab(theme);
+        if let Some(iced::Background::Color(fill)) = style.background {
+            style.background = Some(iced::Background::Color(Color { a: fill.a * k, ..fill }));
+        }
+        style.border.color.a *= k;
+        style
+    }
+}
+
 pub(crate) fn slab<'a>(inside: Element<'a, Message>, padding: f32) -> Element<'a, Message> {
-    container(inside).padding(padding).width(Length::Fill).height(Length::Fill).style(theme::slab).into()
+    container(inside).padding(padding).width(Length::Fill).height(Length::Fill).style(slab_faded()).into()
 }
 
 pub(crate) fn strip<'a>(parts: Vec<Element<'a, Message>>, lit: Option<Color>) -> Element<'a, Message> {
     let line = row(parts).spacing(18).align_y(Alignment::Center);
+    let base = slab_faded();
+    let lit = lit.map(|colour| fa(Color { a: 0.6, ..colour }));
     container(line)
         .padding(Padding { top: 16.0, right: 20.0, bottom: 16.0, left: 20.0 })
         .max_width(640.0)
         .style(move |theme| {
-            let mut style = theme::slab(theme);
+            let mut style = base(theme);
             if let Some(colour) = lit {
-                style.border = iced::Border { color: Color { a: 0.6, ..colour }, width: 1.5, radius: 16.0.into() };
+                style.border = iced::Border { color: colour, width: 1.5, radius: 16.0.into() };
             }
             style
         })
@@ -885,9 +899,9 @@ pub(crate) fn standing<'a>(w: &Words, me: Option<&Me>) -> Element<'a, Message> {
     if me.rating.calibrating {
         let filled = me.rating.played.min(me.rating.needed.max(1));
         let marks = (0..me.rating.needed.max(1)).map(|at| {
-            let lit = at < filled;
+            let fill = fa(if at < filled { theme::ACCENT } else { ROW });
             container(Space::new().width(Length::Fill).height(10))
-                .style(move |_| container::Style { background: Some(iced::Background::Color(if lit { theme::ACCENT } else { ROW })), border: iced::Border { radius: 5.0.into(), ..iced::Border::default() }, ..container::Style::default() })
+                .style(move |_| container::Style { background: Some(iced::Background::Color(fill)), border: iced::Border { radius: 5.0.into(), ..iced::Border::default() }, ..container::Style::default() })
                 .width(Length::Fill)
                 .into()
         });
@@ -942,10 +956,11 @@ fn ago(w: &Words, seconds: Option<i64>) -> String {
 
 fn watch_button<'a>(duel: &Running) -> Element<'a, Message> {
     let inside = row![glyph(Icon::Eye, 14.0, MUTED), words(duel.watching.to_string(), 13.0, MUTED)].spacing(5).align_y(Alignment::Center);
-    iced::widget::button(container(inside).center_y(28.0)).padding([0, 8]).style(|_, status| {
+    let row_fill = fa(ROW);
+    iced::widget::button(container(inside).center_y(28.0)).padding([0, 8]).style(move |_, status| {
         let lit = matches!(status, iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed);
         iced::widget::button::Style {
-            background: Some(iced::Background::Color(if lit { ROW } else { Color::TRANSPARENT })),
+            background: Some(iced::Background::Color(if lit { row_fill } else { Color::TRANSPARENT })),
             text_color: INK,
             border: iced::Border { radius: theme::CONTROL_RADIUS.into(), ..iced::Border::default() },
             ..iced::widget::button::Style::default()
@@ -958,17 +973,18 @@ fn live_panel<'a>(w: &Words, live: &Live) -> Element<'a, Message> {
         let quiet = column![
             glyph(Icon::Eye, 56.0, FAINT),
             strong(w.t("duels-quiet"), 18.0, INK),
-            text(w.t("duels-quiet-note")).font(theme::SANS).size(14.0).color(FAINT).align_x(iced::alignment::Horizontal::Center),
+            text(w.t("duels-quiet-note")).font(theme::SANS).size(14.0).color(fa(FAINT)).align_x(iced::alignment::Horizontal::Center),
         ]
         .spacing(12)
         .align_x(Alignment::Center)
         .max_width(260.0);
         return container(slab(container(quiet).center(Length::Fill).into(), 22.0)).width(LIVE_WIDTH).height(Length::Fill).into();
     }
+    let live_mark = fa(LOST);
     let header = row![
         strong(w.t("duels-running"), 17.0, INK),
         Space::new().width(Length::Fill),
-        container(Space::new().width(8).height(8)).style(|_| container::Style { background: Some(iced::Background::Color(LOST)), border: iced::Border { radius: 4.0.into(), ..iced::Border::default() }, ..container::Style::default() }),
+        container(Space::new().width(8).height(8)).style(move |_| container::Style { background: Some(iced::Background::Color(live_mark)), border: iced::Border { radius: 4.0.into(), ..iced::Border::default() }, ..container::Style::default() }),
         words(live.running.len().to_string(), 14.0, FAINT),
     ].spacing(6).align_y(Alignment::Center);
     let mut list = column![header].spacing(12);
@@ -999,11 +1015,12 @@ fn live_panel<'a>(w: &Words, live: &Live) -> Element<'a, Message> {
 }
 
 fn ways<'a>(w: &Words, stacked: bool) -> Element<'a, Message> {
+    let tile_fill = fa(ROW);
     let tile = |mark: Icon, title: &str, note: &str| -> Element<'a, Message> {
         container(column![glyph(mark, 20.0, MUTED), strong(w.t(title), 16.0, INK), words(w.t(note), 14.0, FAINT)].spacing(8))
             .padding(18)
             .width(Length::Fill)
-            .style(|_| container::Style { background: Some(iced::Background::Color(ROW)), border: iced::Border { radius: 14.0.into(), ..iced::Border::default() }, ..container::Style::default() })
+            .style(move |_| container::Style { background: Some(iced::Background::Color(tile_fill)), border: iced::Border { radius: 14.0.into(), ..iced::Border::default() }, ..container::Style::default() })
             .into()
     };
     let tiles = [
@@ -1022,7 +1039,7 @@ pub fn view<'a>(state: &State, w: &Words, now: i64, wide: f32) -> Element<'a, Me
     if let Some(running) = &state.watching {
         return crate::duel_watch::view(state, running, w, wide);
     }
-    let hero = container(column![standing(w, state.me.as_ref()), action(w, state, now)].spacing(28)).padding(32).width(Length::Fill).style(theme::slab);
+    let hero = container(column![standing(w, state.me.as_ref()), action(w, state, now)].spacing(28)).padding(32).width(Length::Fill).style(slab_faded());
     let roomy = wide >= ROOMY;
     let top: Element<'a, Message> = if roomy { row![hero, ways(w, true)].spacing(16).into() } else { column![hero, ways(w, false)].spacing(16).into() };
     let mut left = column![top].spacing(16).width(Length::Fill);

@@ -1,25 +1,41 @@
 use iced::widget::{button, column, container, mouse_area, row, text, Space};
-use iced::{Background, Border, Color, Element, Length, Padding};
+use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Vector};
 
 use crate::glyphs::{glyph, Icon};
 use crate::theme::{self, INK, MUTED};
 use crate::ui;
 
-pub const WIDE: f32 = 244.0;
-pub const NARROW: f32 = 84.0;
-const EDGE: f32 = 16.0;
-const SLOT: f32 = NARROW - EDGE - 12.0;
-const ITEM: f32 = 46.0;
-const CAPTION: f32 = 20.0;
-const IDLE_ICON: f32 = 24.0;
-const OPEN_ICON: f32 = 22.0;
-const PANEL: Color = Color::from_rgb(0.055, 0.025, 0.033);
-const SHADE: Color = Color::from_rgb(0.02, 0.008, 0.012);
-const CHOSEN: Color = Color::from_rgb(0.231, 0.071, 0.086);
-const CHOSEN_EDGE: Color = Color::from_rgb(0.702, 0.227, 0.227);
+pub const WIDE: f32 = 330.0;
+pub const NARROW: f32 = 0.0;
+const HOT: f32 = 16.0;
+const LEAF: f32 = 48.0;
+const GAP: f32 = 6.0;
+const SHORTEST: f32 = 216.0;
+const BULGE: f32 = 62.0;
+const CHOSEN_LONGER: f32 = 8.0;
+const LEAN_LONGER: f32 = 18.0;
+const STAGGER: f32 = 0.04;
+const PLATE: f32 = 30.0;
+const REST: Color = Color::from_rgb(0.357, 0.255, 0.271);
+const FACE: (Color, Color) = (Color::from_rgb(0.047, 0.02, 0.027), Color::from_rgb(0.102, 0.05, 0.063));
+const LIT: (Color, Color) = (Color::from_rgb(0.067, 0.031, 0.039), Color::from_rgb(0.157, 0.082, 0.102));
+const CHOSEN: (Color, Color) = (Color::from_rgb(0.102, 0.035, 0.043), Color::from_rgb(0.31, 0.09, 0.106));
+const PLATE_FACE: Color = Color::from_rgb(0.169, 0.094, 0.11);
+const GLOW: Color = Color::from_rgba(0.914, 0.196, 0.251, 0.28);
 
-pub fn width_at(open: f32) -> f32 {
-    NARROW + (WIDE - NARROW) * open.clamp(0.0, 1.0)
+pub fn leaf_length(at: usize, count: usize, chosen: bool, lean: f32) -> f32 {
+    let middle = count.saturating_sub(1) as f32 / 2.0;
+    let away = if middle > 0.0 { (at as f32 - middle) / middle } else { 0.0 };
+    SHORTEST + BULGE * (1.0 - away * away) + if chosen { CHOSEN_LONGER } else { 0.0 } + LEAN_LONGER * lean
+}
+
+pub fn unfolded(open: f32, at: usize, chosen: Option<usize>, count: usize) -> f32 {
+    let from = chosen.unwrap_or(count / 2);
+    let farthest = from.max(count.saturating_sub(1).saturating_sub(from)) as f32;
+    let wait = at.abs_diff(from) as f32 * STAGGER;
+    let x = ((open - wait) / (1.0 - farthest * STAGGER).max(0.1)).clamp(0.0, 1.0);
+    let rest = x - 1.0;
+    1.0 + 2.2 * rest * rest * rest + 1.2 * rest * rest
 }
 
 pub enum Entry<Message> {
@@ -81,69 +97,109 @@ pub fn moved(groups: &[Vec<&'static str>], kept: &[String], what: &'static str, 
     shown.iter().cloned().chain(others).collect()
 }
 
-fn item<'a, Message: Clone + 'a>(key: &'static str, icon: Icon, label: String, on: bool, press: Message, open: f32) -> Element<'a, Message> {
-    let colour = if on { INK } else { MUTED };
-    let size = IDLE_ICON + (OPEN_ICON - IDLE_ICON) * open;
-    let words = ((open - 0.3) / 0.7).clamp(0.0, 1.0);
-    let mut line = row![glyph(icon, size, colour)].spacing(12).align_y(iced::Center);
-    if words > 0.0 {
-        let faded = ui::faded(colour);
-        line = line.push(text(label).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(Color { a: faded.a * words, ..faded }));
-    }
-    let inside = container(line).padding(Padding { top: 0.0, right: 0.0, bottom: 0.0, left: (SLOT - size) / 2.0 }).height(ITEM).width(Length::Fill).align_y(iced::Center).clip(true);
-    container(button(inside).padding(0).width(Length::Fill).style(ui::button_faded(move |theme, status| {
-        if open < 0.5 { return theme::side(on)(theme, status); }
-        let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        button::Style {
-            background: match (on, lit) {
-                (true, _) => Some(Background::Color(CHOSEN)),
-                (false, true) => Some(Background::Color(theme::workspace::HOVER)),
-                (false, false) => None,
-            },
-            text_color: colour,
-            border: Border { color: if on { CHOSEN_EDGE } else { Color::TRANSPARENT }, width: if on { 1.0 } else { 0.0 }, radius: 10.0.into() },
-            ..button::Style::default()
-        }
-    })).on_press(press))
-        .id(iced::widget::Id::from(format!("side-{key}")))
-        .width(Length::Fill)
-        .into()
+struct Leaf<Message> {
+    key: &'static str,
+    icon: Icon,
+    label: String,
+    on: bool,
+    press: Message,
+    length: f32,
+    shown: f32,
+    open: f32,
+    lit: bool,
+    tick: f32,
+}
+
+fn leaf<'a, Message: Clone + 'a>(made: Leaf<Message>, lean: impl Fn(Option<&'static str>) -> Message) -> Element<'a, Message> {
+    let Leaf { key, icon, label, on, press, length, shown, open, lit, tick } = made;
+    let width = (length * shown).max(0.0);
+    let colour = if on || lit { INK } else { MUTED };
+    let words = ((shown - 0.35) / 0.65).clamp(0.0, 1.0);
+    let ink = ui::faded(colour);
+    let plate_fill = ui::faded(if on { theme::ACCENT } else { PLATE_FACE });
+    let plate = container(glyph(icon, 17.0, if on { Color::WHITE } else { colour })).center(PLATE).style(move |_| container::Style {
+        background: Some(Background::Color(plate_fill)),
+        border: Border { radius: (PLATE / 2.0).into(), ..Border::default() },
+        ..container::Style::default()
+    });
+    let line = row![
+        text(label).font(theme::SANS_SEMI).size(14.0).wrapping(text::Wrapping::None).color(Color { a: ink.a * words, ..ink }),
+        plate,
+    ]
+    .spacing(12)
+    .align_y(iced::Center);
+    let inside = container(line).width(Length::Fill).height(LEAF).padding(Padding::ZERO.right(10.0)).align_x(iced::alignment::Horizontal::Right).align_y(iced::Center).clip(true);
+    let (from, to) = if on { CHOSEN } else if lit { LIT } else { FACE };
+    let k = ui::fade();
+    let face = button(inside).padding(0).width(Length::Fill).on_press(press).style(move |_: &iced::Theme, _| button::Style {
+        background: Some(Background::Gradient(iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2)).add_stop(0.0, Color { a: k, ..from }).add_stop(1.0, Color { a: k, ..to }).into())),
+        text_color: colour,
+        border: Border { radius: iced::border::radius(0.0).top_right(LEAF / 2.0).bottom_right(LEAF / 2.0), ..Border::default() },
+        shadow: if on {
+            Shadow { color: Color { a: GLOW.a * k, ..GLOW }, offset: Vector::new(4.0, 0.0), blur_radius: 22.0 }
+        } else {
+            Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.42 * k), offset: Vector::new(5.0, 6.0), blur_radius: 20.0 }
+        },
+        snap: true,
+    });
+    let hovered: Element<'a, Message> = if width < 1.0 { Space::new().into() } else { mouse_area(face).on_enter(lean(Some(key))).on_exit(lean(None)).into() };
+    let body = container(hovered).id(iced::widget::Id::from(format!("side-{key}"))).width(width).height(LEAF);
+    let rest = ui::faded(Color { a: 1.0 - open, ..if on { theme::ACCENT } else { REST } });
+    let mark = container(Space::new().width(tick).height(if on { 22.0 } else { 6.0 })).style(move |_| container::Style {
+        background: Some(Background::Color(rest)),
+        border: Border { radius: iced::border::radius(0.0).top_right(3.0).bottom_right(3.0), ..Border::default() },
+        ..container::Style::default()
+    });
+    iced::widget::stack![container(mark).height(LEAF).align_y(iced::Center), body].width(Length::Fill).height(LEAF).into()
 }
 
 pub fn view<'a, Message: Clone + 'a>(
     entries: Vec<Entry<Message>>,
     open: f32,
+    leans: &std::collections::HashMap<String, f32>,
     hover: impl Fn(bool) -> Message,
+    lean: impl Fn(Option<&'static str>) -> Message,
     moved: impl Fn(&'static str, Option<&'static str>) -> Message + Clone + 'a,
 ) -> Element<'a, Message> {
     let open = open.clamp(0.0, 1.0);
-    let mut list = column![].spacing(3);
-    for (said, items) in split(entries) {
-        if let Some(said) = said {
-            let caption: Element<'a, Message> = if open > 0.3 {
-                text(said).font(theme::SANS_SEMI).size(11.0).color(Color { a: ui::fade() * ((open - 0.3) / 0.7), ..MUTED }).into()
-            } else { Space::new().into() };
-            list = list.push(container(caption).height(CAPTION).padding([0, 10]).align_y(iced::Center));
+    let count = entries.iter().filter(|entry| key_of(entry).is_some()).count();
+    let chosen = entries.iter().filter(|entry| key_of(entry).is_some()).position(|entry| matches!(entry, Entry::Item { on: true, .. }));
+    let mut list = column![].spacing(GAP).width(Length::Fill);
+    let mut at = 0;
+    for (_, items) in split(entries) {
+        let mut pieces: Vec<(&'static str, Element<'a, Message>)> = Vec::new();
+        for entry in items {
+            if let Entry::Item { key, icon, label, on, press } = entry {
+                let leaning = leans.get(&format!("side-lean-{key}")).copied().unwrap_or(0.0);
+                let made = Leaf { key, icon, label, on, press, length: leaf_length(at, count, on, leaning), shown: unfolded(open, at, chosen, count), open, lit: leaning > 0.5, tick: if on { 4.0 } else { 2.5 + 6.0 * (leaf_length(at, count, false, 0.0) - SHORTEST) / BULGE } };
+                pieces.push((key, leaf(made, &lean)));
+                at += 1;
+            }
         }
-        let pieces: Vec<(&'static str, Element<'a, Message>)> = items
-            .into_iter()
-            .filter_map(|entry| match entry {
-                Entry::Item { key, icon, label, on, press } => Some((key, item(key, icon, label, on, press, open))),
-                Entry::Caption(_) => None,
-            })
-            .collect();
         if !pieces.is_empty() {
-            list = list.push(crate::board::board(pieces, 3.0, moved.clone()).anywhere().radius(12.0).solid(PANEL));
+            list = list.push(crate::board::board(pieces, GAP, moved.clone()).anywhere().radius(LEAF / 2.0).solid(FACE.1));
         }
     }
-    let k = open * ui::fade();
-    let content = container(list)
-        .width(width_at(open))
-        .padding(Padding { top: 30.0, right: 12.0, bottom: 24.0, left: EDGE });
-    let panel = iced::widget::stack![content].push_under(
-        iced::widget::canvas(crate::ui::PanelShade { colour: SHADE, alpha: 0.5 * k }).width(Length::Fill).height(Length::Fill),
-    ).width(width_at(open));
-    mouse_area(panel).on_enter(hover(true)).on_exit(hover(false)).into()
+    let zone = container(list).width(if open > 0.001 { WIDE } else { HOT }).height(Length::Fill).center_y(Length::Fill);
+    mouse_area(zone).on_enter(hover(true)).on_exit(hover(false)).into()
+}
+
+pub fn shade<'a, Message: 'a>(open: f32) -> Element<'a, Message> {
+    let k = open.clamp(0.0, 1.0) * ui::fade();
+    if k < 0.001 {
+        return Space::new().width(Length::Shrink).height(Length::Shrink).into();
+    }
+    let ground = theme::GROUND;
+    container(Space::new().width(440.0).height(Length::Fill))
+        .style(move |_| container::Style {
+            background: Some(Background::Gradient(iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2))
+                .add_stop(0.0, Color { a: 0.82 * k, ..ground })
+                .add_stop(0.55, Color { a: 0.5 * k, ..ground })
+                .add_stop(1.0, Color { a: 0.0, ..ground })
+                .into())),
+            ..container::Style::default()
+        })
+        .into()
 }
 
 #[cfg(test)]
@@ -153,6 +209,24 @@ mod tests {
     fn entries() -> Vec<Entry<()>> {
         let item = |key: &'static str| Entry::Item { key, icon: Icon::Gear, label: key.to_owned(), on: false, press: () };
         vec![item("profile"), item("feed"), Entry::Caption("People".into()), item("chat"), item("game"), item("compare"), Entry::Caption("Standing".into()), item("boards"), item("titles")]
+    }
+
+    #[test]
+    fn the_bookmarks_form_an_arc_longest_in_the_middle() {
+        assert!(leaf_length(2, 5, false, 0.0) > leaf_length(1, 5, false, 0.0));
+        assert_eq!(leaf_length(0, 5, false, 0.0), leaf_length(4, 5, false, 0.0));
+        assert!(leaf_length(1, 5, true, 0.0) > leaf_length(1, 5, false, 0.0));
+        assert!(leaf_length(1, 5, false, 1.0) > leaf_length(1, 5, true, 0.0));
+        assert!(leaf_length(8, 9, true, 1.0) <= WIDE, "a leaf left the zone that keeps the fan open");
+    }
+
+    #[test]
+    fn the_fan_opens_from_the_chosen_bookmark_and_comes_to_rest() {
+        assert!(unfolded(0.25, 2, Some(2), 9) > unfolded(0.25, 6, Some(2), 9));
+        for at in 0..9 {
+            assert_eq!(unfolded(0.0, at, Some(2), 9), 0.0);
+            assert!((unfolded(1.0, at, Some(2), 9) - 1.0).abs() < 0.001);
+        }
     }
 
     #[test]

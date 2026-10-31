@@ -533,12 +533,14 @@ impl<Message> Widget<Message, Theme, Renderer> for Brim<'_, Message> {
         let high = self.high.min(bounds.height);
         let top = brim_strength(state.under) * self.fade;
         if self.header {
-            use iced::advanced::Renderer as _;
-            let shade = iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
-                .add_stop(0.0, iced::Color { a: top * 0.94, ..self.colour })
-                .add_stop(0.6, iced::Color { a: top * 0.94, ..self.colour })
-                .add_stop(1.0, iced::Color { a: 0.0, ..self.colour });
-            renderer.fill_quad(renderer::Quad { bounds: Rectangle { height: high, ..bounds }, ..renderer::Quad::default() }, iced::Background::Gradient(shade.into()));
+            if top > 0.003 {
+                use iced::advanced::Renderer as _;
+                let shade = iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
+                    .add_stop(0.0, iced::Color { a: top * 0.94, ..self.colour })
+                    .add_stop(0.6, iced::Color { a: top * 0.94, ..self.colour })
+                    .add_stop(1.0, iced::Color { a: 0.0, ..self.colour });
+                renderer.fill_quad(renderer::Quad { bounds: Rectangle { height: high, ..bounds }, ..renderer::Quad::default() }, iced::Background::Gradient(shade.into()));
+            }
         } else {
             draw_brim(renderer, Rectangle { height: high, ..bounds }, self.colour, top);
         }

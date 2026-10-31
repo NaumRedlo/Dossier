@@ -88,9 +88,9 @@ fn the_three_words_and_the_frames_answer_to_clicks() {
 }
 
 #[test]
-fn the_worker_is_a_tile_of_the_device_section_and_its_switch_answers() {
+fn the_worker_is_a_tile_of_the_bot_settings_and_its_switch_answers() {
     use dossier_native::main_screen::Message as M;
-    use dossier_native::settings_screen::{Message as P, Section};
+    use dossier_native::settings_screen::{Message as P, Side};
     let staged = main_state("main-worker");
     let backdrop = dossier_native::ui::backdrop_handle();
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
@@ -98,12 +98,13 @@ fn the_worker_is_a_tile_of_the_device_section_and_its_switch_answers() {
     let messages: Vec<_> = ui.into_messages().collect();
     assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Prefs(P::Worker(false))))), "{messages:?}");
 
-    let app = main_state("main-prefs");
+    let mut app = main_state("main-prefs");
+    app.side_open = iced::Animation::new(true);
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&app, &backdrop));
     assert!(ui.find("Accept tasks from the bot").is_err());
-    let _ = ui.click(iced::widget::Id::new("side-device")).expect("clicked");
+    let _ = ui.click(iced::widget::Id::new("side-bot-side")).expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
-    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Prefs(P::Section(Section::Device))))), "{messages:?}");
+    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Prefs(P::Side(Side::Bot))))), "{messages:?}");
 }
 
 #[test]
@@ -123,13 +124,13 @@ fn the_wheel_over_the_carousel_walks_the_replays() {
 #[test]
 fn a_staged_screen_saves_its_settings_away_from_the_real_ones() {
     use dossier_native::main_screen::Message as M;
-    use dossier_native::settings_screen::{Message as P, Section};
+    use dossier_native::settings_screen::{Message as P, Side};
     let real = std::path::PathBuf::from(std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).expect("a home")).join(".dossier");
     let mut app = main_state("main-prefs");
     let kept = dossier_native::settings::path();
     assert!(!kept.starts_with(&real), "a staged screen keeps its settings in {}", kept.display());
-    let _ = app.update(M::Prefs(P::Section(Section::Video)));
-    let _ = app.update(M::Prefs(P::Section(Section::Device)));
+    let _ = app.update(M::Prefs(P::Side(Side::App)));
+    let _ = app.update(M::Prefs(P::Side(Side::Bot)));
     let written = std::fs::read_to_string(&kept).expect("the staged settings were written");
-    assert!(written.contains("\"settings_tab\": \"device\""), "{written}");
+    assert!(written.contains("\"settings_tab\": \"bot\""), "{written}");
 }

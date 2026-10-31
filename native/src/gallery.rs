@@ -546,7 +546,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     worker.overlay = Overlay::Settings;
     worker.overlay_drawn = Overlay::Settings;
     worker.overlay_fade = iced::Animation::new(true);
-    worker.section = crate::settings_screen::Section::Device;
+    worker.side = crate::settings_screen::Side::Bot;
     worker.settings.worker_on = true;
     worker.settings.token = "staged".into();
     worker.ffmpeg_version = Some("7.1".to_owned());
@@ -883,7 +883,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     prefs_app.store.videos = with_videos.store.videos.clone();
     prefs_app.marks_now = std::collections::HashMap::new();
     let mut prefs_bot = prefs_app.clone();
-    prefs_bot.section = crate::settings_screen::Section::Account;
+    prefs_bot.side = crate::settings_screen::Side::Bot;
     prefs_bot.settings.token = "staged".to_owned();
     prefs_bot.settings.linked_as = "@naumredlo".to_owned();
     prefs_bot.account = Some(crate::bot::Me { telegram_id: 7, name: "Naum Redlo".into(), username: "naumredlo".into(), avatar: false, telegram: true, player: None });
@@ -906,7 +906,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
     linking.pairing = crate::main_screen::Pairing::Linking { code: "K7QN-M4XZ".into(), link: "https://t.me/bot?start=pair-K7QNM4XZ".into() };
     linking.qr = crate::first_run::qr_for("https://t.me/bot?start=pair-K7QNM4XZ");
     let mut prefs_witness = prefs_app.clone();
-    prefs_witness.section = crate::settings_screen::Section::Witness;
+    prefs_witness.settings.tiles_app = vec!["witness".to_owned()];
     prefs_witness.settings.witness_on = true;
     prefs_witness.settings.witness_keep = true;
     prefs_witness.settings.witness_overlay = true;
@@ -927,14 +927,14 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         screen: None,
     };
     let mut witness_ask = prefs_app.clone();
-    witness_ask.section = crate::settings_screen::Section::Witness;
+    witness_ask.settings.tiles_app = vec!["witness".to_owned()];
     witness_ask.witness_asking = true;
     let mut prefs_shared = prefs_app.clone();
-    prefs_shared.section = crate::settings_screen::Section::Library;
+    prefs_shared.settings.tiles_app = vec!["sources".to_owned()];
     prefs_shared.settings.sources.push(Source { replay_count: 37, ..crate::sources::shared(true) });
     prefs_bot.link_shown = Some(crate::bot::Link { answered: Some(NOON - 120), refused: Some((NOON - 3_600, crate::bot::Refused::Network(String::new()))), retries: 2, asked: 41 });
     let mut prefs_device = prefs_bot.clone();
-    prefs_device.section = crate::settings_screen::Section::Device;
+    prefs_device.settings.tiles_bot = vec!["this-device".to_owned()];
     prefs_device.settings.device = "дрейк старший".to_owned();
     prefs_device.link_shown = Some(crate::bot::Link { answered: Some(NOON - 120), refused: Some((NOON - 960, crate::bot::Refused::Said("502".to_owned()))), retries: 15, asked: 41 });
     prefs_bot.pin = Some(crate::community::wire::Pin { chat: Some(-100), since: Some(NOON - 5 * DAY), free_at: Some(NOON + 25 * DAY), error: String::new() });
@@ -1078,47 +1078,19 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-billing-cancelled".to_owned(), billing_cancelled),
         ("main-billing-guest".to_owned(), billing_guest),
         ("main-signing".to_owned(), signing),
-        ("main-prefs-free".to_owned(), {
-            let mut free = prefs_app.clone();
-            free.behind_fade = iced::Animation::new(false);
-            free
-        }),
-        ("main-prefs-video".to_owned(), {
-            let mut video = prefs_app.clone();
-            video.section = crate::settings_screen::Section::Video;
-            video
-        }),
-        ("main-prefs-playback".to_owned(), {
-            let mut playback = prefs_app.clone();
-            playback.section = crate::settings_screen::Section::Playback;
-            playback
-        }),
-        ("main-prefs-system".to_owned(), {
-            let mut system = prefs_app.clone();
-            system.section = crate::settings_screen::Section::System;
-            system
-        }),
-        ("main-prefs-search".to_owned(), {
-            let mut looking = prefs_app.clone();
-            looking.settings_search = "фон".to_owned();
-            looking
-        }),
-        ("main-prefs-search-empty".to_owned(), {
-            let mut looking = prefs_app.clone();
-            looking.settings_search = "нет такого".to_owned();
-            looking
-        }),
         ("main-prefs".to_owned(), prefs_app),
         ("main-prefs-bot".to_owned(), prefs_bot),
         ("main-prefs-device".to_owned(), prefs_device),
         ("main-prefs-shared".to_owned(), prefs_shared),
         ("main-prefs-witness-full".to_owned(), {
             let mut full = prefs_witness.clone();
+            full.settings.tiles_app = vec!["overlay".to_owned()];
             full.witness.screen = Some("full".to_owned());
             full
         }),
         ("main-prefs-overlay".to_owned(), {
             let mut tuned = prefs_witness.clone();
+            tuned.settings.tiles_app = vec!["overlay".to_owned()];
             tuned.settings.overlay_scale = 115;
             tuned.settings.overlay_pp = false;
             tuned
@@ -2361,6 +2333,15 @@ mod tests {
     use iced::window;
     use std::time::{Duration, Instant};
 
+    type Screen<'a> = Simulator<'a, Message>;
+
+    fn still(ui: &mut Screen<'_>, dir: &Path, name: &str) {
+        let stem = dir.join(name);
+        let _ = std::fs::remove_file(written_as(&stem));
+        let shot = ui.snapshot(&crate::theme::theme()).expect("a snapshot");
+        let _ = shot.matches_image(&stem);
+    }
+
     #[test]
     #[ignore]
     fn a_wheel_notch_glides_the_journal() {
@@ -2394,6 +2375,156 @@ mod tests {
         assert!(offsets.windows(2).all(|pair| pair[1] >= pair[0]), "the journal went back and forth");
     }
 
+    #[test]
+    #[ignore]
+    fn a_tile_carried_to_the_edge_scrolls_the_page_in_frames() {
+        let Some(dir) = std::env::var_os("DOSSIER_DRAG_FRAMES").map(PathBuf::from) else {
+            return;
+        };
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (_, main, size) = every_main_frame().into_iter().find(|(name, _, _)| name.starts_with("main-prefs-en")).expect("the settings are staged");
+        let backdrop = ui::backdrop_handle();
+        let mut screen = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop));
+        let mut at = Instant::now() + Duration::from_secs(3600);
+        let tick = Duration::from_micros(16_667);
+        let redraw = |screen: &mut Screen<'_>, at: &mut Instant| {
+            *at += tick;
+            let _ = screen.simulate([iced::Event::Window(window::Event::RedrawRequested(*at))]);
+        };
+        screen.point_at(iced::Point::new(490.0, 500.0));
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::WheelScrolled { delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -400.0 } })]);
+        redraw(&mut screen, &mut at);
+        still(&mut screen, &dir, "edge-000-scrolled");
+        let tile = screen.find("Maps and cache").expect("the maps tile").visible_bounds().expect("the maps tile is on screen");
+        let grip = iced::Point::new(tile.x + tile.width + 30.0, tile.center_y());
+        screen.point_at(grip);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+        let top = iced::Point::new(200.0, 150.0);
+        for step in 1..=30 {
+            let k = step as f32 / 30.0;
+            let p = grip + (top - grip) * (k * k * (3.0 - 2.0 * k));
+            screen.point_at(p);
+            let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position: p })]);
+            redraw(&mut screen, &mut at);
+        }
+        still(&mut screen, &dir, "edge-030-at-the-top");
+        for step in 1..=90 {
+            redraw(&mut screen, &mut at);
+            if step % 30 == 0 {
+                still(&mut screen, &dir, &format!("edge-{:03}-scrolling", 30 + step));
+            }
+        }
+        let render = iced::Point::new(120.0, 230.0);
+        for step in 1..=12 {
+            let p = top + (render - top) * (step as f32 / 12.0);
+            screen.point_at(p);
+            let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position: p })]);
+            redraw(&mut screen, &mut at);
+        }
+        for _ in 0..12 {
+            redraw(&mut screen, &mut at);
+        }
+        still(&mut screen, &dir, "edge-150-over-render");
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
+        for _ in 0..50 {
+            redraw(&mut screen, &mut at);
+        }
+        still(&mut screen, &dir, "edge-200-landed");
+        let moved: Vec<_> = screen
+            .into_messages()
+            .filter_map(|message| match message {
+                Message::Main(crate::main_screen::Message::Prefs(crate::settings_screen::Message::Moved(what, before))) => Some((what, before)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(moved.first().map(|(what, _)| *what), Some(crate::settings_screen::Tile::Maps));
+    }
+
+    #[test]
+    #[ignore]
+    fn free_space_shows_the_places_in_frames() {
+        let Some(dir) = std::env::var_os("DOSSIER_DRAG_FRAMES").map(PathBuf::from) else {
+            return;
+        };
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (_, main, size) = every_main_frame().into_iter().find(|(name, _, _)| name.starts_with("main-prefs-en")).expect("the settings are staged");
+        let backdrop = ui::backdrop_handle();
+        let mut screen = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop));
+        let language = screen.find("Language").expect("the language tile").bounds();
+        let empty = iced::Point::new(language.x + 380.0, language.y + 40.0);
+        let mut at = Instant::now() + Duration::from_secs(3600);
+        let tick = Duration::from_micros(16_667);
+        screen.point_at(empty);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+        for step in 1..=24 {
+            at += tick;
+            let _ = screen.simulate([iced::Event::Window(window::Event::RedrawRequested(at))]);
+            if step % 8 == 0 {
+                still(&mut screen, &dir, &format!("free-{step:03}-pressed"));
+            }
+        }
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
+        for step in 1..=90 {
+            at += tick;
+            let _ = screen.simulate([iced::Event::Window(window::Event::RedrawRequested(at))]);
+            if step % 15 == 0 {
+                still(&mut screen, &dir, &format!("free-{:03}-released", 24 + step));
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn a_dragged_tile_in_frames() {
+        let Some(dir) = std::env::var_os("DOSSIER_DRAG_FRAMES").map(PathBuf::from) else {
+            return;
+        };
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let (_, main, size) = every_main_frame().into_iter().find(|(name, _, _)| name.starts_with("main-prefs-en")).expect("the settings are staged");
+        let backdrop = ui::backdrop_handle();
+        let mut screen = Simulator::with_size(settings_once(), size, main_frame(&main, &backdrop));
+        let heading = screen.find("Gameplay").expect("the gameplay tile").bounds();
+        let grip = iced::Point::new(heading.x + heading.width + 30.0, heading.center_y());
+        let reach = iced::Vector::new(std::env::var("DOSSIER_DRAG_X").ok().and_then(|v| v.parse().ok()).unwrap_or(-518.0), std::env::var("DOSSIER_DRAG_Y").ok().and_then(|v| v.parse().ok()).unwrap_or(-124.0));
+        let mut at = Instant::now() + Duration::from_secs(3600);
+        let tick = Duration::from_micros(16_667);
+        let redraw = |screen: &mut Screen<'_>, at: &mut Instant| {
+            *at += tick;
+            let _ = screen.simulate([iced::Event::Window(window::Event::RedrawRequested(*at))]);
+        };
+        still(&mut screen, &dir, "drag-000-rest");
+        screen.point_at(grip);
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]);
+        let steps = 48;
+        for step in 1..=steps {
+            let k = step as f32 / steps as f32;
+            let eased = k * k * (3.0 - 2.0 * k);
+            let p = grip + reach * eased;
+            screen.point_at(p);
+            let _ = screen.simulate([iced::Event::Mouse(mouse::Event::CursorMoved { position: p })]);
+            redraw(&mut screen, &mut at);
+            if step % 6 == 0 || step == 2 {
+                still(&mut screen, &dir, &format!("drag-{step:03}-carry"));
+            }
+        }
+        for step in 1..=30 {
+            redraw(&mut screen, &mut at);
+            if step % 10 == 0 {
+                still(&mut screen, &dir, &format!("drag-{:03}-held", steps + step));
+            }
+        }
+        let _ = screen.simulate([iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]);
+        for step in 1..=40 {
+            redraw(&mut screen, &mut at);
+            if step % 5 == 0 {
+                still(&mut screen, &dir, &format!("drag-{:03}-land", steps + 30 + step));
+            }
+        }
+        let moved = screen
+            .into_messages()
+            .any(|message| matches!(message, Message::Main(crate::main_screen::Message::Prefs(crate::settings_screen::Message::Moved(..)))));
+        assert!(moved, "dropping a tile elsewhere did not move it");
+    }
 }
 
 fn staged_duels(offer: bool) -> crate::duels_screen::State {

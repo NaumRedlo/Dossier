@@ -520,7 +520,7 @@ pub(super) fn start_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Poo
             let tile = button(container(inside).padding(16).width(Length::Fill).height(Length::Fill)).padding(0).width(Length::Fill).height(frame_high).style(ui::button_faded(start_tile(offered && pool.frame == frame)));
             if offered { tile.on_press(Message::UseFrame(frame)).into() } else { tile.into() }
         };
-        if offered { build() } else { ui::fading(ui::fade() * 0.6, build) }
+        if offered { build() } else { ui::fading(0.6, build) }
     };
     let lined = |tiles: Vec<Element<'a, Message>>, across: usize| -> Element<'a, Message> {
         let mut rows = column![].spacing(16);
@@ -569,7 +569,7 @@ pub(super) fn editor_view<'a>(state: &'a State, editor: &'a Editor, pool: &'a Po
     ]
     .spacing(14);
 
-    if let Some(credits) = ui::fading(ui::fade() * ui::appear(t, 2), || editor_credits(state, editor, pool, words)) {
+    if let Some(credits) = ui::fading(ui::appear(t, 2), || editor_credits(state, editor, pool, words)) {
         head = head.push(credits);
     }
     if state.conflict.as_deref() == Some(pool.id.as_str()) {

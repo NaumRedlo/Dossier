@@ -9,7 +9,7 @@ fn staged(lang: Lang, room: bool, width: f32) -> Main {
     let mut main = base.clone();
     main.width = width;
     main.height = 900.0;
-    main.section = dossier_native::settings_screen::Section::Playback;
+    main.settings.tiles_app = vec!["skins".to_owned()];
     main.skins = ["/skins/Alpha", "/skins/Beta", "/skins/Gamma"].map(PathBuf::from).to_vec();
     main.skin_room = room;
     main.room_fade = iced::Animation::new(room);
@@ -58,7 +58,7 @@ fn skin_cards_select_reorder_and_ask_before_deletion_in_both_panels() {
                 drag(&mut ui, gamma.center(), Point::new(alpha.x + 1.0, alpha.center_y()));
                 let messages: Vec<_> = ui.into_messages().collect();
                 assert!(messages.iter().any(|m| matches!(m, Message::Main(M::Prefs(P::MoveSkin(path, Some(before)))) if path == &main.skins[2] && before == &main.skins[0])), "{lang:?} {width} {room}: {messages:?}");
-                assert!(!messages.iter().any(|m| matches!(m, Message::Main(M::Prefs(P::Skin(_))))), "a skin drag must not select a skin or drag the settings tile: {messages:?}");
+                assert!(!messages.iter().any(|m| matches!(m, Message::Main(M::Prefs(P::Skin(_) | P::Moved(_, _))))), "a skin drag must not select a skin or drag the settings tile: {messages:?}");
 
                 let mut ui = Simulator::with_size(dossier_native::settings(), size, gallery::main_frame(&main, &backdrop));
                 let default = ui.find(main.words.t("own-skin-short")).unwrap().bounds();

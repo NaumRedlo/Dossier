@@ -11,80 +11,9 @@ use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Section {
-    Look,
-    Video,
-    Playback,
-    Sound,
-    Library,
-    Witness,
-    Account,
-    Device,
-    System,
-}
-
-impl Section {
-    pub const ALL: [Section; 9] = [Section::Look, Section::Video, Section::Playback, Section::Sound, Section::Library, Section::Witness, Section::Account, Section::Device, Section::System];
-
-    pub fn tag(self) -> &'static str {
-        match self {
-            Section::Look => "look",
-            Section::Video => "video",
-            Section::Playback => "playback",
-            Section::Sound => "sound",
-            Section::Library => "library",
-            Section::Witness => "witness",
-            Section::Account => "account",
-            Section::Device => "device",
-            Section::System => "system",
-        }
-    }
-
-    pub fn of(tag: &str) -> Section {
-        Section::ALL.into_iter().find(|section| section.tag() == tag).unwrap_or(Section::Look)
-    }
-
-    pub fn name_key(self) -> &'static str {
-        match self {
-            Section::Look => "settings-look",
-            Section::Video => "settings-video",
-            Section::Playback => "settings-playback",
-            Section::Sound => "settings-sound",
-            Section::Library => "settings-library",
-            Section::Witness => "settings-witness",
-            Section::Account => "settings-account",
-            Section::Device => "settings-device",
-            Section::System => "settings-system",
-        }
-    }
-
-    pub fn icon(self) -> Icon {
-        match self {
-            Section::Look => Icon::Eye,
-            Section::Video => Icon::Film,
-            Section::Playback => Icon::Play,
-            Section::Sound => Icon::Volume,
-            Section::Library => Icon::File,
-            Section::Witness => Icon::Target,
-            Section::Account => Icon::People,
-            Section::Device => Icon::Sliders,
-            Section::System => Icon::Download,
-        }
-    }
-
-    pub fn tiles(self) -> &'static [Tile] {
-        match self {
-            Section::Look => &[Tile::Language, Tile::Look, Tile::Scene],
-            Section::Video => &[Tile::Render, Tile::Elements, Tile::Videos],
-            Section::Playback => &[Tile::Play, Tile::Skins],
-            Section::Sound => &[Tile::Sound],
-            Section::Library => &[Tile::Sources, Tile::Maps],
-            Section::Witness => &[Tile::Witness, Tile::Overlay],
-            Section::Account => &[Tile::Account, Tile::Chats, Tile::Receive, Tile::Community],
-            Section::Device => &[Tile::Device, Tile::ThisDevice, Tile::Worker],
-            Section::System => &[Tile::Storage, Tile::Builds],
-        }
-    }
+pub enum Side {
+    App,
+    Bot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -140,12 +69,40 @@ impl Tile {
             Tile::ThisDevice => "this-device",
         }
     }
+
+    pub fn of(tag: &str) -> Option<Tile> {
+        APP.iter().chain(BOT.iter()).copied().find(|tile| tile.tag() == tag)
+    }
 }
 
+pub const APP: [Tile; 16] = [
+    Tile::Elements,
+    Tile::Overlay,
+    Tile::Look,
+    Tile::Scene,
+    Tile::Render,
+    Tile::Play,
+    Tile::Builds,
+    Tile::Skins,
+    Tile::Storage,
+    Tile::Witness,
+    Tile::Sources,
+    Tile::Sound,
+    Tile::Maps,
+    Tile::Videos,
+    Tile::Device,
+    Tile::Language,
+];
+
+pub const BOT: [Tile; 6] = [Tile::Community, Tile::Worker, Tile::ThisDevice, Tile::Receive, Tile::Chats, Tile::Account];
+
 pub fn order(kept: &[String], all: &[Tile]) -> Vec<Tile> {
-    let place = |tile: &Tile| kept.iter().position(|tag| tag == tile.tag()).unwrap_or(usize::MAX);
-    let mut out = all.to_vec();
-    out.sort_by_key(place);
+    let mut out: Vec<Tile> = kept.iter().filter_map(|tag| Tile::of(tag)).filter(|tile| all.contains(tile)).collect();
+    for tile in all {
+        if !out.contains(tile) {
+            out.push(*tile);
+        }
+    }
     out
 }
 
@@ -154,61 +111,7 @@ pub fn moved(kept: &[String], all: &[Tile], what: Tile, before: Option<Tile>) ->
     list.retain(|tile| *tile != what);
     let at = before.and_then(|edge| list.iter().position(|tile| *tile == edge)).unwrap_or(list.len());
     list.insert(at.min(list.len()), what);
-    let mine: Vec<String> = list.iter().map(|tile| tile.tag().to_owned()).collect();
-    let others = kept.iter().filter(|tag| !mine.contains(tag)).cloned();
-    mine.iter().cloned().chain(others).collect()
-}
-
-pub fn side_of(wide: f32) -> f32 {
-    let columns = ((wide + TILE_GAP) / (TILE_LEAST + TILE_GAP)).floor().max(1.0);
-    ((wide - TILE_GAP * (columns - 1.0)) / columns).floor().max(TILE_LEAST.min(wide))
-}
-
-pub fn shown_tiles(section: Section, search: &str, kept: &[String], w: &Words) -> Vec<Tile> {
-    let base = if search.trim().is_empty() { section.tiles().to_vec() } else { found(w, search) };
-    order(kept, &base)
-}
-
-fn words_of(tile: Tile) -> &'static [&'static str] {
-    match tile {
-        Tile::Render => &["render-tile", "render-size", "render-frames", "render-quality", "render-cpu", "render-gpu"],
-        Tile::Language => &["language"],
-        Tile::Look => &["look-tile", "scale", "scale-to-monitor", "close-to-tray", "pool-hints", "auto-fetch-maps", "badge-heading", "badge-show", "badge-show-title"],
-        Tile::Device => &["device-tile"],
-        Tile::Scene => &["scene-tile", "map-backdrop", "live-replay", "pause-unfocused", "auto-flip"],
-        Tile::Sources => &["sources", "add-folder", "exported-only"],
-        Tile::Skins => &["skins", "more-skins", "add-skin", "skins-folder"],
-        Tile::Sound => &["sound", "music", "hitsounds", "player-sound", "preview-sound"],
-        Tile::Play => &["play-tile", "background-dim", "background-blur", "hud", "cursor-grows", "map-sounds", "skin-sounds"],
-        Tile::Elements => &["elements-tile", "cursor-size", "meter-size", "video-board", "video-board-global", "video-board-chat"],
-        Tile::Videos => &["videos", "in-folder"],
-        Tile::Maps => &["maps-and-cache", "cache"],
-        Tile::Storage => &["storage", "clear-cache"],
-        Tile::Builds => &["builds", "whats-new", "quiet-updates"],
-        Tile::Witness => &["witness-tile", "witness-run", "witness-on", "witness-keep-failed", "witness-history"],
-        Tile::Overlay => &["overlay-tile", "witness-overlay", "overlay-scale", "overlay-show-notices", "overlay-show-card", "overlay-show-pp", "overlay-show-rate"],
-        Tile::Account => &["account", "sign-out", "link-telegram"],
-        Tile::Chats => &["videos-go-to"],
-        Tile::Receive => &["accept-tile"],
-        Tile::Community => &["community-tile", "people-everyone", "share-replays"],
-        Tile::Worker => &["worker", "worker-take", "farm-head", "donate-replays"],
-        Tile::ThisDevice => &["this-device", "unlink"],
-    }
-}
-
-pub fn found(w: &Words, said: &str) -> Vec<Tile> {
-    let said = said.trim().to_lowercase();
-    let mut out = Vec::new();
-    for section in Section::ALL {
-        let whole = w.t(section.name_key()).to_lowercase().contains(&said);
-        for tile in section.tiles() {
-            let effects = *tile == Tile::Elements && Effect::ALL.iter().any(|effect| w.t(effect.tag()).to_lowercase().contains(&said));
-            if whole || effects || words_of(*tile).iter().any(|key| w.t(key).to_lowercase().contains(&said)) {
-                out.push(*tile);
-            }
-        }
-    }
-    out
+    list.iter().map(|tile| tile.tag().to_owned()).collect()
 }
 
 pub struct Ground<'a> {
@@ -216,10 +119,8 @@ pub struct Ground<'a> {
     pub settings: &'a Settings,
     pub machine: ui::Machine,
     pub machine_name: String,
-    pub section: Section,
-    pub search: &'a str,
+    pub side: Side,
     pub subscribed: bool,
-    pub page_wide: f32,
     pub replays: usize,
     pub videos: usize,
     pub videos_size: u64,
@@ -265,8 +166,7 @@ pub struct Ground<'a> {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Section(Section),
-    Search(String),
+    Side(Side),
     MapBackdrop(bool),
     Subscribe,
     PickLang(Lang),
@@ -356,23 +256,22 @@ pub enum Message {
 }
 
 pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let w = ground.words;
+    let (kept, all) = match ground.side {
+        Side::App => (&ground.settings.tiles_app, &APP[..]),
+        Side::Bot => (&ground.settings.tiles_bot, &BOT[..]),
+    };
     let swap = ground.swap.clamp(0.0, 1.0);
-    let tiles = shown_tiles(ground.section, ground.search, &ground.settings.tile_order, w);
-    let wide = (ground.page_wide - PAGE_EDGE * 2.0).max(TILE_LEAST);
-    let side = side_of(wide);
-    let page: Element<'a, Message> = ui::fading(ui::fade() * swap, || {
-        if tiles.is_empty() {
-            return container(text(w.t("settings-nothing")).font(theme::SANS).size(theme::BODY).color(ui::faded(MUTED))).center_x(Length::Fill).padding(24).into();
-        }
+    let tiles = order(kept, all);
+    let board = ui::fading(swap, || {
         let pieces: Vec<(Tile, Element<'a, Message>)> = tiles
             .iter()
             .enumerate()
-            .map(|(at, tile)| (*tile, card(ground, *tile, arrival(ground.came, at, tiles.len()), side)))
+            .map(|(at, tile)| (*tile, card(ground, *tile, arrival(ground.came, at, tiles.len()))))
             .collect();
-        Element::from(ui::grown(crate::board::board(pieces, TILE_GAP, Message::Moved).solid(theme::SLAB_SOLID), iced::Point::new(0.5, 0.0), 0.0, 1.0))
+        Element::from(ui::grown(crate::board::board(pieces, 10.0, Message::Moved).solid(theme::SLAB_SOLID), iced::Point::new(0.5, 0.0), 0.0, 1.0))
     });
-    let rolled = iced::widget::scrollable(container(page).padding(Padding { top: 10.0, right: PAGE_EDGE, bottom: 28.0, left: PAGE_EDGE }))
+    let grid = container(board).padding(Padding { top: 16.0, right: 40.0, bottom: 28.0, left: 40.0 });
+    let rolled = iced::widget::scrollable(grid)
         .id(iced::widget::Id::new("settings-tiles"))
         .anchor_y(iced::widget::scrollable::Anchor::Start)
         .style(ui::thin_scroll)
@@ -380,21 +279,7 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         .width(Length::Fill)
         .height(Length::Fill);
     let rolled = crate::glide::brim(crate::glide::edged(rolled, iced::widget::Id::new("settings-tiles"))).both();
-    let top = container(looking_field(ground)).padding(Padding { top: 16.0, right: PAGE_EDGE, bottom: 6.0, left: PAGE_EDGE });
-    column![top, rolled].width(Length::Fill).height(Length::Fill).into()
-}
-
-fn looking_field<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let input = text_input(&ground.words.t("settings-search"), ground.search)
-        .id(iced::widget::Id::new("settings-search"))
-        .on_input(Message::Search)
-        .font(theme::SANS)
-        .size(theme::CAPTION)
-        .padding(Padding { top: 9.0, right: 12.0, bottom: 9.0, left: 34.0 })
-        .width(SEARCH_WIDE)
-        .style(theme::field_faded(ui::fade()));
-    let mark = container(glyph(Icon::Search, 15.0, ui::faded(FAINT))).padding(Padding::ZERO.left(11.0)).center_y(36.0);
-    iced::widget::stack![input, mark].width(SEARCH_WIDE).height(36.0).into()
+    column![rolled].width(Length::Fill).height(Length::Fill).into()
 }
 
 fn arrival(came: f32, at: usize, count: usize) -> f32 {
@@ -402,17 +287,10 @@ fn arrival(came: f32, at: usize, count: usize) -> f32 {
     (came * 1.7 - step * at as f32).clamp(0.0, 1.0)
 }
 
-fn card<'a>(ground: &Ground<'a>, tile: Tile, late: f32, side: f32) -> Element<'a, Message> {
+fn card<'a>(ground: &Ground<'a>, tile: Tile, late: f32) -> Element<'a, Message> {
     let k = (ui::fade() * late).clamp(0.0, 1.0);
-    let inside: Element<'a, Message> = ui::fading(k.powf(2.2), || one(ground, tile));
-    let rolled = iced::widget::scrollable(inside)
-        .id(iced::widget::Id::from(format!("tile-{}", tile.tag())))
-        .style(ui::thin_scroll)
-        .direction(ui::hidden_bar())
-        .width(Length::Fill)
-        .height(Length::Fill);
-    let rolled = crate::glide::brim(rolled).on(TILE_GROUND).both().high(36.0);
-    let card: Element<'a, Message> = container(rolled).width(side).height(side).padding([14, 16]).clip(true).style(ui::box_at(theme::workspace::surface, k.powf(0.6))).into();
+    let inside: Element<'a, Message> = ui::fading(late.clamp(0.0, 1.0).powf(2.2), || one(ground, tile));
+    let card: Element<'a, Message> = container(inside).padding([14, 16]).style(ui::box_at(theme::slab, k.powf(0.6))).into();
     ui::grown(card, iced::Point::new(0.5, 0.5), 0.0, 0.96 + 0.04 * late).into()
 }
 
@@ -558,8 +436,12 @@ fn pill<'a>(ground: &Ground<'a>, id: &str, name: String, on: bool, press: Messag
     switch_row(ground, id, name, None, on, Some(press))
 }
 
+fn chip<'a>(ground: &Ground<'a>, id: &str, name: String, on: bool, press: Message) -> Element<'a, Message> {
+    switch_sized(ground, id, name, None, None, on, Some(press), false)
+}
+
 fn pill_told<'a>(ground: &Ground<'a>, id: &str, name: String, told: String, on: bool, press: Message) -> Element<'a, Message> {
-    switch_sized(ground, id, name, None, Some(told), on, Some(press))
+    switch_sized(ground, id, name, None, Some(told), on, Some(press), true)
 }
 
 fn pill_tagged<'a>(ground: &Ground<'a>, id: &str, name: String, tag: String, on: bool, press: Message) -> Element<'a, Message> {
@@ -567,31 +449,31 @@ fn pill_tagged<'a>(ground: &Ground<'a>, id: &str, name: String, tag: String, on:
 }
 
 fn switch_row<'a>(ground: &Ground<'a>, id: &str, name: String, tag: Option<String>, on: bool, press: Option<Message>) -> Element<'a, Message> {
-    switch_sized(ground, id, name, tag, None, on, press)
+    switch_sized(ground, id, name, tag, None, on, press, true)
 }
 
-fn switch_sized<'a>(ground: &Ground<'a>, id: &str, name: String, tag: Option<String>, told: Option<String>, on: bool, press: Option<Message>) -> Element<'a, Message> {
+fn switch_sized<'a>(ground: &Ground<'a>, id: &str, name: String, tag: Option<String>, told: Option<String>, on: bool, press: Option<Message>, fill: bool) -> Element<'a, Message> {
     let k = mark_at(ground, id, on);
     let live = press.is_some();
-    let mut words = row![text(name).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::WordOrGlyph).color(ui::faded(if live { INK } else { MUTED }))]
+    let mut inside = row![text(name).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(if live { INK } else { MUTED }))]
         .spacing(8)
         .align_y(iced::Center);
     if let Some(tag) = tag {
-        words = words.push(ui::tag(tag));
+        inside = inside.push(ui::tag(tag));
     }
     if let Some(told) = told {
-        words = words.push(ui::explained(told, 14.0));
+        inside = inside.push(ui::explained(told, 14.0));
     }
-    let inside = row![container(words).width(Length::Fill), Space::new().height(22.0), ui::track(k)].spacing(8).align_y(iced::Center);
-    let face = button(container(inside).padding(Padding { top: 8.0, right: 9.0, bottom: 8.0, left: 14.0 }))
+    inside = inside.push(if fill { Space::new().width(Length::Fill) } else { Space::new().width(6.0) }).push(ui::track(k));
+    let face = button(container(inside).padding(Padding { top: 0.0, right: 9.0, bottom: 0.0, left: 14.0 }).center_y(38.0))
         .padding(0)
-        .width(Length::Fill)
+        .width(if fill { Length::Fixed(SWITCH_WIDE) } else { Length::Shrink })
         .style(ui::button_faded(theme::switch_row()))
         .on_press_maybe(press);
     if live {
         face.into()
     } else {
-        ui::fading(ui::fade() * 0.45, || face.into())
+        ui::fading(0.45, || face.into())
     }
 }
 
@@ -616,11 +498,8 @@ fn percent(level: f32) -> String {
     format!("{} %", (level.clamp(0.0, 1.0) * 100.0).round() as u32)
 }
 
-const PAGE_EDGE: f32 = 24.0;
-const TILE_GROUND: iced::Color = iced::Color::from_rgb(0.051, 0.02, 0.031);
-const TILE_GAP: f32 = 12.0;
-const TILE_LEAST: f32 = 330.0;
-const SEARCH_WIDE: f32 = 320.0;
+const ELEMENTS_WIDE: f32 = 420.0;
+const SWITCH_WIDE: f32 = 372.0;
 
 fn at(value: u32, of: &[u32]) -> f32 {
     let last = (of.len().max(2) - 1) as f32;
@@ -652,7 +531,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     slide(ground, "cpu", w.t("render-cpu"), format!("{} %", s.cpu_share), at(s.cpu_share, &CPU_SHARES), stops(&CPU_SHARES), Message::Cpu),
                 ]
                 .spacing(6)
-                .width(Length::Fill)
+                .width(360.0)
             )
             .padding(Padding::ZERO.top(6.0)),
             container(pill_told(ground, "render-gpu", w.t("render-gpu"), w.t("render-gpu-note"), s.render_gpu, Message::RenderGpu(!s.render_gpu))).padding(Padding::ZERO.top(10.0)),
@@ -676,7 +555,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 head_told(w, "look-tile", w.t("scale-space-note")),
                 pill(ground, "auto-scale", w.t("scale-to-monitor"), s.ui_scale == 0, Message::AutoScale(s.ui_scale != 0)),
                 container(ui::steps_released(w.t("scale"), value, fraction, moving, snap, Message::Scale, || Message::ScaleDone))
-                    .width(Length::Fill)
+                    .width(280.0)
                     .padding(Padding::ZERO.top(8.0)),
             ]
             .spacing(2);
@@ -769,7 +648,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 Status::Watching => w.t("witness-watching"),
                 Status::Playing => seen.state.as_ref().map_or_else(|| w.t("witness-watching"), |state| w.with("witness-playing", &[("map", state.map_line())])),
             };
-            let line = |said: String, colour: iced::Color, top: f32| container(text(said).font(theme::SANS).size(11.0).color(ui::faded(colour))).width(Length::Fill).padding(Padding::ZERO.top(top));
+            let line = |said: String, colour: iced::Color, top: f32| container(text(said).font(theme::SANS).size(11.0).color(ui::faded(colour))).width(300.0).padding(Padding::ZERO.top(top));
             let mut panel = column![if running { head(w, "witness-tile") } else { head_told(w, "witness-tile", w.t("witness-off-note")) }].spacing(2);
             if running && !said.is_empty() {
                 panel = panel.push(line(said, if matches!(seen.status, Status::Unavailable | Status::LaunchFailed(_)) { theme::ACCENT } else { FAINT }, 0.0));
@@ -807,7 +686,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
         }
         Tile::Overlay => {
             let running = s.witness_on;
-            let note = |said: String, colour: iced::Color, top: f32| container(text(said).font(theme::SANS).size(11.0).color(ui::faded(colour))).width(Length::Fill).padding(Padding::ZERO.top(top));
+            let note = |said: String, colour: iced::Color, top: f32| container(text(said).font(theme::SANS).size(11.0).color(ui::faded(colour))).width(300.0).padding(Padding::ZERO.top(top));
             let mut panel = column![head_told(w, "overlay-tile", w.t(if running { "overlay-keys" } else { "overlay-off-note" }))].spacing(2);
             let press = running.then_some(Message::WitnessOverlay(!s.witness_overlay));
             panel = panel.push(container(switch_row(ground, "witness-overlay", w.t("witness-overlay"), Some(w.t("witness-experimental")), s.witness_overlay, press)).padding(Padding::ZERO.top(if running { 0.0 } else { 10.0 })));
@@ -822,7 +701,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             let scale = u32::from(dossier_hud::SCALES[dossier_hud::nearest_scale(s.overlay_scale)]);
             panel = panel.push(
                 container(slide(ground, "overlay-scale", w.t("overlay-scale"), format!("{scale} %"), at(scale, &scales), stops(&scales), Message::OverlayScale))
-                    .width(Length::Fill)
+                    .width(360.0)
                     .padding(Padding::ZERO.top(10.0)),
             );
             let shows = [
@@ -877,7 +756,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             }
             rows.push(line(ground, "add-folder", "+", w.t("add-folder"), String::new(), false, Some(Message::AddFolder)))
                 .push(container(pill(ground, "exported-only", w.t("exported-only"), s.exported_only, Message::ExportedOnly(!s.exported_only))).padding(Padding::ZERO.top(8.0)))
-                .width(Length::Fill)
+                .width(Length::Fixed(360.0))
                 .into()
         }
         Tile::Skins => {
@@ -942,7 +821,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     .direction(iced::widget::scrollable::Direction::Horizontal(
                         iced::widget::scrollable::Scrollbar::new().width(0).scroller_width(0).margin(0),
                     ))
-                    .width(Length::Fill),
+                    .width(if ground.skins.is_empty() { 200.0 } else { 366.0 }),
             );
             let packed = ground.skins.iter().filter(|path| crate::settings::is_skin_file(path)).count();
             let said = match (ground.skins.is_empty(), packed) {
@@ -975,7 +854,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     slide(ground, "preview", w.t("preview-sound"), percent(s.preview_level), s.preview_level, Vec::new(), Message::PreviewLevel),
                 ]
                 .spacing(6)
-                .width(Length::Fill)
+                .width(260.0)
             )
             .padding(Padding::ZERO.top(6.0)),
         ]
@@ -989,19 +868,21 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     slide(ground, "blur", w.t("background-blur"), percent(s.background_blur), s.background_blur, Vec::new(), Message::Blur),
                 ]
                 .spacing(6)
-                .width(Length::Fill)
+                .width(280.0)
             )
             .padding(Padding { top: 6.0, right: 0.0, bottom: 4.0, left: 0.0 }),
-            column![
-                pill(ground, "hud", w.t("hud"), s.hud, Message::Hud(!s.hud)),
-                pill(ground, "cursor-grows", w.t("cursor-grows"), s.cursor_grows, Message::CursorGrows(!s.cursor_grows)),
-                pill(ground, "map-sounds", w.t("map-sounds"), s.map_sounds, Message::MapSounds(!s.map_sounds)),
-                pill(ground, "skin-sounds", w.t("skin-sounds"), s.skin_sounds, Message::SkinSounds(!s.skin_sounds)),
-            ]
-            .spacing(6),
+            ui::wrap(
+                vec![
+                    chip(ground, "hud", w.t("hud"), s.hud, Message::Hud(!s.hud)),
+                    chip(ground, "cursor-grows", w.t("cursor-grows"), s.cursor_grows, Message::CursorGrows(!s.cursor_grows)),
+                    chip(ground, "map-sounds", w.t("map-sounds"), s.map_sounds, Message::MapSounds(!s.map_sounds)),
+                    chip(ground, "skin-sounds", w.t("skin-sounds"), s.skin_sounds, Message::SkinSounds(!s.skin_sounds)),
+                ],
+                6.0,
+            ),
         ]
         .spacing(4)
-        .width(Length::Fill)
+        .width(Length::Shrink)
         .into(),
         Tile::Elements => column![
             head(w, "elements-tile"),
@@ -1011,23 +892,29 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                     slide(ground, "meter-size", w.t("meter-size"), format!("{} %", s.meter_size), at(s.meter_size, &METER_SIZES), stops(&METER_SIZES), Message::MeterSize),
                 ]
                 .spacing(6)
-                .width(Length::Fill)
+                .width(ELEMENTS_WIDE)
             )
             .padding(Padding { top: 6.0, right: 0.0, bottom: 4.0, left: 0.0 }),
-            iced::widget::Column::with_children(Effect::ALL.into_iter().map(|effect| {
-                let on = s.effect(effect);
-                pill(ground, effect.tag(), w.t(effect.tag()), on, Message::Effect(effect, !on))
-            }))
-            .spacing(6),
+            container(ui::wrap(
+                Effect::ALL
+                    .into_iter()
+                    .map(|effect| {
+                        let on = s.effect(effect);
+                        chip(ground, effect.tag(), w.t(effect.tag()), on, Message::Effect(effect, !on))
+                    })
+                    .collect(),
+                6.0,
+            ))
+            .width(ELEMENTS_WIDE),
             container(ui::told(ui::label(w.t("video-board"), MUTED), w.t("video-board-note"), 14.0)).padding(Padding::ZERO.top(10.0)),
-            column![
-                pill(ground, "video-board-global", w.t("video-board-global"), !s.video_board_chat, Message::VideoBoardChat(false)),
-                pill(ground, "video-board-chat", w.t("video-board-chat"), s.video_board_chat, Message::VideoBoardChat(true)),
+            row![
+                chip(ground, "video-board-global", w.t("video-board-global"), !s.video_board_chat, Message::VideoBoardChat(false)),
+                chip(ground, "video-board-chat", w.t("video-board-chat"), s.video_board_chat, Message::VideoBoardChat(true)),
             ]
             .spacing(6),
         ]
         .spacing(4)
-        .width(Length::Fill)
+        .width(Length::Shrink)
         .into(),
         Tile::Videos => column![
             head(w, "videos"),
@@ -1089,7 +976,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 container(row![deed(w.t("in-folder"), Message::OpenData, false), deed(w.t("clear-cache"), Message::ClearAppCache, true)].spacing(6)).padding(Padding::ZERO.top(8.0)),
             ]
             .spacing(2)
-            .width(Length::Fill)
+            .width(Length::Fixed(260.0))
             .into()
         }
         Tile::Builds => {
@@ -1135,7 +1022,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 }
                 U::Source => (String::new(), FAINT),
             };
-            let said = text(said).font(theme::SANS).size(11.0).width(Length::Fill).color(ui::faded(colour));
+            let said = text(said).font(theme::SANS).size(11.0).width(Length::Fixed(300.0)).color(ui::faded(colour));
             let mut deeds = row![].spacing(6);
             match ground.update {
                 U::Found(_) | U::Failed { release: Some(_), .. } | U::Ready { .. } => deeds = deeds.push(deed(w.t("update-now"), Message::Update, false)),
@@ -1202,7 +1089,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 rows = rows.push(chat_line(ground, chat, face, under, Some(chat.id) == here, ("chat", Message::Chat(chat.id))));
             }
             if ground.account.is_some_and(|me| !me.telegram) {
-                rows = rows.push(container(text(w.t("no-telegram-chats")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(Length::Fill));
+                rows = rows.push(container(text(w.t("no-telegram-chats")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(Length::Fixed(196.0)));
             } else if ground.chats.is_empty() {
                 let words = column![
                     text(s.linked_as.clone()).font(theme::SANS_SEMI).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(INK)),
@@ -1225,7 +1112,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             if ground.accept_unregistered {
                 rows = rows.push(container(text(w.t("accept-unregistered")).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).padding(Padding::ZERO.top(6.0)));
             }
-            container(rows).width(Length::Fill).into()
+            container(rows).width(Length::Fixed(196.0)).into()
         }
         Tile::Community => community_tile(ground),
         Tile::Worker => worker_tile(ground),
@@ -1246,7 +1133,7 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
             container(deed(w.t("unlink"), Message::Unlink, true)).padding(Padding::ZERO.top(6.0)),
         ]
         .spacing(2))
-        .width(Length::Fill)
+        .width(268.0)
         .into(),
     }
 }
@@ -1320,7 +1207,7 @@ fn community_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         (Some(_), None) => w.t("pin-can-move"),
         (None, _) => w.t("pin-first"),
     };
-    body = body.push(container(text(said).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(Length::Fill).padding(Padding::ZERO.top(6.0)));
+    body = body.push(container(text(said).font(theme::SANS).size(11.0).color(ui::faded(FAINT))).width(300.0).padding(Padding::ZERO.top(6.0)));
     body = body.push(container(pill(ground, "people-everyone", w.t("people-everyone"), s.people_everyone, Message::PeopleEveryone(!s.people_everyone))).padding(Padding::ZERO.top(14.0)));
     if let Some(sharing) = ground.share_replays {
         body = body.push(container(pill_told(ground, "share-replays", w.t("share-replays"), w.t("share-replays-about"), sharing.on, Message::ShareReplays(!sharing.on))).padding(Padding::ZERO.top(8.0)));
@@ -1355,7 +1242,7 @@ fn worker_tile<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             state = state.push(ui::grow()).push(ui::mono_small(w.with("worker-fps", &[("n", format!("{}", fps.round() as u64))]), MUTED));
         }
     }
-    let mut body = column![head_told(w, "worker", w.t("worker-about")), pill(ground, "worker", w.t("worker-take"), on, Message::Worker(!on))].spacing(2).width(Length::Fill);
+    let mut body = column![head_told(w, "worker", w.t("worker-about")), pill(ground, "worker", w.t("worker-take"), on, Message::Worker(!on))].spacing(2).width(Length::Fixed(330.0));
     body = body.push(container(state).padding(Padding::ZERO.top(10.0)));
     let current = match ground.worker {
         Some(W::Taken { title } | W::Getting { title, .. } | W::Polishing { title }) => Some((title.clone(), None, None)),
@@ -1558,47 +1445,22 @@ mod tests {
     }
 
     #[test]
-    fn every_setting_lives_in_exactly_one_section() {
-        let mut seen: Vec<Tile> = Section::ALL.iter().flat_map(|section| section.tiles().iter().copied()).collect();
-        assert_eq!(seen.len(), 22);
-        seen.dedup();
-        assert_eq!(seen.len(), 22);
-        assert_eq!(Section::of("video"), Section::Video);
-        assert_eq!(Section::of("bot"), Section::Look, "a tab saved by an older build opens the first section");
+    fn a_moved_tile_keeps_the_others_in_order() {
+        let kept: Vec<String> = Vec::new();
+        let after = moved(&kept, &APP, Tile::Builds, Some(Tile::Language));
+        let at = |tile: Tile| after.iter().position(|tag| tag == tile.tag()).unwrap();
+        assert_eq!(after[0], APP[0].tag());
+        assert_eq!(at(Tile::Builds) + 1, at(Tile::Language));
+        assert_eq!(after.len(), APP.len());
+        let last = moved(&after, &APP, Tile::Render, None);
+        assert_eq!(last.last().map(String::as_str), Some(Tile::Render.tag()));
     }
 
     #[test]
-    fn a_setting_is_found_by_its_own_words_in_either_language() {
-        let ru = Words::new(Lang::Ru);
-        assert_eq!(found(&ru, "громкость музыки").len() + found(&ru, "музык").len() > 0, true);
-        assert!(found(&ru, "  фон карты ").contains(&Tile::Scene));
-        assert!(found(&ru, "трей").contains(&Tile::Look));
-        assert!(found(&ru, "нет такой настройки").is_empty());
-        let en = Words::new(Lang::En);
-        assert!(found(&en, "map background").contains(&Tile::Scene));
-    }
-
-    #[test]
-    fn a_moved_tile_keeps_its_neighbours_and_the_other_sections_in_order() {
-        let kept = vec!["worker".to_owned(), "storage".to_owned()];
-        let after = moved(&kept, Section::Look.tiles(), Tile::Scene, Some(Tile::Language));
-        assert_eq!(&after[..3], ["scene", "language", "look"]);
-        assert_eq!(&after[3..], ["worker", "storage"], "another section's order was lost");
-        assert_eq!(order(&after, Section::Look.tiles()), [Tile::Scene, Tile::Language, Tile::Look]);
-        assert_eq!(order(&after, Section::System.tiles()), [Tile::Storage, Tile::Builds]);
-        let last = moved(&after, Section::Look.tiles(), Tile::Scene, None);
-        assert_eq!(order(&last, Section::Look.tiles()).last(), Some(&Tile::Scene));
-    }
-
-    #[test]
-    fn every_tile_is_a_square_of_one_size_that_fills_the_page() {
-        for wide in [688.0, 988.0, 1308.0, 1628.0, 2400.0] {
-            let side = side_of(wide);
-            assert!(side >= TILE_LEAST, "{wide}: {side}");
-            let columns = ((wide + TILE_GAP) / (side + TILE_GAP)).floor();
-            assert!(wide - (columns * side + (columns - 1.0) * TILE_GAP) < columns + 1.0, "{wide}: space left beside {columns} of {side}");
-        }
-        assert_eq!(side_of(200.0), 200.0, "a tile never leaves a window narrower than itself");
+    fn a_saved_application_order_does_not_keep_the_worker_on_the_old_tab() {
+        let kept = vec!["worker".to_owned(), "render".to_owned(), "language".to_owned()];
+        assert!(!order(&kept, &APP).contains(&Tile::Worker));
+        assert!(order(&[], &BOT).contains(&Tile::Worker));
     }
 
     #[test]

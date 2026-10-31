@@ -531,7 +531,7 @@ fn waiting_card<'a>(ground: &Ground<'a>, you: &'a Person, left: Option<u32>) -> 
     let k = ui::fade();
     let name = row![text(you.name.clone()).font(theme::SANS_SEMI).size(15.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), chip(w.t("score-you"), YOURS)].spacing(6).align_y(iced::Center);
     let left = left.map_or(String::new(), |left| w.with("title-left", &[("n", w.lang().group(u64::from(left)))]));
-    let inside = column![ui::fading(k * 0.45, || screen::face(ground, you, 52.0)), container(name).clip(true), caption(w.t("title-not-yet")), mono(left, 12.0, MUTED, false)].spacing(6).align_x(iced::Center).width(Length::Fill);
+    let inside = column![ui::fading(0.45, || screen::face(ground, you, 52.0)), container(name).clip(true), caption(w.t("title-not-yet")), mono(left, 12.0, MUTED, false)].spacing(6).align_x(iced::Center).width(Length::Fill);
     container(inside)
         .padding([14, 10])
         .width(Length::Fill)

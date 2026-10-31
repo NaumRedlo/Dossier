@@ -23,11 +23,11 @@ impl Scene<'_> {
         let pp = self.leaderboard.pp_at(time_ms);
         let graph = !self.leaderboard.strains.is_empty();
         let rows = match self.state.score_track() {
-            Some(track) if !self.leaderboard.is_empty() => self.leaderboard.standings(track.at(time_ms), BOARD_ROWS),
+            Some(track) if !self.leaderboard.is_empty() => self.leaderboard.moving(|at| track.at(at), time_ms, BOARD_ROWS),
             _ => Vec::new(),
         };
         let gauges = if graph { step * GAUGE_GRAPH } else { 0.0 } + if pp.is_some() { step * GAUGE_PP } else { 0.0 };
-        let drawn = BOARD_ROWS.min(rows.len()) as f32;
+        let drawn = if rows.is_empty() { 0.0 } else { BOARD_ROWS.min(self.leaderboard.rivals.len() + 1) as f32 };
         let mut y = (pixmap.height() as f32 - gauges - drawn * step) / 2.0;
 
         if let Some(pp) = pp {
@@ -119,15 +119,6 @@ impl Scene<'_> {
                 pixmap.stroke_path(&edge, &paint, &stroke, Transform::identity(), None);
             }
         }
-        if played > 0.0 && played < 1.0 {
-            let x = left + played * width;
-            let mark = tiny_skia::Rect::from_xywh(x - thin / 2.0, bottom - height_at(played) * height, thin, height_at(played) * height);
-            if let Some(mark) = mark {
-                let mut paint = Paint { anti_alias: true, ..Default::default() };
-                paint.set_color(with_alpha(self.skin.hud, 0.9));
-                pixmap.fill_rect(mark, &paint, Transform::identity(), None);
-            }
-        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -142,7 +133,7 @@ impl Scene<'_> {
         card_height: f32,
         size: f32,
     ) {
-        let presence = 1.0;
+        let presence = row.presence;
         let top = baseline - size * 1.15;
         let Some(card) = rounded_rect(left, top, width, card_height, card_height * BOARD_RADIUS)
         else {

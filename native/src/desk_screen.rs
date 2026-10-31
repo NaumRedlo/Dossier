@@ -1501,6 +1501,16 @@ pub fn short_version(version: &str) -> String {
     }
 }
 
+const TAGS_SHOWN: usize = 30;
+
+fn shown_tags(raw: &str) -> String {
+    let all: Vec<&str> = raw.split_whitespace().collect();
+    match all.len().checked_sub(TAGS_SHOWN) {
+        Some(left) if left > 0 => format!("{} +{left}", all[..TAGS_SHOWN].join(" ")),
+        _ => all.join(" "),
+    }
+}
+
 fn skill(w: &Words, slot: &str) -> String {
     let key = format!("desk-skill-{}", slot.to_lowercase());
     let said = w.t(&key);
@@ -1722,7 +1732,9 @@ fn queue_view<'a>(w: &Words, state: &'a State, now: i64, k: f32, wide: f32) -> E
         if let Some(slot) = task.slot.as_deref().filter(|_| task.kind != "unassigned") {
             tags = tags.push(tag(slot, k));
         }
-        tags = tags.push(strong(w.t(&format!("desk-reason-{}", task.reason.replace('_', "-"))), 12.0 * k, reason_colour(task)));
+        if task.reason != "doubted" {
+            tags = tags.push(strong(w.t(&format!("desk-reason-{}", task.reason.replace('_', "-"))), 12.0 * k, reason_colour(task)));
+        }
         let inside = row![
             cover(state, map.beatmapset_id, 60.0 * k, 38.0 * k, 7.0),
             column![titled_map(map.title.as_deref(), map.beatmap_id, 14.0 * k), one_line(map.version.clone().unwrap_or_default(), 12.0 * k, MUTED, theme::SANS), tags].spacing(3).width(Length::Fill),
@@ -1848,16 +1860,32 @@ fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) 
     if let (false, Some(plain)) = (map.mods.is_empty(), map.plain_stars) {
         summary = summary.push(row![meta_pill("NM".into(), k), stars_of(Some(plain), 12.0 * k)].spacing(8).align_y(Alignment::Center));
     }
-    if let Some(tags) = map.tags.as_ref().filter(|tags| !tags.tournaments.is_empty()) {
-        let mut chips = row![words(w.t("desk-tags"), 13.0 * k, FAINT)].spacing(6).align_y(Alignment::Center);
+    let mut chips = row![words(w.t("desk-tags"), 13.0 * k, FAINT)].spacing(6).align_y(Alignment::Center);
+    let mut told = false;
+    if let Some(tags) = map.tags.as_ref() {
         for said in tags.tournaments.iter().map(|tag| tag_tournament(tag)).chain(tags.stages.iter().map(|stage| tag_stage(w, stage))) {
             chips = chips.push(meta_pill(said, k));
+            told = true;
         }
         for slot in &tags.slots {
             chips = chips.push(tag(slot, k));
+            told = true;
         }
-        summary = summary.push(container(chips.wrap().vertical_spacing(6)).width(280.0 * k));
     }
+    let raw = map.tags.as_ref().map_or("", |tags| tags.raw.trim());
+    let mut tagged = column![].spacing(4);
+    if told || raw.is_empty() {
+        if !told {
+            chips = chips.push(words(w.t(if map.tags.is_some() { "desk-tags-none" } else { "desk-tags-unread" }), 13.0 * k, FAINT));
+        }
+        tagged = tagged.push(chips.wrap().vertical_spacing(6));
+    } else {
+        tagged = tagged.push(words(w.t("desk-tags"), 13.0 * k, FAINT));
+    }
+    if !raw.is_empty() {
+        tagged = tagged.push(words(shown_tags(raw), 12.0 * k, MUTED));
+    }
+    summary = summary.push(container(tagged).width(280.0 * k));
     let summary = summary.push(facts.wrap().vertical_spacing(6)).push(under);
     let top: Element<'a, Message> = if wide < 800.0 {
         column![summary, decision].spacing(16).into()
@@ -3481,10 +3509,12 @@ mod tests {
     #[test]
     fn a_slot_without_a_name_shows_only_its_tag() {
         let w = Words::new(crate::lang::Lang::Ru);
+        assert_eq!(shown_tags("a  b c"), "a b c");
+        assert_eq!(shown_tags(&vec!["x"; TAGS_SHOWN + 2].join(" ")), format!("{} +2", vec!["x"; TAGS_SHOWN].join(" ")));
         assert_eq!(skill(&w, "NM5"), "Скорость");
         assert_eq!(skill(&w, "HD4"), "Флекс на HD");
         assert_eq!(skill(&w, "HR4"), "Флекс на HR");
-        assert_eq!(feature(&w, "snaps.triplet"), "Доля триолей");
+        assert_eq!(feature(&w, "snaps.triplet"), "Доля триплетов");
         assert_eq!(feature(&w, "snaps.change"), "Смены деления ритма");
         assert_eq!(skill(&w, "FM2"), "Пресижн и чтение во фримоде");
         assert_eq!(skill(&w, "FM4"), "");

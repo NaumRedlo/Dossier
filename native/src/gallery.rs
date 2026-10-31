@@ -1566,7 +1566,7 @@ fn staged_desk() -> crate::desk_screen::State {
     let task = |kind: &str, reason: &str, slot: Option<&str>, map: Map, ago: i64| Task { secondary: None, tier: None, reasons: Vec::new(), kind: kind.into(), id: Some(map.beatmap_id), reason: reason.into(), since: stamp(ago), slot: slot.map(Into::into), state: None, map, opinions: None };
     let mut first = task("review", "uncertain_revealed", Some("NM3"), map(5687673, 2612145, "HOT LIMIT", "Extreme", "Nevo", 5.71), 720);
     first.map.model = Some(guess);
-    first.map.tags = Some(crate::desk::Tags { tournaments: vec!["owc2024".into()], stages: vec!["qf".into()], slots: vec!["NM3".into()] });
+    first.map.tags = Some(crate::desk::Tags { raw: "owc2024 qf nm2 stream technical japanese vocaloid".into(), tournaments: vec!["owc2024".into()], stages: vec!["qf".into()], slots: vec!["NM3".into()] });
     first.opinions = Some(Opinions { played: 5, fits: 3, off: 2, difficulty: [("fine".to_owned(), 4), ("hard".to_owned(), 1)].into_iter().collect(), comments: vec!["Альтернейта тут половина".into()] });
     let tasks = vec![
         first,

@@ -113,6 +113,7 @@ pub struct Map {
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct Tags {
+    pub raw: String,
     pub tournaments: Vec<String>,
     pub stages: Vec<String>,
     pub slots: Vec<String>,

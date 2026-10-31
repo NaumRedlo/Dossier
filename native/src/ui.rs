@@ -2836,7 +2836,7 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
                 true => (free_left > label_wide + 22.0).then_some(0.0).unwrap_or(1.0),
                 false => (free_left < label_wide + 4.0).then_some(1.0).unwrap_or(0.0),
             };
-            let free_right = bounds.width - 8.0 - (x + HANDLE_ROOM + 10.0);
+            let free_right = bounds.width - 8.0 - (x + HANDLE_ROOM + 10.0) - if want_label > 0.5 { label_wide + 8.0 } else { 0.0 };
             let want_value = match state.value_side > 0.5 {
                 true => (free_right > value_wide + 22.0).then_some(0.0).unwrap_or(1.0),
                 false => (free_right < value_wide + 4.0).then_some(1.0).unwrap_or(0.0),

@@ -3512,8 +3512,8 @@ mod tests {
         assert_eq!(shown_tags("a  b c"), "a b c");
         assert_eq!(shown_tags(&vec!["x"; TAGS_SHOWN + 2].join(" ")), format!("{} +2", vec!["x"; TAGS_SHOWN].join(" ")));
         assert_eq!(skill(&w, "NM5"), "Скорость");
-        assert_eq!(skill(&w, "HD4"), "Флекс на HD");
-        assert_eq!(skill(&w, "HR4"), "Флекс на HR");
+        assert_eq!(skill(&w, "HD4"), "Гиммики на HD");
+        assert_eq!(skill(&w, "HR4"), "Гиммики на HR");
         assert_eq!(feature(&w, "snaps.triplet"), "Доля триплетов");
         assert_eq!(feature(&w, "snaps.change"), "Смены деления ритма");
         assert_eq!(skill(&w, "FM2"), "Пресижн и чтение во фримоде");

@@ -2031,8 +2031,8 @@ duels-room-unresponsive = Комната osu! не подтвердила нас
 duels-room-lost = Комната osu! перестала отвечать, и карту не удалось остановить. Дуэль отменена без изменения рейтинга.
 duels-evidence-missing = Результат карты так и не появился в API osu!. Дуэль отменена без изменения рейтинга.
 
-desk-skill-hd4 = Флекс на HD
-desk-skill-hr4 = Флекс на HR
+desk-skill-hd4 = Гиммики на HD
+desk-skill-hr4 = Гиммики на HR
 
 desk-reviewed-by = Проверил { $name }
 desk-discovery-no-model = Для поиска нужна опубликованная модель Kamerton, совместимая с текущим анализатором.

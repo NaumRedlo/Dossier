@@ -1987,8 +1987,8 @@ duels-room-unresponsive = The osu! room did not confirm setup or the start of th
 duels-room-lost = The osu! room stopped answering and the map could not be stopped. The duel was cancelled without a rating change.
 duels-evidence-missing = The map's result never reached the osu! API. The duel was cancelled without a rating change.
 
-desk-skill-hd4 = HD Flex
-desk-skill-hr4 = HR Flex
+desk-skill-hd4 = HD Gimmick
+desk-skill-hr4 = HR Gimmick
 
 desk-reviewed-by = Reviewed by { $name }
 desk-discovery-no-model = Searching requires a published Kamerton model compatible with the current analyser.

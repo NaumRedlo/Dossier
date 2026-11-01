@@ -118,7 +118,23 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let antialias: f32 = clamp(1.0 - d, 0.0, 1.0);
     let inside = all(input.uv >= input.atlas.xy) && all(input.uv <= input.atlas.zw);
 
-    return textureSample(u_texture, u_sampler, input.uv, input.layer) * vec4<f32>(1.0, 1.0, 1.0, antialias * input.opacity * f32(inside));
+    let across = dpdx(input.uv);
+    let down = dpdy(input.uv);
+    let sides = vec2<f32>(textureDimensions(u_texture));
+    let reach = max(length(across * sides), length(down * sides));
+    let least = input.atlas.xy + 0.5 / sides;
+    let most = input.atlas.zw - 0.5 / sides;
+    var seen = textureSampleLevel(u_texture, u_sampler, clamp(input.uv, least, most), input.layer, 0.0);
+    if reach > 1.25 {
+        let at = array<vec2<f32>, 4>(vec2(-0.125, -0.375), vec2(0.375, -0.125), vec2(-0.375, 0.125), vec2(0.125, 0.375));
+        seen = vec4<f32>(0.0);
+        for (var i = 0u; i < 4u; i++) {
+            let tap = clamp(input.uv + across * at[i].x + down * at[i].y, least, most);
+            seen += textureSampleLevel(u_texture, u_sampler, tap, input.layer, 0.0) / 4.0;
+        }
+    }
+
+    return seen * vec4<f32>(1.0, 1.0, 1.0, antialias * input.opacity * f32(inside));
 }
 
 fn rounded_box_sdf(p: vec2<f32>, size: vec2<f32>, corners: vec4<f32>) -> f32 {

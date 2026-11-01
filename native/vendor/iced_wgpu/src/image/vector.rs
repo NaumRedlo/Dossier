@@ -105,8 +105,8 @@ impl Cache {
         let id = handle.id();
 
         let (width, height) = (
-            (scale * size.width).ceil() as u32,
-            (scale * size.height).ceil() as u32,
+            (scale * size.width).round().max(1.0) as u32,
+            (scale * size.height).round().max(1.0) as u32,
         );
 
         let color = color.map(Color::into_rgba8);

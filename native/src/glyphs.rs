@@ -136,6 +136,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_small_icon_keeps_its_shape_at_every_interface_scale() {
+        let dir = std::env::temp_dir().join(format!("dossier-icon-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        for percent in (80..=160).step_by(3).chain([95, 100, 119, 125, 133]) {
+            let factor = percent as f32 / 100.0;
+            let side = 96.0;
+            let icon: iced::Element<'_, ()> = iced::widget::container(glyph(Icon::Close, 17.0, Color::WHITE)).center(iced::Length::Fill).into();
+            let mut ui = iced_test::Simulator::with_size(crate::gallery::settings_once(), iced::Size::new(side, side), crate::ui::scaled(icon, factor));
+            let stem = dir.join(format!("close-{percent}"));
+            ui.snapshot(&crate::theme::theme()).expect("a frame").matches_image(&stem).expect("written");
+            let path = crate::gallery::written_as(&stem);
+            let picture = ::image::open(&path).expect("a picture").to_luma8();
+            let _ = std::fs::remove_file(path);
+            let lit: Vec<(u32, u32)> = picture.enumerate_pixels().filter(|(_, _, ink)| ink.0[0] > 96).map(|(x, y, _)| (x, y)).collect();
+            assert!(!lit.is_empty(), "{percent}%: nothing was drawn");
+            let (left, right) = (lit.iter().map(|at| at.0).min().unwrap_or(0), lit.iter().map(|at| at.0).max().unwrap_or(0));
+            let (top, bottom) = (lit.iter().map(|at| at.1).min().unwrap_or(0), lit.iter().map(|at| at.1).max().unwrap_or(0));
+            let mut off = 0;
+            for y in top..=bottom {
+                for x in left..=right {
+                    let (here, mirrored) = (picture.get_pixel(x, y).0[0], picture.get_pixel(left + right - x, y).0[0]);
+                    off += u32::from(here.abs_diff(mirrored) > 96);
+                }
+            }
+            assert!(off <= lit.len() as u32 / 12, "{percent}%: the cross lost its shape, {off} pixels of {} differ from their mirror image", lit.len());
+        }
+    }
+
+    #[test]
     fn every_icon_is_a_stroked_svg_from_the_set() {
         for icon in [Icon::Chevron, Icon::Target, Icon::Keys, Icon::Chain, Icon::Play, Icon::Star, Icon::Clock, Icon::Heart, Icon::Trophy, Icon::Chart, Icon::News, Icon::Send, Icon::Gear, Icon::Calendar, Icon::Flame, Icon::Swords, Icon::External, Icon::Compare, Icon::Up, Icon::Down, Icon::Search, Icon::Film, Icon::Flag, Icon::Metronome, Icon::Person, Icon::Mapper, Icon::Chat, Icon::Circle, Icon::Refresh, Icon::Check, Icon::Warn, Icon::Right, Icon::Plus, Icon::Close, Icon::Pool, Icon::Copy, Icon::File, Icon::Shapes, Icon::Medal, Icon::Bell, Icon::Undo, Icon::Redo, Icon::Link, Icon::Sliders, Icon::People, Icon::Globe, Icon::Ban, Icon::Eye, Icon::Scale, Icon::Volume, Icon::Download, Icon::Help] {
             let said = std::str::from_utf8(drawn(icon)).unwrap();

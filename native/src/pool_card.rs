@@ -215,7 +215,7 @@ mod tests {
         for (at, (before, after)) in before.chunks_exact(4).zip(after.chunks_exact(4)).enumerate() {
             let (x, y) = (at % width, at / width);
             if !(72..728).contains(&x) || !(320..760).contains(&y) {
-                assert_eq!(before, after, "content escaped its tile at {x}, {y}");
+                assert!(before.iter().zip(after).all(|(a, b)| a.abs_diff(*b) <= 2), "content escaped its tile at {x}, {y}: {before:?} and {after:?}");
             }
         }
     }

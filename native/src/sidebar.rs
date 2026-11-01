@@ -1,6 +1,5 @@
-use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path};
 use iced::widget::{button, column, container, mouse_area, row, text, Space};
-use iced::{mouse, Background, Border, Color, Element, Length, Padding, Point, Rectangle, Renderer, Shadow, Theme, Vector};
+use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme, Vector};
 
 use crate::glyphs::{glyph, Icon};
 use crate::theme::{self, INK, MUTED};
@@ -10,8 +9,7 @@ pub const WIDE: f32 = 330.0;
 pub const NARROW: f32 = 0.0;
 const HOT: f32 = 16.0;
 const LEAF: f32 = 48.0;
-const GAP: f32 = 12.0;
-const FILLET: f32 = 24.0;
+const GAP: f32 = 6.0;
 const TICK_HIGH: f32 = 6.0;
 const TICK_CHOSEN_HIGH: f32 = 22.0;
 const TICK_CHOSEN_WIDE: f32 = 4.0;
@@ -118,34 +116,6 @@ struct Leaf<Message> {
     tick: f32,
 }
 
-struct Fillets {
-    colour: Color,
-    high: f32,
-    grown: f32,
-}
-
-impl<M> canvas::Program<M> for Fillets {
-    type State = ();
-
-    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
-        let mut frame = Frame::new(renderer, bounds.size());
-        let middle = bounds.height / 2.0;
-        let (reach, wide) = (GAP / 2.0 * self.grown, FILLET * self.grown);
-        for side in [-1.0, 1.0] {
-            let meets = middle + side * self.high / 2.0;
-            let shape = Path::new(|path| {
-                path.move_to(Point::new(0.0, meets + side * reach));
-                path.quadratic_curve_to(Point::new(0.0, meets), Point::new(wide, meets));
-                path.line_to(Point::new(wide, meets - side));
-                path.line_to(Point::new(0.0, meets - side));
-                path.close();
-            });
-            frame.fill(&shape, self.colour);
-        }
-        vec![frame.into_geometry()]
-    }
-}
-
 fn leaf<'a, Message: Clone + 'a>(made: Leaf<Message>, lean: impl Fn(Option<&'static str>) -> Message) -> Element<'a, Message> {
     let Leaf { key, icon, label, press, length, shown, picked, lit, tick } = made;
     let k = ui::fade();
@@ -192,12 +162,7 @@ fn leaf<'a, Message: Clone + 'a>(made: Leaf<Message>, lean: impl Fn(Option<&'sta
     });
     let hovered = mouse_area(face).on_enter(lean(Some(key))).on_exit(lean(None));
     let body = container(hovered).id(iced::widget::Id::from(format!("side-{key}"))).width(width).height(high);
-    let placed = container(body).width(Length::Fill).height(LEAF + GAP).align_y(iced::Center);
-    if grown < 0.01 {
-        return placed.into();
-    }
-    let fillets = Canvas::new(Fillets { colour: from, high, grown }).width(FILLET).height(LEAF + GAP);
-    iced::widget::stack![fillets, placed].width(Length::Fill).height(LEAF + GAP).into()
+    container(body).width(Length::Fill).height(LEAF + GAP).align_y(iced::Center).into()
 }
 
 pub fn view<'a, Message: Clone + 'a>(

@@ -343,8 +343,9 @@ the keyboard. Where a choice is still open it is marked *open*.
   to the map's background, the frame takes it too, and the button reads
   *Render*. When no mirror knows the map, the line turns red — *Not on any
   mirror* — as a quiet *Not found*; a stop or a failure leaves *Once more*.
-  Built 2026-09-16: osu.direct then catboy.best for the look-up,
-  the answering mirror first for the file, the other as the second try; the
+  Built 2026-09-16: osu.direct for the look-up, the answering mirror
+  first for the file and the other mirrors after it (catboy.best was
+  dropped on 2026-11-05 after it blocked the bot); the
   set is unpacked into the application's own Songs (or a plain folder's
   own Songs when that is the source), never into the game's; the folder is
   named *<set> Artist - Title* when the mirror said so and *<set>* when it
@@ -1520,7 +1521,7 @@ the saved skin and the saved gameplay choices, `DOSSIER_RENDER_HEIGHT` and
 **Maps come from mirrors by hash.** A replay names its map by MD5 alone, and
 ppy has no endpoint from a hash to an id, so a mirror is asked: osu.direct
 first, because it also carries graveyard, which is most of what a replay
-from a friend is played on; catboy.best second, when the first says no. The
+from a friend is played on; when it says no, the bot is asked. The
 `.osz` is downloaded from the mirror that answered, unpacked into the
 application's own Songs folder — never into the game's, and never into
 lazer's store, which is the game's to write — and kept only if the header

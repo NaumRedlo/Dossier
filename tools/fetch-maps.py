@@ -15,12 +15,10 @@ import zipfile
 
 MAX_BEATMAP_BYTES = 50 * 1024 * 1024
 MIRRORS_MD5 = (
-    "https://catboy.best/api/v2/md5/{hash}",
     "https://osu.direct/api/v2/md5/{hash}",
 )
 
 MIRRORS_OSZ = (
-    "https://catboy.best/d/{set_id}",
     "https://api.nerinyan.moe/d/{set_id}",
     "https://beatconnect.io/b/{set_id}",
     "https://osu.direct/d/{set_id}",

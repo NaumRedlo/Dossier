@@ -83,7 +83,7 @@ pub fn load(beatmap: i64, revision: &str) -> Option<Details> {
         if let Some(found) = read(&text, beatmap, revision) { return Some(found); }
     }
     let client = crate::bot::client().ok()?;
-    for address in [format!("https://osu.direct/api/osu/{beatmap}"), format!("https://catboy.best/osu/{beatmap}")] {
+    for address in [format!("https://osu.direct/api/osu/{beatmap}")] {
         let Ok(response) = client.get(address).header("User-Agent", super::MIRROR_AGENT).send() else { continue };
         if !response.status().is_success() { continue; }
         let mut text = String::new();

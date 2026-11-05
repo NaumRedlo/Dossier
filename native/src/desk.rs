@@ -388,10 +388,6 @@ pub fn about_address(beatmap: i64) -> String {
     format!("https://osu.direct/api/v2/b/{beatmap}")
 }
 
-pub fn spare_address(beatmap: i64) -> String {
-    format!("https://catboy.best/api/v2/b/{beatmap}")
-}
-
 pub fn spare_set_address(set: i64) -> String {
     format!("https://osu.direct/api/v2/s/{set}")
 }
@@ -406,9 +402,9 @@ pub fn looked_up(beatmap: i64) -> Option<Value> {
         response.json::<Value>().ok()
     };
     let ours = |found: &Value| found.get("id").and_then(Value::as_i64) == Some(beatmap);
-    let mut found = get(about_address(beatmap)).filter(ours).or_else(|| get(spare_address(beatmap)).filter(ours))?;
+    let mut found = get(about_address(beatmap)).filter(ours)?;
     if read_about(&found).is_none_or(|about| about.title.trim().is_empty()) {
-        if let Some(set) = found.get("beatmapset_id").and_then(Value::as_i64).and_then(|set| get(spare_set_address(set)).or_else(|| get(format!("https://catboy.best/api/v2/s/{set}")))) {
+        if let Some(set) = found.get("beatmapset_id").and_then(Value::as_i64).and_then(|set| get(spare_set_address(set))) {
             found["set"] = set;
         }
     }

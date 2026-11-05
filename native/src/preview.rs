@@ -36,8 +36,8 @@ pub fn address(beatmap_id: i64) -> String {
     format!("https://osu.direct/api/media/preview/{beatmap_id}")
 }
 
-pub fn addresses(beatmap_id: i64) -> [String; 2] {
-    [address(beatmap_id), format!("https://catboy.best/preview/audio/{beatmap_id}")]
+pub fn addresses(beatmap_id: i64) -> [String; 1] {
+    [address(beatmap_id)]
 }
 
 fn cached(beatmap_id: i64) -> PathBuf {
@@ -85,8 +85,8 @@ fn decoded(path: &PathBuf, channels: usize, rate: u32) -> Option<Vec<f32>> {
 
 const ARCHIVE_MOST: u64 = 200 * 1024 * 1024;
 
-pub fn archive_addresses(set: i64) -> [String; 3] {
-    [format!("https://osu.direct/api/d/{set}?noVideo=1"), format!("https://mirror.nekoha.moe/api4/download/{set}"), format!("https://catboy.best/d/{set}n")]
+pub fn archive_addresses(set: i64) -> [String; 2] {
+    [format!("https://osu.direct/api/d/{set}?noVideo=1"), format!("https://mirror.nekoha.moe/api4/download/{set}")]
 }
 
 fn archive(set: i64) -> Option<PathBuf> {
@@ -246,6 +246,6 @@ mod tests {
         let at = super::address(5379506);
         assert!(at.starts_with("https://osu.direct/") && !at.contains("ppy.sh"));
         assert!(super::addresses(5379506).iter().all(|at| !at.contains("ppy.sh")));
-        assert!(super::archive_addresses(1).iter().all(|address| !address.contains("ppy.sh") && (address.contains("noVideo") || address.ends_with("1n") || address.contains("nekoha"))));
+        assert!(super::archive_addresses(1).iter().all(|address| !address.contains("ppy.sh") && !address.contains("catboy") && (address.contains("noVideo") || address.contains("nekoha"))));
     }
 }

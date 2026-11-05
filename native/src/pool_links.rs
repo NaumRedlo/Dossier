@@ -54,7 +54,7 @@ pub fn parse(text: &str) -> Result<Target, Refusal> {
     let (host, path) = without_scheme.split_once('/').ok_or(Refusal::NotALink)?;
     let host = host.to_ascii_lowercase();
     let host = host.strip_prefix("www.").unwrap_or(&host);
-    if !["osu.ppy.sh", "old.ppy.sh", "osu.direct", "catboy.best"].contains(&host) {
+    if !["osu.ppy.sh", "old.ppy.sh", "osu.direct"].contains(&host) {
         return Err(Refusal::NotALink);
     }
     let (path, fragment) = match path.split_once('#') {

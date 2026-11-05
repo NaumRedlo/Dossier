@@ -1446,7 +1446,12 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.desk.adding = true;
             main.desk.name = "Russian Cup 2024".into();
             main.desk.year_text = "2024".into();
-            main.desk.pool = crate::desk_screen::Pool(iced::widget::text_editor::Content::with_text("NM1 https://osu.ppy.sh/b/1222416\nNM2 https://osu.ppy.sh/b/5379506\nNM3 https://osu.ppy.sh/b/5687673\nHD2 https://osu.ppy.sh/b/5824105\nDT1 https://osu.ppy.sh/b/5860624\nTB https://osu.ppy.sh/b/5397135"));
+            main.desk.pool = crate::desk_screen::Pool::with_text("NM1 https://osu.ppy.sh/b/1222416\nNM2 https://osu.ppy.sh/b/5379506\nNM3 https://osu.ppy.sh/b/5687673\nHD2 https://osu.ppy.sh/b/5824105\nDT1 https://osu.ppy.sh/b/5860624\nTB https://osu.ppy.sh/b/5397135");
+            main
+        }),
+        ("main-community-balance-catalog-folded".to_owned(), {
+            let mut main = tabbed(Tab::Catalog);
+            main.desk.folded = ["NM6", "HD1", "HD3", "HD4", "HR3", "HR4", "FM3"].into_iter().map(String::from).collect();
             main
         }),
         ("main-community-balance-catalog".to_owned(), {

@@ -72,6 +72,8 @@ pub struct Settings {
     #[serde(default)]
     pub duel_running: Option<String>,
     #[serde(default)]
+    pub desk_folded: Vec<String>,
+    #[serde(default)]
     pub side_order: Vec<String>,
     #[serde(default)]
     pub inbox_heard: i64,
@@ -1035,6 +1037,7 @@ impl Default for Settings {
             tiles_bot: Vec::new(),
             map_backdrop: true,
             duel_running: None,
+            desk_folded: Vec::new(),
             side_order: Vec::new(),
             inbox_heard: 0,
             chat_id: None,

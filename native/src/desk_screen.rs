@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use iced::widget::{button, column, container, image, mouse_area, row, scrollable, stack, text, text_editor, text_input, Space};
+use iced::widget::{button, column, container, image, mouse_area, row, scrollable, stack, text, text_input, Space};
 use iced::{mouse, Alignment, Background, Border, Color, Element, Length, Padding};
 
 use crate::desk::{self, Cell, Desk, Held, Task};
@@ -137,24 +137,83 @@ impl Kind {
     }
 }
 
-pub struct Pool(pub text_editor::Content);
+pub const SHEET_ROWS: usize = 14;
+const SHEET_COLUMNS: usize = 2;
 
-impl Default for Pool {
-    fn default() -> Self {
-        Pool(text_editor::Content::new())
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Pool {
+    pub rows: Vec<[String; SHEET_COLUMNS]>,
+}
+
+impl Pool {
+    pub fn with_text(text: &str) -> Pool {
+        let mut pool = Pool::default();
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            match parts.split_first() {
+                Some((first, rest)) if desk::is_slot(first) => pool.rows.push([first.to_uppercase(), rest.join(" ")]),
+                _ => pool.rows.push([String::new(), parts.join(" ")]),
+            }
+        }
+        pool
+    }
+
+    pub fn text(&self) -> String {
+        self.rows.iter()
+            .map(|[slot, map]| format!("{} {}", slot.trim(), map.trim()).trim().to_owned())
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub fn filled(&self) -> usize {
+        self.rows.iter().filter(|row| row.iter().any(|cell| !cell.trim().is_empty())).count()
+    }
+
+    pub fn shown(&self) -> usize {
+        let last = self.rows.iter().rposition(|row| row.iter().any(|cell| !cell.trim().is_empty()));
+        last.map_or(0, |at| at + 2).max(SHEET_ROWS)
+    }
+
+    pub fn cell(&self, row: usize, column: usize) -> &str {
+        self.rows.get(row).map_or("", |cells| cells[column].as_str())
+    }
+
+    pub fn put(&mut self, row: usize, column: usize, value: String) {
+        if column >= SHEET_COLUMNS {
+            return;
+        }
+        if self.rows.len() <= row {
+            self.rows.resize_with(row + 1, Default::default);
+        }
+        self.rows[row][column] = value;
+    }
+
+    pub fn paste(&mut self, row: usize, column: usize, raw: &str) -> bool {
+        let raw = raw.replace("\r\n", "\n").replace('\r', "\n");
+        let lines: Vec<&str> = raw.trim_end_matches('\n').split('\n').collect();
+        if lines.len() < 2 && !raw.contains('\t') {
+            return false;
+        }
+        for (down, line) in lines.iter().enumerate() {
+            for (right, value) in line.split('\t').enumerate() {
+                self.put(row + down, column + right, value.trim().to_owned());
+            }
+        }
+        true
+    }
+
+    pub fn append(&mut self, maps: &[String]) {
+        let mut at = self.rows.iter().rposition(|row| row.iter().any(|cell| !cell.trim().is_empty())).map_or(0, |last| last + 1);
+        for map in maps {
+            self.put(at, 1, map.clone());
+            at += 1;
+        }
     }
 }
 
-impl Clone for Pool {
-    fn clone(&self) -> Self {
-        Pool(text_editor::Content::with_text(&self.0.text()))
-    }
-}
-
-impl std::fmt::Debug for Pool {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Pool({} lines)", self.0.line_count())
-    }
+pub fn sheet_cell(row: usize, column: usize) -> String {
+    format!("desk-sheet-{row}-{column}")
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -194,6 +253,9 @@ pub enum Effect {
     Train(String),
     TrainingJob(String),
     Watch(crate::duels::Running),
+    ReadPaste(usize, usize),
+    Focus(String),
+    Folded(Vec<String>),
 }
 
 pub const ABOUT_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
@@ -276,7 +338,12 @@ pub enum Message {
     Adding(bool),
     Name(String),
     YearText(String),
-    Pool(text_editor::Action),
+    SheetCell(usize, usize, String),
+    SheetPaste(usize, usize, String),
+    SheetPasted(usize, usize, String),
+    SheetNext(usize, usize),
+    Fold(String),
+    UnfoldAll,
     AddTournament,
     Player(String),
     Role(&'static str),
@@ -343,6 +410,7 @@ pub struct State {
     pub held: Vec<Held>,
     pub version: Option<String>,
     pub stuck: Option<String>,
+    pub folded: std::collections::BTreeSet<String>,
     pub match_id: String,
     pub game_id: String,
     pub tournament: Option<usize>,
@@ -603,7 +671,7 @@ impl State {
             return Vec::new();
         }
         let ids: Vec<i64> = if self.adding {
-            read_pool(&self.pool.0.text()).into_iter().map(|(_, beatmap)| beatmap).take(40).collect()
+            read_pool(&self.pool.text()).into_iter().map(|(_, beatmap)| beatmap).take(40).collect()
         } else {
             self.next_map().map(|(_, map)| map.beatmap_id).into_iter().collect()
         };
@@ -940,12 +1008,7 @@ impl State {
                 let lines: Vec<String> = self.archive.iter().filter(|packed| self.archive_picked.contains(&packed.beatmap))
                     .map(|packed| format!("https://osu.ppy.sh/b/{}", packed.beatmap)).collect();
                 if !lines.is_empty() {
-                    let mut text = self.pool.0.text();
-                    if !text.is_empty() && !text.ends_with('\n') {
-                        text.push('\n');
-                    }
-                    text.push_str(&lines.join("\n"));
-                    self.pool = Pool(text_editor::Content::with_text(&text));
+                    self.pool.append(&lines);
                 }
                 self.archive.clear();
                 self.archive_picked.clear();
@@ -1422,13 +1485,35 @@ impl State {
                 self.year_text = said.chars().filter(char::is_ascii_digit).take(4).collect();
                 Vec::new()
             }
-            Message::Pool(action) => {
-                self.pool.0.perform(action);
+            Message::SheetCell(row, column, value) => {
+                self.pool.put(row, column, value);
                 Vec::new()
+            }
+            Message::SheetPaste(row, column, value) => {
+                self.pool.put(row, column, value);
+                vec![Effect::ReadPaste(row, column)]
+            }
+            Message::SheetPasted(row, column, raw) => {
+                if self.pool.paste(row, column, &raw) {
+                    let lines = raw.trim_end_matches(['\n', '\r']).lines().count().max(1);
+                    return vec![Effect::Focus(sheet_cell(row + lines - 1, column))];
+                }
+                Vec::new()
+            }
+            Message::SheetNext(row, column) => vec![Effect::Focus(sheet_cell(row + 1, column))],
+            Message::Fold(slot) => {
+                if !self.folded.remove(&slot) {
+                    self.folded.insert(slot);
+                }
+                vec![Effect::Folded(self.folded.iter().cloned().collect())]
+            }
+            Message::UnfoldAll => {
+                self.folded.clear();
+                vec![Effect::Folded(Vec::new())]
             }
             Message::AddTournament => {
                 let year = if self.year_text.is_empty() { 0 } else if let Ok(year) = self.year_text.parse::<i32>() { year } else { return Vec::new() };
-                let pool = self.pool.0.text();
+                let pool = self.pool.text();
                 if self.name.trim().is_empty() || pool.trim().is_empty() {
                     return Vec::new();
                 }
@@ -2074,7 +2159,7 @@ fn note<'a>(value: String, label: String, colour: Color, k: f32) -> Element<'a, 
     container(column![bold(value, 19.0 * k, colour), words(label, 13.0 * k, FAINT)].spacing(2))
         .padding([10.0 * k, 14.0 * k])
         .width(Length::Fill)
-        .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default() })
+        .style(workspace::surface)
         .into()
 }
 
@@ -2214,17 +2299,10 @@ fn archive_picker<'a>(w: &Words, state: &'a State, k: f32) -> iced::widget::Colu
 }
 
 fn tournament_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
-    let found = read_pool(&state.pool.0.text());
-    let lines = state.pool.0.text().lines().filter(|line| !line.trim().is_empty()).count();
+    let found = read_pool(&state.pool.text());
+    let lines = state.pool.filled();
     let ready = !state.name.trim().is_empty() && (state.year_text.is_empty() || state.year_text.len() == 4) && !found.is_empty() && !state.posting;
-    let editor = text_editor(&state.pool.0).on_action(Message::Pool).placeholder(w.t("desk-pool-hint")).font(theme::SANS).size(14.0 * k).line_height(1.7).padding([12, 14]).height(Length::Fill).style(|theme, status| {
-        let field = theme::field(theme, match status {
-            text_editor::Status::Focused { .. } => text_input::Status::Focused { is_hovered: false },
-            text_editor::Status::Hovered => text_input::Status::Hovered,
-            _ => text_input::Status::Active,
-        });
-        text_editor::Style { background: field.background, border: field.border, placeholder: field.placeholder, value: field.value, selection: field.selection }
-    });
+    let editor = sheet(w, state, k);
     let archive = button(container(row![glyph(Icon::Download, 16.0 * k, INK), strong(w.t("desk-from-archive"), theme::BODY, INK)].spacing(8).align_y(Alignment::Center)).center_y(theme::CONTROL_HEIGHT - 2.0)).padding([0, 12]).style(quiet(false, theme::CONTROL_RADIUS)).on_press(Message::Archive);
     let form = panel(column![
         row![heading_k(k, w.t("desk-add-tournament")), Space::new().width(Length::Fill),
@@ -2247,6 +2325,56 @@ fn tournament_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Messa
     let aside = if state.archive.is_empty() { parsed } else { archive_picker(w, state, k) };
     let aside = container(scrollable(aside).direction(ui::hidden_bar())).padding(18).width(300.0 * k).height(Length::Fill).style(theme::slab);
     container(row![form, aside].spacing(14).height(Length::Fill)).max_width(1180.0).max_height(680.0).height(Length::Fill).into()
+}
+
+fn sheet_style(theme: &iced::Theme, status: text_input::Status) -> text_input::Style {
+    let field = theme::field(theme, status);
+    let focused = matches!(status, text_input::Status::Focused { .. });
+    let lit = matches!(status, text_input::Status::Hovered);
+    text_input::Style {
+        background: Background::Color(if lit { theme::LINE } else { Color::TRANSPARENT }),
+        border: Border { color: if focused { ACCENT } else { Color::TRANSPARENT }, width: if focused { 1.5 } else { 0.0 }, radius: 0.0.into() },
+        ..field
+    }
+}
+
+fn sheet_rule<'a>(wide: Length, high: Length) -> Element<'a, Message> {
+    container(Space::new()).width(wide).height(high).style(|_| container::Style {
+        background: Some(Background::Color(theme::LINE_HIGH)), ..container::Style::default()
+    }).into()
+}
+
+fn sheet<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
+    let (number, slot, high) = (Length::Fixed(38.0 * k), Length::Fixed(104.0 * k), 36.0 * k);
+    let across = || sheet_rule(Length::Fill, Length::Fixed(1.0));
+    let down = || sheet_rule(Length::Fixed(1.0), Length::Fixed(high));
+    let head = |said: String, wide: Length| -> Element<'a, Message> {
+        container(tight(said, 12.0 * k, MUTED)).padding([0.0, 10.0 * k]).width(wide).height(high).align_y(Alignment::Center).into()
+    };
+    let mut grid = column![row![head(String::new(), number), down(), head(w.t("desk-sheet-slot"), slot), down(), head(w.t("desk-sheet-map"), Length::Fill)], across()];
+    for at in 0..state.pool.shown() {
+        let cell = |column: usize, hint: String, wide: Length| -> Element<'a, Message> {
+            let input = text_input(&hint, state.pool.cell(at, column))
+                .id(iced::widget::Id::from(sheet_cell(at, column)))
+                .on_input(move |value| Message::SheetCell(at, column, value))
+                .on_paste(move |value| Message::SheetPaste(at, column, value))
+                .on_submit(Message::SheetNext(at, column))
+                .font(theme::SANS)
+                .size(14.0 * k)
+                .padding([0.0, 10.0 * k])
+                .line_height(iced::widget::text::LineHeight::Absolute((high - 2.0).into()))
+                .style(sheet_style);
+            container(input).width(wide).height(high).into()
+        };
+        let label = container(tight((at + 1).to_string(), 12.0 * k, FAINT)).width(number).height(high).center_x(number).center_y(high);
+        let (slot_hint, map_hint) = if at == 0 { ("NM1".to_owned(), w.t("desk-pool-hint")) } else { (String::new(), String::new()) };
+        grid = grid.push(row![label, down(), cell(0, slot_hint, slot), down(), cell(1, map_hint, Length::Fill)]);
+        grid = grid.push(across());
+    }
+    let framed = container(grid).width(Length::Fill).style(|_| container::Style {
+        background: Some(Background::Color(theme::SUNK)), border: Border { color: theme::LINE_HIGH, width: 1.0, radius: theme::CONTROL_RADIUS.into() }, ..container::Style::default()
+    });
+    container(scrollable(framed).direction(ui::hidden_bar())).height(Length::Fill).into()
 }
 
 pub use crate::desk::read_pool;
@@ -2501,7 +2629,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State, _wide: f32, k: f32) -> Element<
     ]
     .spacing(10);
     let chosen = state.band.as_ref().map(|(slot, band)| (slot.as_str(), *band));
-    let (label_wide, cell_wide, cell_high, sum_wide) = (124.0 * k, 58.0 * k, 42.0 * k, 52.0 * k);
+    let (label_wide, cell_wide, cell_high, sum_wide) = (150.0 * k, 58.0 * k, 42.0 * k, 52.0 * k);
     let mut head = row![Space::new().width(label_wide)].spacing(5).align_y(Alignment::Center);
     for band in 0..desk::BANDS.len() {
         head = head.push(container(band_pill(band_name(w, band), chosen.is_some_and(|(_, at)| at == band), k)).center_x(cell_wide));
@@ -2510,9 +2638,23 @@ fn catalog_view<'a>(w: &Words, state: &'a State, _wide: f32, k: f32) -> Element<
     let mut grid = column![head].spacing(5);
     let mut columns = vec![0u32; desk::BANDS.len()];
     let slots = state.catalog_slots();
+    let mut folded = Vec::new();
     for slot in slots.iter().map(String::as_str) {
+        if state.folded.contains(slot) {
+            folded.push(slot);
+            for (band, total) in columns.iter_mut().enumerate() {
+                *total += count_of(coverage, slot, band);
+            }
+            continue;
+        }
         let on_row = chosen.is_some_and(|(held, _)| held == slot);
-        let mut line = row![row![tag(slot, k), words(skill(w, slot), 13.0 * k, if on_row { INK } else { MUTED })].spacing(8).width(label_wide).align_y(Alignment::Center)].spacing(5).align_y(Alignment::Center);
+        let label = row![tag(slot, k), words(skill(w, slot), 13.0 * k, if on_row { INK } else { MUTED })].spacing(8).align_y(Alignment::Center);
+        let label = button(label).padding(0).width(label_wide).style(|_, status| button::Style {
+            background: matches!(status, button::Status::Hovered | button::Status::Pressed).then(|| Background::Color(Color::from_rgba(1.0, 1.0, 1.0, 0.04))),
+            border: Border { radius: 6.0.into(), ..Border::default() },
+            ..button::Style::default()
+        }).on_press(Message::Fold(slot.to_owned()));
+        let mut line = row![label].spacing(5).align_y(Alignment::Center);
         let mut sum = 0u32;
         for band in 0..desk::BANDS.len() {
             let count = count_of(coverage, slot, band);
@@ -2542,7 +2684,18 @@ fn catalog_view<'a>(w: &Words, state: &'a State, _wide: f32, k: f32) -> Element<
     }
     foot = foot.push(container(strong(group(columns.iter().sum::<u32>()), 13.0 * k, INK)).center_x(sum_wide).center_y(28.0 * k));
     grid = grid.push(container(foot).id(iced::widget::Id::new("desk-catalog-totals")));
-    let table = container(scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::hidden(), horizontal: scrollable::Scrollbar::default().spacing(6.0) }).height(Length::Fill))
+    let mut strip = row![].spacing(6).align_y(Alignment::Center);
+    if folded.is_empty() {
+        strip = strip.push(words(w.t("desk-fold-hint"), 13.0 * k, FAINT));
+    } else {
+        strip = strip.push(container(words(w.t("desk-folded"), 13.0 * k, FAINT)).padding(Padding::ZERO.right(4.0 * k)));
+        for slot in folded {
+            strip = strip.push(button(tag(slot, k)).padding(0).style(|_, _| button::Style::default()).on_press(Message::Fold(slot.to_owned())));
+        }
+        strip = strip.push(container(button(tight(w.t("desk-unfold-all"), 13.0 * k, MUTED)).padding([4.0 * k, 8.0 * k]).style(quiet(false, theme::CONTROL_RADIUS)).on_press(Message::UnfoldAll)).padding(Padding::ZERO.left(6.0 * k)));
+    }
+    let grid = scrollable(grid).direction(scrollable::Direction::Both { vertical: scrollable::Scrollbar::hidden(), horizontal: scrollable::Scrollbar::hidden() }).height(Length::Fill);
+    let table = container(column![container(strip.wrap()).height(30.0 * k).align_y(Alignment::Center), grid].spacing(10.0 * k))
         .padding(workspace::INSET).width(Length::Fill).height(Length::Fill).max_height(620.0 * k).id(iced::widget::Id::new("desk-catalog-table")).style(workspace::surface);
     let (aside, tall): (Element<'a, Message>, bool) = if state.adding_map {
         (add_map_view(w, state, k), true)
@@ -3397,10 +3550,10 @@ mod tests {
     #[test]
     fn a_saved_batch_opens_after_reload_and_a_rejected_batch_keeps_input() {
         let w = Words::new(crate::lang::Lang::Ru);
-        let mut state = State { adding: true, name: "Samples".into(), pool: Pool(text_editor::Content::with_text("123")), ..Default::default() };
+        let mut state = State { adding: true, name: "Samples".into(), pool: Pool::with_text("123"), ..Default::default() };
         assert!(matches!(state.update(Message::AddTournament, &w).first(), Some(Effect::Post(Post::Tournament { year: 0, .. }))));
         state.update(Message::Posted(Err("BATCH_UNSUPPORTED".into())), &w);
-        assert!(state.adding && state.pool.0.text().contains("123"));
+        assert!(state.adding && state.pool.text().contains("123"));
         assert_eq!(state.failed.as_deref(), Some(w.t("desk-batch-unsupported").as_str()));
         state.update(Message::AddTournament, &w);
         state.update(Message::Posted(Ok(())), &w);
@@ -3559,12 +3712,13 @@ mod tests {
         let w = Words::new(crate::lang::Lang::Ru);
         assert_eq!(shown_tags("a  b c"), "a b c");
         assert_eq!(shown_tags(&vec!["x"; TAGS_SHOWN + 2].join(" ")), format!("{} +2", vec!["x"; TAGS_SHOWN].join(" ")));
-        assert_eq!(skill(&w, "NM5"), "Скорость");
+        assert_eq!(skill(&w, "NM5"), "Стамина на высоком BPM");
         assert_eq!(skill(&w, "HD4"), "Гиммики на HD");
         assert_eq!(skill(&w, "HR4"), "Гиммики на HR");
         assert_eq!(feature(&w, "snaps.triplet"), "Доля триплетов");
         assert_eq!(feature(&w, "snaps.change"), "Смены деления ритма");
-        assert_eq!(skill(&w, "FM2"), "Пресижн и чтение во фримоде");
+        assert_eq!(skill(&w, "FM2"), "Пресижн и низкий AR во фримоде");
+        assert_eq!((skill(&w, "HD1"), skill(&w, "HD2")), ("Аим-контроль на HD".to_owned(), "Чтение на низком AR".to_owned()));
         assert_eq!(skill(&w, "FM4"), "");
         assert_eq!(skill(&w, "EZ1"), "");
         assert_eq!(skill(&w, "NM9"), "");
@@ -3697,6 +3851,42 @@ mod tests {
     }
 
     #[test]
+    fn the_batch_sheet_takes_pasted_columns_like_a_spreadsheet() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        let mut state = State { tab: Tab::Label, adding: true, ..State::default() };
+        assert_eq!(state.update(Message::SheetPaste(0, 0, "NM1NM2TB".into()), &w), vec![Effect::ReadPaste(0, 0)]);
+        assert_eq!(state.update(Message::SheetPasted(0, 0, "NM1\r\nNM2\nTB\n".into()), &w).last(), Some(&Effect::Focus(sheet_cell(2, 0))));
+        state.update(Message::SheetPaste(0, 1, "x".into()), &w);
+        state.update(Message::SheetPasted(0, 1, "4212498\nhttps://osu.ppy.sh/b/2988681\n4146401".into()), &w);
+        assert_eq!(state.pool.text(), "NM1 4212498\nNM2 https://osu.ppy.sh/b/2988681\nTB 4146401");
+        assert_eq!(read_pool(&state.pool.text()), [("NM1".to_owned(), 4212498), ("NM2".to_owned(), 2988681), ("TB".to_owned(), 4146401)]);
+        state.update(Message::SheetPasted(4, 0, "HD2\t5824105\nDT1\t5860624\textra".into()), &w);
+        assert_eq!((state.pool.cell(4, 0), state.pool.cell(4, 1), state.pool.cell(5, 1)), ("HD2", "5824105", "5860624"), "two copied columns land side by side and a third is dropped");
+        state.update(Message::SheetCell(1, 0, "nm3".into()), &w);
+        assert!(state.pool.text().starts_with("NM1 4212498\nnm3 https://"));
+        assert!(state.update(Message::SheetPasted(7, 1, "one line".into()), &w).is_empty(), "a plain paste is left to the cell");
+        assert_eq!(state.update(Message::SheetNext(2, 1), &w), vec![Effect::Focus(sheet_cell(3, 1))]);
+        assert_eq!(state.pool.filled(), 5);
+        assert_eq!(state.pool.shown(), SHEET_ROWS);
+        let pool = Pool::with_text("NM1 https://osu.ppy.sh/b/1\n\n77\nhd2 https://osu.ppy.sh/beatmapsets/80#osu/8");
+        assert_eq!(pool.rows, [["NM1".to_owned(), "https://osu.ppy.sh/b/1".to_owned()], [String::new(), "77".to_owned()], ["HD2".to_owned(), "https://osu.ppy.sh/beatmapsets/80#osu/8".to_owned()]]);
+        let mut grown = pool.clone();
+        grown.append(&["https://osu.ppy.sh/b/3".to_owned()]);
+        assert_eq!(grown.cell(3, 1), "https://osu.ppy.sh/b/3");
+    }
+
+    #[test]
+    fn catalog_rows_fold_and_unfold_and_the_choice_is_kept() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        let mut state = State { tab: Tab::Catalog, ..State::default() };
+        assert_eq!(state.update(Message::Fold("NM6".into()), &w), vec![Effect::Folded(vec!["NM6".into()])]);
+        assert_eq!(state.update(Message::Fold("HD1".into()), &w), vec![Effect::Folded(vec!["HD1".into(), "NM6".into()])]);
+        assert_eq!(state.update(Message::Fold("NM6".into()), &w), vec![Effect::Folded(vec!["HD1".into()])]);
+        assert_eq!(state.update(Message::UnfoldAll, &w), vec![Effect::Folded(Vec::new())]);
+        assert!(state.folded.is_empty());
+    }
+
+    #[test]
     fn every_running_duel_is_listed_and_can_be_watched_from_the_desk() {
         let w = Words::new(crate::lang::Lang::En);
         let said = r#"[{"id":"r1","state":"PLAYING","reason":"playing","stuck":false,"watching":2,"wins":{"A":1,"B":0},"mode":"rated",
@@ -3746,7 +3936,7 @@ mod tests {
         assert_eq!(state.archive_picked.iter().copied().collect::<Vec<_>>(), [3], "the hardest standard difficulty is ticked");
         state.update(Message::ArchivePick(1), &w);
         state.update(Message::ArchiveTake, &w);
-        assert_eq!(state.pool.0.text().trim_end(), "https://osu.ppy.sh/b/3\nhttps://osu.ppy.sh/b/1");
+        assert_eq!(state.pool.text().trim_end(), "https://osu.ppy.sh/b/3\nhttps://osu.ppy.sh/b/1");
         assert!(state.archive.is_empty());
         state.update(Message::Archived(Vec::new()), &w);
         assert_eq!(state.notice.as_deref(), Some(w.t("desk-archive-empty").as_str()));

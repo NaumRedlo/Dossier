@@ -230,6 +230,7 @@ pub enum Message {
     Choose(usize),
     Step(i32),
     Escape,
+    FocusStep(bool),
     Hover(Option<usize>),
     SideOpen(bool),
     SideLean(Option<&'static str>),
@@ -767,6 +768,7 @@ fn unix_now() -> i64 {
 
 impl Main {
     pub fn new(words: Words, settings: Settings) -> (Main, Task<Message>) {
+        let folded: std::collections::BTreeSet<String> = settings.desk_folded.iter().cloned().collect();
         let worker_done = settings.worker_done;
         let pool_guide = settings.pool_guide;
         let billing_email = settings.billing_email.clone();
@@ -1049,7 +1051,7 @@ impl Main {
             community_asked: None,
             pools: crate::pools_screen::State::new(crate::pools::pools_dir()).guided(pool_guide),
             duels: Box::default(),
-            desk: Box::default(),
+            desk: Box::new(crate::desk_screen::State { folded, ..Default::default() }),
             duel_link: None,
             duel_cursor: None,
             duel_preview: None,
@@ -1527,6 +1529,7 @@ impl Main {
                     Key::Named(Named::ArrowDown) => Some(Message::Key(Named::ArrowDown)),
                     Key::Named(Named::Space) => Some(Message::Key(Named::Space)),
                     Key::Named(Named::Escape) => Some(Message::Escape),
+                    Key::Named(Named::Tab) => Some(Message::FocusStep(modifiers.shift())),
                     Key::Named(Named::Enter) => Some(Message::PoolHot(crate::pools_screen::Hot::Confirm)),
                     Key::Character(letter) if modifiers.command() && !modifiers.shift() && latin(letter) == Some('z') => Some(Message::Undo),
                     Key::Character(letter) if modifiers.command() && modifiers.shift() && latin(letter) == Some('z') => Some(Message::Redo),
@@ -2003,6 +2006,13 @@ impl Main {
                 Effect::Inspect(beatmap) => ui::in_thread(move || K::Inspected(beatmap, crate::desk::inspect(&account, beatmap).map_err(|why| why.to_string()))).map(wrap),
                 Effect::Open(url) => {
                     let _ = open::that(url);
+                    Task::none()
+                }
+                Effect::ReadPaste(row, column) => iced::clipboard::read().map(move |text| wrap(K::SheetPasted(row, column, text.unwrap_or_default()))),
+                Effect::Focus(id) => iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::focus::<Message>(iced::widget::Id::from(id))),
+                Effect::Folded(slots) => {
+                    self.settings.desk_folded = slots;
+                    let _ = self.settings.save();
                     Task::none()
                 }
                 Effect::Watch(running) => {
@@ -2970,6 +2980,17 @@ impl Main {
                         }
                     }
                     _ => Task::none(),
+                }
+            }
+            Message::FocusStep(back) => {
+                let sheet = self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance && self.desk.adding;
+                if !sheet {
+                    return Task::none();
+                }
+                if back {
+                    iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::focus_previous::<Message>())
+                } else {
+                    iced::advanced::widget::operate(iced::advanced::widget::operation::focusable::focus_next::<Message>())
                 }
             }
             Message::Escape => {

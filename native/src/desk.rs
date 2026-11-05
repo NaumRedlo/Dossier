@@ -547,6 +547,11 @@ pub fn label(account: &Account, cell: &Cell, beatmap: Option<i64>, label: &str, 
     call(account, reqwest::Method::POST, "/render/admin/duels/corpus/label", Some(body), None)
 }
 
+pub fn is_slot(word: &str) -> bool {
+    let upper = word.trim().to_uppercase();
+    SLOTS.contains(&upper.as_str()) || RESERVE.contains(&upper.as_str())
+}
+
 pub fn read_pool(text: &str) -> Vec<(String, i64)> {
     let mut found = Vec::new();
     let mut seen = std::collections::HashSet::new();

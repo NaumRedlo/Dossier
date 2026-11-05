@@ -6,7 +6,7 @@ mod video_control;
 mod video_view;
 const VIDEO_THUMB: (u32, u32) = (96, 54);
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -65,6 +65,9 @@ pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
 const THUMB: (u32, u32) = (176, 100);
 const POOL_COVER: (u32, u32) = (768, 432);
+const THUMB_CACHE_BYTES: usize = 96 * 1024 * 1024;
+const NEWS_PICTURE_CACHE_BYTES: usize = 128 * 1024 * 1024;
+const MOVING_CACHE_LIMIT: usize = 8;
 const SCENE_WIDTH: u32 = 960;
 const REST_AFTER: Duration = Duration::from_secs(120);
 const REST_FADE: Duration = Duration::from_millis(800);
@@ -477,6 +480,8 @@ pub struct Main {
     pub hover_since: Option<(usize, Instant)>,
     pub hover_bounds: Option<iced::Rectangle>,
     pub thumbs: HashMap<String, image::Handle>,
+    thumb_order: VecDeque<String>,
+    thumb_bytes: usize,
     pub scenes: HashMap<String, image::Handle>,
     pub auto_fetched: std::collections::HashSet<String>,
     pub missed: maps::Missed,
@@ -662,7 +667,10 @@ pub struct Main {
     pub news: crate::news::News,
     news_loaded: bool,
     pub news_pictures: HashMap<String, image::Handle>,
+    news_picture_order: VecDeque<String>,
+    news_picture_bytes: usize,
     pub moving_pictures: HashMap<String, Moving>,
+    moving_order: VecDeque<String>,
     pub news_frosts: HashMap<String, crate::community_screen::Frost>,
     news_asked: std::collections::HashSet<String>,
     news_picture_failures: HashMap<String, Instant>,
@@ -735,6 +743,7 @@ pub struct Main {
     pub duels: Box<crate::duels_screen::State>,
     pub desk: Box<crate::desk_screen::State>,
     pub duel_link: Option<std::sync::Arc<crate::duels::Link>>,
+    duel_cursor: Option<std::sync::mpsc::Sender<crate::witness::Cursor>>,
     pub duel_preview: Option<std::sync::Arc<crate::preview::Preview>>,
     pub duel_leaving: bool,
     pub duel_left: bool,
@@ -743,7 +752,6 @@ pub struct Main {
     refresh_answered: Option<Instant>,
     notice_fade: Animation<bool>,
     notice_kept: Option<crate::community_screen::Notice>,
-    duel_cursor: Option<std::sync::mpsc::Sender<crate::witness::Cursor>>,
     friends_asked: Option<Instant>,
 }
 
@@ -780,6 +788,8 @@ impl Main {
             hover_since: None,
             hover_bounds: None,
             thumbs: HashMap::new(),
+            thumb_order: VecDeque::new(),
+            thumb_bytes: 0,
             scenes: HashMap::new(),
             auto_fetched: std::collections::HashSet::new(),
             missed: maps::Missed::default(),
@@ -965,7 +975,10 @@ impl Main {
             news: crate::news::News::default(),
             news_loaded: false,
             news_pictures: HashMap::new(),
+            news_picture_order: VecDeque::new(),
+            news_picture_bytes: 0,
             moving_pictures: HashMap::new(),
+            moving_order: VecDeque::new(),
             news_frosts: HashMap::new(),
             news_asked: std::collections::HashSet::new(),
             news_picture_failures: HashMap::new(),
@@ -1038,6 +1051,7 @@ impl Main {
             duels: Box::default(),
             desk: Box::default(),
             duel_link: None,
+            duel_cursor: None,
             duel_preview: None,
             duel_leaving: false,
             duel_left: false,
@@ -1051,7 +1065,6 @@ impl Main {
         let strays = videos::strays(&made.store.videos, &made.settings.renders_dir());
         let adopt = match (made.ffmpeg.clone(), strays.is_empty()) {
             (Some(ffmpeg), false) => ui::in_thread(move || Message::Adopted(strays.iter().filter_map(|p| videos::adopt(&ffmpeg, p)).collect())),
-            duel_cursor: None,
             _ => Task::none(),
         };
         let who = made.ask_who();
@@ -1136,6 +1149,7 @@ impl Main {
         control.show(self.witness_overlay());
         let look = self.settings.overlay_look();
         control.dress(|extras| extras.look = Some(look));
+        control.stream_cursor(self.duel_cursor.clone());
         self.witness_control = Some(control.clone());
         let untold = self.witness.untold;
         self.witness = crate::witness::Seen { status: crate::witness::Status::Absent, ..crate::witness::Seen::default() };
@@ -1149,7 +1163,6 @@ impl Main {
     fn stable_root(&self) -> Option<std::path::PathBuf> {
         self.settings.sources.iter().find(|source| source.kind == crate::sources::Kind::Stable && source.on).map(|source| source.root.clone())
     }
-        control.stream_cursor(self.duel_cursor.clone());
 
     fn history_task(&mut self, force: bool) -> Task<Message> {
         if !self.settings.history_share || self.settings.token.is_empty() || self.gallery || self.history_running {
@@ -1992,6 +2005,10 @@ impl Main {
                     let _ = open::that(url);
                     Task::none()
                 }
+                Effect::Watch(running) => {
+                    let gone = self.update(Message::Community(crate::community_screen::Message::Go(crate::community_screen::Section::Duels, None)));
+                    Task::batch([gone, Task::done(Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Spectate(running))))])
+                }
                 Effect::About(_) if self.gallery => Task::none(),
                 Effect::About(beatmap) => ui::in_thread(move || K::About(beatmap, crate::desk::about(beatmap))).map(wrap),
                 Effect::Details(..) if self.gallery => Task::none(),
@@ -2005,10 +2022,6 @@ impl Main {
                         Some(picked.path().to_path_buf())
                     },
                     |picked| picked.map_or_else(Vec::new, |path| crate::desk::archive_maps(&path)),
-                Effect::Watch(running) => {
-                    let gone = self.update(Message::Community(crate::community_screen::Message::Go(crate::community_screen::Section::Duels, None)));
-                    Task::batch([gone, Task::done(Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Spectate(running))))])
-                }
                 ).map(move |found| wrap(K::Archived(found))),
                 Effect::Older(_) if offline => Task::done(wrap(K::JournalOlder(Err("offline".to_owned())))),
                 Effect::Older(before) => ui::in_thread(move || K::JournalOlder(crate::desk::journal_before(&account, before).map_err(|why| why.to_string()))).map(wrap),
@@ -2104,6 +2117,7 @@ impl Main {
                 }
                 Effect::Link(false) => {
                     self.duel_link = None;
+                    self.duel_cursor = None;
                     if let Some(control) = &self.witness_control {
                         control.stream_cursor(None);
                     }
@@ -2115,9 +2129,9 @@ impl Main {
                     if let Some(control) = &self.witness_control {
                         control.stream_cursor(Some(cursor_in.clone()));
                     }
+                    self.duel_cursor = Some(cursor_in);
                     let (heard_in, heard_out) = std::sync::mpsc::channel::<crate::duels::Heard>();
                     self.duel_link = Some(std::sync::Arc::new(crate::duels::connect(account, Some(cursor_out), move |heard| heard_in.send(heard).is_ok())));
-                    self.duel_cursor = None;
                     ui::streamed(move |push: &mut dyn FnMut(Message) -> bool| {
                         while let Ok(heard) = heard_out.recv() {
                             if !push(Message::Community(crate::community_screen::Message::Duels(D::Heard(heard)))) {
@@ -2128,8 +2142,9 @@ impl Main {
                 }
                 Effect::Tempo(_) if offline => Task::none(),
                 Effect::Tempo(beatmap) => ui::in_thread(move || D::Tempo(beatmap, crate::desk::about(beatmap).and_then(|found| found.bpm))).map(wrap),
+                Effect::Stage(beatmap) if self.gallery => Task::done(wrap(D::Staged(beatmap, None))),
+                Effect::Stage(beatmap) => ui::in_thread(move || D::Staged(beatmap, crate::duel_watch::stage(beatmap).map(std::sync::Arc::new))).map(wrap),
                 Effect::Order(order) => {
-                    self.duel_cursor = Some(cursor_in);
                     if let Some(link) = &self.duel_link {
                         link.send(order);
                     }
@@ -2142,8 +2157,6 @@ impl Main {
                         self.announce(crate::notices::Mark::Plain, said, String::new(), String::new(), String::new(), crate::notices::Link::Duels);
                     }
                     if offline {
-                Effect::Stage(beatmap) if self.gallery => Task::done(wrap(D::Staged(beatmap, None))),
-                Effect::Stage(beatmap) => ui::in_thread(move || D::Staged(beatmap, crate::duel_watch::stage(beatmap).map(std::sync::Arc::new))).map(wrap),
                         Task::none()
                     } else {
                         ui::in_thread(move || { let _ = crate::duels::seen(&account, &ids); }).discard()
@@ -2439,6 +2452,39 @@ impl Main {
                 }
             }
         })
+    }
+
+    fn cache_thumb(&mut self, hash: String, handle: image::Handle) {
+        let new_pixels = image_pixels(&handle);
+        if self.thumbs.get(&hash).is_some_and(|held| new_pixels < image_pixels(held)) {
+            return;
+        }
+
+        let old_bytes = self.thumbs.get(&hash).map_or(0, image_bytes);
+        let new_bytes = image_bytes(&handle);
+        if !self.thumbs.contains_key(&hash) {
+            self.thumb_order.push_back(hash.clone());
+        }
+        self.thumb_bytes = self.thumb_bytes.saturating_sub(old_bytes).saturating_add(new_bytes);
+        self.thumbs.insert(hash.clone(), handle);
+        self.cover_frames.borrow_mut().remove(&hash);
+
+        let selected = self.chosen_entry().map(|entry| entry.map_hash.clone());
+        let mut skipped = 0;
+        while self.thumb_bytes > THUMB_CACHE_BYTES && skipped < self.thumb_order.len() {
+            let Some(oldest) = self.thumb_order.pop_front() else { break; };
+            if oldest == hash || selected.as_deref() == Some(oldest.as_str()) {
+                self.thumb_order.push_back(oldest);
+                skipped += 1;
+                continue;
+            }
+            if let Some(removed) = self.thumbs.remove(&oldest) {
+                self.thumb_bytes = self.thumb_bytes.saturating_sub(image_bytes(&removed));
+                self.pool_covers_asked.remove(&oldest);
+                self.cover_frames.borrow_mut().remove(&oldest);
+            }
+            skipped = 0;
+        }
     }
 
     fn thumbs_task(&self) -> Task<Message> {
@@ -2755,14 +2801,7 @@ impl Main {
             }
             Message::Thumb(hash, handle) => {
                 self.thumb_pictures.came(&hash, Instant::now());
-                let pixels = |handle: &image::Handle| match handle {
-                    image::Handle::Rgba { width, height, .. } => u64::from(*width) * u64::from(*height),
-                    _ => 0,
-                };
-                if self.thumbs.get(&hash).is_none_or(|held| pixels(&handle) >= pixels(held)) {
-                    self.cover_frames.borrow_mut().remove(&hash);
-                    self.thumbs.insert(hash, handle);
-                }
+                self.cache_thumb(hash, handle);
                 Task::none()
             }
             Message::Scene(hash, handle) => {
@@ -3893,17 +3932,28 @@ impl Main {
                 }
             }
             Message::NewsMoving(url, moving) => {
+                if !self.moving_pictures.contains_key(&url) {
+                    self.moving_order.push_back(url.clone());
+                }
                 self.moving_pictures.insert(url, moving);
+                while self.moving_pictures.len() > MOVING_CACHE_LIMIT {
+                    let Some(oldest) = self.moving_order.pop_front() else { break; };
+                    self.moving_pictures.remove(&oldest);
+                }
                 Task::none()
             }
             Message::PicturesMove => {
                 let now = moving_clock();
+                let mut changed = Vec::new();
                 for (url, moving) in &mut self.moving_pictures {
                     let at = moving.at(now);
                     if at != moving.shown {
                         moving.shown = at;
-                        self.news_pictures.insert(url.clone(), moving.frames[at].clone());
+                        changed.push((url.clone(), moving.frames[at].clone()));
                     }
+                }
+                for (url, handle) in changed {
+                    self.cache_news_picture(url, handle);
                 }
                 Task::none()
             }
@@ -3912,7 +3962,7 @@ impl Main {
                     Some(handle) => {
                         self.news_picture_failures.remove(&url);
                         self.feed_pictures.came(&url, Instant::now());
-                        self.news_pictures.insert(url, handle);
+                        self.cache_news_picture(url, handle);
                     }
                     None => {
                         self.news_picture_failures.insert(url.clone(), Instant::now());
@@ -6180,6 +6230,40 @@ impl Main {
         self.news_asked.insert(url.to_owned())
     }
 
+    fn cache_news_picture(&mut self, url: String, handle: image::Handle) {
+        let old_bytes = self.news_pictures.get(&url).map_or(0, image_bytes);
+        let new_bytes = image_bytes(&handle);
+        if old_bytes == new_bytes && self.news_pictures.contains_key(&url) {
+            self.news_pictures.insert(url.clone(), handle);
+            self.news_asked.remove(&url);
+            return;
+        }
+        if !self.news_pictures.contains_key(&url) {
+            self.news_picture_order.push_back(url.clone());
+        }
+        self.news_picture_bytes = self.news_picture_bytes.saturating_sub(old_bytes).saturating_add(new_bytes);
+        self.news_pictures.insert(url.clone(), handle);
+        self.news_asked.remove(&url);
+
+        let mut skipped = 0;
+        while self.news_picture_bytes > NEWS_PICTURE_CACHE_BYTES && skipped < self.news_picture_order.len() {
+            let Some(oldest) = self.news_picture_order.pop_front() else { break; };
+            if oldest == url {
+                self.news_picture_order.push_back(oldest);
+                skipped += 1;
+                continue;
+            }
+            if let Some(removed) = self.news_pictures.remove(&oldest) {
+                self.news_picture_bytes = self.news_picture_bytes.saturating_sub(image_bytes(&removed));
+                self.news_asked.remove(&oldest);
+                self.news_frosts.remove(&oldest);
+                self.moving_pictures.remove(&oldest);
+                self.moving_order.retain(|known| known != &oldest);
+            }
+            skipped = 0;
+        }
+    }
+
     fn pictures_task(&mut self, wanted: Vec<(String, u32)>) -> Task<Message> {
         let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| self.ask_picture(url, Instant::now())).collect();
         if wanted.is_empty() {
@@ -7492,9 +7576,9 @@ pub fn covered_bytes(bytes: &[u8], width: u32, height: u32) -> Option<image::Han
     Some(image::Handle::from_rgba(width, height, picture.into_raw()))
 }
 
-pub const MOVING_FRAMES: usize = 60;
+pub const MOVING_FRAMES: usize = 24;
 pub const MOVING_EVERY: Duration = Duration::from_millis(40);
-const MOVING_DECODED: usize = MOVING_FRAMES * 4;
+const MOVING_DECODED: usize = 240;
 
 #[derive(Debug, Clone)]
 pub struct Moving {
@@ -7530,20 +7614,40 @@ pub fn moving_bytes(bytes: &[u8], side: u32) -> Option<Moving> {
         return None;
     }
     let decoder = ::image::codecs::gif::GifDecoder::new(std::io::Cursor::new(bytes)).ok()?;
-    let frames: Vec<::image::Frame> = decoder.into_frames().take(MOVING_DECODED).collect::<Result<_, _>>().ok()?;
-    if frames.len() < 2 {
-        return None;
-    }
-    let every = frames.len().div_ceil(MOVING_FRAMES);
     let mut moving = Moving { frames: Vec::new(), ends_ms: Vec::new(), shown: 0 };
-    let mut total = 0;
-    for chunk in frames.chunks(every) {
-        let picture = ::image::DynamicImage::ImageRgba8(chunk[0].buffer().clone()).resize_to_fill(side, side, ::image::imageops::FilterType::Triangle).to_rgba8();
+    let mut stride = 1usize;
+    let mut elapsed = 0u32;
+    for (index, frame) in decoder.into_frames().take(MOVING_DECODED).enumerate() {
+        let frame = frame.ok()?;
+        elapsed = elapsed.saturating_add(frame_ms(&frame));
+        if index % stride != 0 {
+            if let Some(end) = moving.ends_ms.last_mut() {
+                *end = elapsed;
+            }
+            continue;
+        }
+        if moving.frames.len() == MOVING_FRAMES {
+            moving.frames = std::mem::take(&mut moving.frames).into_iter().step_by(2).collect();
+            moving.ends_ms = std::mem::take(&mut moving.ends_ms)
+                .into_iter()
+                .enumerate()
+                .filter_map(|(at, end)| (at % 2 == 1).then_some(end))
+                .collect();
+            stride = stride.saturating_mul(2);
+            if index % stride != 0 {
+                if let Some(end) = moving.ends_ms.last_mut() {
+                    *end = elapsed;
+                }
+                continue;
+            }
+        }
+        let picture = ::image::DynamicImage::ImageRgba8(frame.into_buffer())
+            .resize_to_fill(side, side, ::image::imageops::FilterType::Triangle)
+            .to_rgba8();
         moving.frames.push(image::Handle::from_rgba(side, side, picture.into_raw()));
-        total += chunk.iter().map(frame_ms).sum::<u32>();
-        moving.ends_ms.push(total);
+        moving.ends_ms.push(elapsed);
     }
-    Some(moving)
+    (moving.frames.len() >= 2).then_some(moving)
 }
 
 pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {
@@ -7551,6 +7655,24 @@ pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {
     let picture = picture.resize_to_fill(side, side, ::image::imageops::FilterType::Lanczos3).to_rgba8();
     Some(image::Handle::from_rgba(side, side, picture.into_raw()))
 }
+
+fn image_pixels(handle: &image::Handle) -> u64 {
+    match handle {
+        image::Handle::Rgba { width, height, .. } => u64::from(*width).saturating_mul(u64::from(*height)),
+        _ => 0,
+    }
+}
+
+fn image_bytes(handle: &image::Handle) -> usize {
+    match handle {
+        image::Handle::Rgba { width, height, .. } => u64::from(*width)
+            .saturating_mul(u64::from(*height))
+            .saturating_mul(4)
+            .min(usize::MAX as u64) as usize,
+        _ => 0,
+    }
+}
+
 const TOAST_W: f32 = 340.0;
 const TOAST_MAX_H: f32 = 112.0;
 const TOAST_TOP: f32 = 92.0;

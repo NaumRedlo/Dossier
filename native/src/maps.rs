@@ -14,12 +14,11 @@ pub struct Mirror {
     pub tail: &'static str,
 }
 
-pub const MIRRORS: [Mirror; 5] = [
+pub const MIRRORS: [Mirror; 4] = [
     Mirror { name: "osu.direct", api: "https://osu.direct/api/v2/", look_up: "https://osu.direct/api/v2/md5/", download: "https://osu.direct/api/d/", tail: "" },
     Mirror { name: "nekoha.moe", api: "", look_up: "", download: "https://mirror.nekoha.moe/api4/download/", tail: "" },
     Mirror { name: "beatconnect.io", api: "", look_up: "", download: "https://beatconnect.io/b/", tail: "/" },
     Mirror { name: "sayobot.cn", api: "", look_up: "", download: "https://dl.sayobot.cn/beatmaps/download/novideo/", tail: "" },
-    Mirror { name: "catboy.best", api: "https://catboy.best/api/v2/", look_up: "https://catboy.best/api/v2/md5/", download: "https://catboy.best/d/", tail: "" },
 ];
 
 const MIRROR_REST: Duration = Duration::from_secs(600);
@@ -656,7 +655,7 @@ mod tests {
 
     #[test]
     fn a_mirror_that_turns_us_away_rests_and_the_others_stay_in_line() {
-        assert!(MIRRORS.len() >= 4 && MIRRORS[0].name != "catboy.best");
+        assert!(MIRRORS.len() >= 4 && MIRRORS.iter().all(|mirror| mirror.name != "catboy.best"));
         assert!(MIRRORS.iter().all(|mirror| !mirror.download.contains("ppy.sh")));
         assert!(awake("test-mirror-a"));
         turned_away("test-mirror-a", reqwest::StatusCode::NOT_FOUND);

@@ -193,6 +193,7 @@ pub enum Effect {
     Older(i64),
     Train(String),
     TrainingJob(String),
+    Watch(crate::duels::Running),
 }
 
 pub const ABOUT_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
@@ -262,6 +263,7 @@ pub enum Message {
     Delete,
     Again,
     Stuck(String),
+    WatchDuel(String),
     MatchId(String),
     GameId(String),
     Finalize,
@@ -1306,6 +1308,7 @@ impl State {
                 self.prefill_match();
                 Vec::new()
             }
+            Message::WatchDuel(duel) => self.desk.stuck.iter().find(|found| found.id == duel).map(|found| vec![Effect::Watch(found.running())]).unwrap_or_default(),
             Message::MatchId(said) => {
                 self.match_id = crate::desk::match_of(&said).map(|found| found.to_string()).unwrap_or_else(|| said.chars().filter(char::is_ascii_digit).collect());
                 self.finalize_sure = false;
@@ -1692,7 +1695,7 @@ fn tabs<'a>(w: &Words, state: &State, roles: &[String], k: f32) -> Element<'a, M
         let mut inside = row![strong(w.t(tab.key()), 15.0 * k, if on { INK } else { MUTED })].spacing(8).align_y(Alignment::Center);
         let count = match tab {
             Tab::Queue => state.tasks().len(),
-            Tab::Duels => state.desk.stuck.len(),
+            Tab::Duels => state.desk.stuck.iter().filter(|duel| duel.stuck).count(),
             _ => 0,
         };
         if count > 0 {
@@ -3087,29 +3090,56 @@ fn presence_line<'a>(w: &Words, seat: Option<&crate::duels::Seat>, k: f32) -> El
     row![dot, words(w.t(if on { "desk-present" } else { "desk-absent" }), 12.0 * k, MUTED)].spacing(6).align_y(Alignment::Center).into()
 }
 
+fn duel_state(w: &Words, duel: &desk::Stuck) -> String {
+    spoken(w, &format!("desk-state-{}", duel.state.to_lowercase().replace('_', "-")), &duel.state)
+}
+
+fn duel_tile<'a>(w: &Words, duel: &desk::Stuck, on: bool, now: i64, k: f32) -> Element<'a, Message> {
+    let names: Vec<String> = duel.players.iter().map(|seat| seat.name.clone().unwrap_or_default()).collect();
+    let a = names.first().cloned().unwrap_or_default();
+    let b = names.get(1).cloned().unwrap_or_default();
+    let face_a = duel.players.first().and_then(|seat| seat.osu_id);
+    let face_b = duel.players.get(1).and_then(|seat| seat.osu_id);
+    let faces = stack![row![player_face(&a, face_a, 32.0 * k)], row![Space::new().width(24.0 * k), player_face(&b, face_b, 32.0 * k)]].width(56.0 * k).height(32);
+    let mut about = column![strong(w.with("desk-pair", &[("a", a), ("b", b)]), 15.0 * k, INK)].spacing(2).width(Length::Fill);
+    if duel.stuck {
+        about = about.push(strong(w.with(&format!("desk-stuck-{}", duel.reason.replace('_', "-")), &[("waited", ago(w, duel.since.as_deref(), now))]), 13.0 * k, if duel.reason == "verifying" { UNSURE } else { BAD }));
+    } else {
+        about = about.push(words(duel_state(w, duel), 13.0 * k, MUTED));
+    }
+    if let Some(attempt) = duel.round.as_ref().map(|round| round.attempt).filter(|attempt| *attempt > 1) {
+        about = about.push(strong(w.with("desk-attempt", &[("count", attempt.to_string())]), 13.0 * k, UNSURE));
+    }
+    let inside = row![
+        faces,
+        about,
+        bold(format!("{} : {}", duel.wins.a, duel.wins.b), 15.0 * k, INK),
+    ]
+    .spacing(12)
+    .align_y(Alignment::Center);
+    let fill = if on { LIT } else { ROW };
+    tile(fill, on.then_some((PICKED, 1.5)), inside.into(), Some(Message::Stuck(duel.id.clone())))
+}
+
 fn duels_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a, Message> {
     let shown = state.stuck_shown().map(|found| found.id.clone());
-    let mut list = column![heading_k(k, w.t("desk-stuck"))].spacing(8);
-    for duel in &state.desk.stuck {
-        let on = Some(&duel.id) == shown.as_ref();
-        let names: Vec<String> = duel.players.iter().map(|seat| seat.name.clone().unwrap_or_default()).collect();
-        let a = names.first().cloned().unwrap_or_default();
-        let b = names.get(1).cloned().unwrap_or_default();
-        let face_a = duel.players.first().and_then(|seat| seat.osu_id);
-        let face_b = duel.players.get(1).and_then(|seat| seat.osu_id);
-        let faces = stack![row![player_face(&a, face_a, 32.0 * k)], row![Space::new().width(24.0 * k), player_face(&b, face_b, 32.0 * k)]].width(56.0 * k).height(32);
-        let inside = row![
-            faces,
-            column![strong(w.with("desk-pair", &[("a", a), ("b", b)]), 15.0 * k, INK), strong(w.with(&format!("desk-stuck-{}", duel.reason.replace('_', "-")), &[("waited", ago(w, duel.since.as_deref(), now))]), 13.0 * k, if duel.reason == "verifying" { UNSURE } else { BAD })].spacing(2).width(Length::Fill),
-            bold(format!("{} : {}", duel.wins.a, duel.wins.b), 15.0 * k, INK),
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center);
-        let fill = if on { LIT } else { ROW };
-        list = list.push(tile(fill, on.then_some((PICKED, 1.5)), inside.into(), Some(Message::Stuck(duel.id.clone()))));
+    let mut list = column![].spacing(8);
+    let (late, going): (Vec<&desk::Stuck>, Vec<&desk::Stuck>) = state.desk.stuck.iter().partition(|duel| duel.stuck);
+    if !late.is_empty() {
+        list = list.push(heading_k(k, w.t("desk-stuck")));
+        for duel in late {
+            list = list.push(duel_tile(w, duel, Some(&duel.id) == shown.as_ref(), now, k));
+        }
+    }
+    if !going.is_empty() || state.desk.stuck.is_empty() {
+        let head = container(heading_k(k, w.t("desk-running"))).padding(Padding::ZERO.top(if state.desk.stuck.len() > going.len() { 10.0 * k } else { 0.0 }));
+        list = list.push(head);
+    }
+    for duel in going {
+        list = list.push(duel_tile(w, duel, Some(&duel.id) == shown.as_ref(), now, k));
     }
     if state.desk.stuck.is_empty() {
-        list = list.push(words(w.t(if state.loading { "desk-loading" } else { "desk-stuck-none" }), 14.0 * k, FAINT));
+        list = list.push(words(w.t(if state.loading { "desk-loading" } else { "desk-running-none" }), 14.0 * k, FAINT));
     }
     let aside = container(scrollable(list).direction(ui::hidden_bar())).padding(18).width(300.0 * k).height(Length::Fill).style(theme::slab);
     let Some(duel) = state.stuck_shown() else { return row![aside, panel(Space::new().into())].spacing(14).height(Length::Fill).into() };
@@ -3133,11 +3163,29 @@ fn duels_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a, 
     .padding([12, 20])
     .width(Length::Fill)
     .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 16.0.into(), ..Border::default() }, ..container::Style::default() });
-    let mut about = column![words(w.with(&format!("desk-stuck-{}-note", duel.reason.replace('_', "-")), &[("round", ordinal.to_string()), ("waited", ago(w, duel.since.as_deref(), now))]), 15.0 * k, MUTED)].spacing(4);
+    let mut about = if duel.stuck {
+        column![words(w.with(&format!("desk-stuck-{}-note", duel.reason.replace('_', "-")), &[("round", ordinal.to_string()), ("waited", ago(w, duel.since.as_deref(), now))]), 15.0 * k, MUTED)].spacing(4)
+    } else {
+        let mut said = row![strong(duel_state(w, duel), 15.0 * k, INK)].spacing(10).align_y(Alignment::Center);
+        if let Some(round) = duel.round.as_ref().filter(|round| round.attempt > 1) {
+            said = said.push(strong(w.with("desk-attempt", &[("count", round.attempt.to_string())]), 14.0 * k, UNSURE));
+        }
+        if let Some(round) = duel.round.as_ref().filter(|round| round.ties > 0) {
+            said = said.push(words(w.with("desk-ties", &[("count", round.ties.to_string())]), 14.0 * k, MUTED));
+        }
+        let mut about = column![said].spacing(4);
+        if unix_of(duel.since.as_deref()).is_some_and(|since| now - since >= 120) {
+            about = about.push(words(w.with("desk-since", &[("waited", ago(w, duel.since.as_deref(), now))]), 13.0 * k, FAINT));
+        }
+        about
+    };
     if let Some(due) = &duel.deadline {
         about = about.push(words(due_text(w, due, now), 13.0 * k, UNSURE));
     }
-    let warning = container(row![glyph(Icon::Clock, 20.0 * k, UNSURE), about.width(Length::Fill)].spacing(12).align_y(Alignment::Center))
+    let watch = row![glyph(Icon::Eye, 16.0 * k, INK), words(w.t("desk-watch"), 14.0 * k, INK)].spacing(8).align_y(Alignment::Center);
+    let watch = button(container(watch).center_y((theme::CONTROL_HEIGHT + 12.0) * k)).padding([0.0, 14.0 * k]).style(quiet(false, theme::CONTROL_RADIUS)).on_press(Message::WatchDuel(duel.id.clone()));
+    let sign = if duel.stuck { glyph(Icon::Clock, 20.0 * k, UNSURE) } else { glyph(Icon::Swords, 20.0 * k, MUTED) };
+    let warning = container(row![sign, about.width(Length::Fill), watch].spacing(12).align_y(Alignment::Center))
         .padding([12, 16])
         .width(Length::Fill)
         .style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default() });
@@ -3153,7 +3201,7 @@ fn duels_view<'a>(w: &Words, state: &'a State, now: i64, k: f32) -> Element<'a, 
     let mut body = column![head, warning, block(strong(w.t("desk-happened"), 16.0 * k, INK), story.into(), k),
         labelled_k(k, w.t("desk-reason"), field_kk(k, w.t("desk-reason-hint"), &state.reason, Message::Reason))].spacing(16);
     let room_match = duel.room.as_ref().and_then(|room| room.match_id);
-    if room_match.is_some() || matches!(duel.reason.as_str(), "verifying" | "absent" | "disconnect" | "aborting") {
+    if (duel.stuck || duel.state == "VERIFYING") && (room_match.is_some() || matches!(duel.reason.as_str(), "verifying" | "absent" | "disconnect" | "aborting")) {
         let numbers = !state.match_id.is_empty() && !state.game_id.is_empty();
         let mut matched = row![container(labelled_k(k, w.t("desk-match"), field_kk(k, String::new(), &state.match_id, Message::MatchId))).width(Length::Fill)].spacing(8).align_y(Alignment::End);
         if let Ok(found) = state.match_id.parse::<i64>() {
@@ -3646,6 +3694,24 @@ mod tests {
         assert!(matches!(&effects[0], Effect::Post(Post::Finalize { match_id: 120_000_001, game_id: 602_118_554, .. })));
         assert_eq!(state.update(Message::OpenMatch(5), &w), vec![Effect::Open("https://osu.ppy.sh/community/matches/5".into())]);
         assert_eq!((desk::match_of("https://osu.ppy.sh/mp/77/"), desk::match_of("77"), desk::match_of("https://example.com/77")), (Some(77), Some(77), None));
+    }
+
+    #[test]
+    fn every_running_duel_is_listed_and_can_be_watched_from_the_desk() {
+        let w = Words::new(crate::lang::Lang::En);
+        let said = r#"[{"id":"r1","state":"PLAYING","reason":"playing","stuck":false,"watching":2,"wins":{"A":1,"B":0},"mode":"rated",
+            "players":[{"player":3,"side":"A","name":"ssnowy"},{"player":9,"side":"B","name":"Lunarine"}],
+            "round":{"ordinal":2,"slot":"DT1","state":"playing","beatmap_id":4606518,"title":"Kyouran","attempt":2,"ties":0}},
+            {"id":"s1","state":"PAUSED","reason":"disconnect"}]"#;
+        let found: Vec<desk::Stuck> = serde_json::from_str(said).unwrap();
+        assert_eq!(found.iter().map(|duel| duel.stuck).collect::<Vec<_>>(), [false, true], "an older server only lists stuck duels");
+        let mut state = State { tab: Tab::Duels, ..State::default() };
+        state.update(Message::Loaded(Ok(Desk { stuck: found, ..Desk::default() })), &w);
+        let effects = state.update(Message::WatchDuel("r1".into()), &w);
+        let [Effect::Watch(running)] = effects.as_slice() else { panic!("{effects:?}") };
+        assert_eq!((running.id.as_str(), running.beatmap_id, running.slot.as_deref(), running.watching), ("r1", Some(4_606_518), Some("DT1"), 2));
+        assert_eq!(running.players.len(), 2);
+        assert!(state.update(Message::WatchDuel("gone".into()), &w).is_empty());
     }
 
     #[test]

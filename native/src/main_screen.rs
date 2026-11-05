@@ -743,6 +743,7 @@ pub struct Main {
     refresh_answered: Option<Instant>,
     notice_fade: Animation<bool>,
     notice_kept: Option<crate::community_screen::Notice>,
+    duel_cursor: Option<std::sync::mpsc::Sender<crate::witness::Cursor>>,
     friends_asked: Option<Instant>,
 }
 
@@ -1050,6 +1051,7 @@ impl Main {
         let strays = videos::strays(&made.store.videos, &made.settings.renders_dir());
         let adopt = match (made.ffmpeg.clone(), strays.is_empty()) {
             (Some(ffmpeg), false) => ui::in_thread(move || Message::Adopted(strays.iter().filter_map(|p| videos::adopt(&ffmpeg, p)).collect())),
+            duel_cursor: None,
             _ => Task::none(),
         };
         let who = made.ask_who();
@@ -1147,6 +1149,7 @@ impl Main {
     fn stable_root(&self) -> Option<std::path::PathBuf> {
         self.settings.sources.iter().find(|source| source.kind == crate::sources::Kind::Stable && source.on).map(|source| source.root.clone())
     }
+        control.stream_cursor(self.duel_cursor.clone());
 
     fn history_task(&mut self, force: bool) -> Task<Message> {
         if !self.settings.history_share || self.settings.token.is_empty() || self.gallery || self.history_running {
@@ -1945,7 +1948,7 @@ impl Main {
         if let (crate::witness::Event::Playing(progress), Some(link), Some(duel)) = (event, &self.duel_link, self.duels.shown().filter(|duel| duel.state == "PLAYING")) {
             let hits = progress.n300 + progress.n100 + progress.n50 + progress.miss;
             let accuracy = if hits == 0 { 1.0 } else { f64::from(300 * progress.n300 + 100 * progress.n100 + 50 * progress.n50) / f64::from(300 * hits) };
-            link.send(crate::duels::Order::Witness(duel.id.clone(), serde_json::json!({ "score": progress.score, "combo": progress.combo, "accuracy": accuracy, "time": progress.time })));
+            link.send(crate::duels::Order::Witness(duel.id.clone(), serde_json::json!({ "score": progress.score, "combo": progress.combo, "accuracy": accuracy, "time": progress.time, "mods": progress.mods })));
         }
     }
 
@@ -2002,6 +2005,10 @@ impl Main {
                         Some(picked.path().to_path_buf())
                     },
                     |picked| picked.map_or_else(Vec::new, |path| crate::desk::archive_maps(&path)),
+                Effect::Watch(running) => {
+                    let gone = self.update(Message::Community(crate::community_screen::Message::Go(crate::community_screen::Section::Duels, None)));
+                    Task::batch([gone, Task::done(Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Spectate(running))))])
+                }
                 ).map(move |found| wrap(K::Archived(found))),
                 Effect::Older(_) if offline => Task::done(wrap(K::JournalOlder(Err("offline".to_owned())))),
                 Effect::Older(before) => ui::in_thread(move || K::JournalOlder(crate::desk::journal_before(&account, before).map_err(|why| why.to_string()))).map(wrap),
@@ -2106,10 +2113,11 @@ impl Main {
                 Effect::Link(true) => {
                     let (cursor_in, cursor_out) = std::sync::mpsc::channel();
                     if let Some(control) = &self.witness_control {
-                        control.stream_cursor(Some(cursor_in));
+                        control.stream_cursor(Some(cursor_in.clone()));
                     }
                     let (heard_in, heard_out) = std::sync::mpsc::channel::<crate::duels::Heard>();
                     self.duel_link = Some(std::sync::Arc::new(crate::duels::connect(account, Some(cursor_out), move |heard| heard_in.send(heard).is_ok())));
+                    self.duel_cursor = None;
                     ui::streamed(move |push: &mut dyn FnMut(Message) -> bool| {
                         while let Ok(heard) = heard_out.recv() {
                             if !push(Message::Community(crate::community_screen::Message::Duels(D::Heard(heard)))) {
@@ -2121,6 +2129,7 @@ impl Main {
                 Effect::Tempo(_) if offline => Task::none(),
                 Effect::Tempo(beatmap) => ui::in_thread(move || D::Tempo(beatmap, crate::desk::about(beatmap).and_then(|found| found.bpm))).map(wrap),
                 Effect::Order(order) => {
+                    self.duel_cursor = Some(cursor_in);
                     if let Some(link) = &self.duel_link {
                         link.send(order);
                     }
@@ -2133,6 +2142,8 @@ impl Main {
                         self.announce(crate::notices::Mark::Plain, said, String::new(), String::new(), String::new(), crate::notices::Link::Duels);
                     }
                     if offline {
+                Effect::Stage(beatmap) if self.gallery => Task::done(wrap(D::Staged(beatmap, None))),
+                Effect::Stage(beatmap) => ui::in_thread(move || D::Staged(beatmap, crate::duel_watch::stage(beatmap).map(std::sync::Arc::new))).map(wrap),
                         Task::none()
                     } else {
                         ui::in_thread(move || { let _ = crate::duels::seen(&account, &ids); }).discard()

@@ -964,7 +964,7 @@ pub fn view<'a>(state: &State, duel: &Duel, w: &Words, now: i64, wide: f32) -> E
         Phase::Room => w.t("duels-caption-room"),
         Phase::Reveal => w.t("duels-caption-room"),
         Phase::Draft => w.t("duels-caption-draft"),
-        Phase::Ready | Phase::Playing => w.with("duels-caption-round", &[("round", duel.rounds.last().map_or(1, |round| round.ordinal.max(1)).to_string())]),
+        Phase::Ready | Phase::Recovery | Phase::Playing => w.with("duels-caption-round", &[("round", duel.rounds.last().map_or(1, |round| round.ordinal.max(1)).to_string())]),
         Phase::Result => String::new(),
     };
     let mut glow = None;
@@ -990,7 +990,7 @@ pub fn view<'a>(state: &State, duel: &Duel, w: &Words, now: i64, wide: f32) -> E
             let t = crate::duels_screen::since(state.moments.phase_at);
             column![head(w, duel, caption, false), round_transition(w, state, duel, now, t, width)].spacing(12).into()
         }
-        Phase::Ready | Phase::Playing => column![head(w, duel, caption, false), round_view(w, state, duel, now)].spacing(12).into(),
+        Phase::Ready | Phase::Recovery | Phase::Playing => column![head(w, duel, caption, false), round_view(w, state, duel, now)].spacing(12).into(),
         Phase::Result => result_view(w, state, duel, now),
     };
     let mut page = column![body].width(Length::Fill).height(Length::Fill);
@@ -1018,6 +1018,7 @@ pub fn turn_label(w: &Words, state: &State, duel: &Duel) -> (String, Color, bool
         }
         Phase::Ready if duel.actions.iter().any(|action| action == "ready") => (w.t("duels-ready-asked"), side_colour(mine.as_deref().unwrap_or("A")), true),
         Phase::Ready => (w.t("duels-preparing"), MUTED, false),
+        Phase::Recovery => (w.t("duels-recovering"), MUTED, false),
         Phase::Playing => (w.t("duels-map-running"), MUTED, false),
         Phase::Reveal => (w.t("duels-caption-reveal"), MUTED, false),
         Phase::Room => (w.t("duels-caption-room"), MUTED, false),

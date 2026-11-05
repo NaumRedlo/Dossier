@@ -1,4 +1,4 @@
-use iced::widget::{column, container, row, text, Space};
+use iced::widget::{column, container, row, scrollable, text, Space};
 use iced::{color, Alignment, Color, Element, Length, Padding};
 
 use crate::duels::{Duel, Live, Me, Running};
@@ -45,6 +45,8 @@ pub struct State {
     pub broadcast: crate::duels::Broadcast,
     pub rounds: std::collections::HashMap<i64, u32>,
     pub heard_states: std::collections::HashMap<i64, serde_json::Value>,
+    pub watch_stage: Option<(i64, Option<std::sync::Arc<crate::duel_watch::Stage>>)>,
+    pub watch_asked: Option<i64>,
     pub roles: Vec<String>,
     pub played_ms: Option<i64>,
     pub hovered: Option<(i64, std::time::Instant)>,
@@ -103,6 +105,8 @@ pub enum Message {
     Answered(Result<Duel, String>),
     Again,
     Watch(String),
+    Spectate(Running),
+    Staged(i64, Option<std::sync::Arc<crate::duel_watch::Stage>>),
     Read(Result<Duel, String>),
     Heard(crate::duels::Heard),
     Act(&'static str, serde_json::Value),
@@ -145,6 +149,7 @@ pub enum Effect {
     Tell(Vec<(&'static str, String)>, Vec<i64>),
     Order(crate::duels::Order),
     Tempo(i64),
+    Stage(i64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,6 +158,7 @@ pub enum Phase {
     Reveal,
     Draft,
     Ready,
+    Recovery,
     Playing,
     Result,
 }
@@ -162,7 +168,8 @@ pub fn phase_of(state: &str) -> Phase {
         "PREPARING" => Phase::Reveal,
         "DRAFTING" | "SELECTING" => Phase::Draft,
         "ROUND_SETUP" | "WAITING_READY" | "STARTING" => Phase::Ready,
-        "PLAYING" | "VERIFYING" | "ABORTING" | "PAUSED" | "RECOVERING" | "FINALIZING" => Phase::Playing,
+        "RECOVERING" => Phase::Recovery,
+        "PLAYING" | "VERIFYING" | "ABORTING" | "PAUSED" | "FINALIZING" => Phase::Playing,
         "COMPLETED" | "CANCELLED" | "DECLINED" | "EXPIRED" => Phase::Result,
         _ => Phase::Room,
     }
@@ -360,12 +367,12 @@ impl State {
                 }
                 let playing = duel.rounds.last().filter(|_| duel.state == "PLAYING").map(|round| (duel.id.clone(), round.ordinal));
                 effects.push(Effect::Playing(playing));
-                if phase_of(&duel.state) == Phase::Result {
-                    effects.push(Effect::Link(false));
-                    self.linked = false;
-                }
                 if let Some(held) = self.mine.iter_mut().find(|held| held.id == duel.id) {
                     *held = duel.clone();
+                }
+                if phase_of(&duel.state) == Phase::Result && !self.keeps_link() {
+                    effects.push(Effect::Link(false));
+                    self.linked = false;
                 }
                 self.duel = Some(duel);
                 effects
@@ -416,23 +423,22 @@ impl State {
             Message::Heard(_) => Vec::new(),
             Message::Watch(id) => {
                 let Some(running) = self.live.running.iter().find(|duel| duel.id == id).cloned() else { return Vec::new() };
-                let mut effects = Vec::new();
-                if let Some(previous) = self.watching.take() {
-                    effects.push(Effect::Order(crate::duels::Order::Unwatch(previous.id)));
+                self.watch(running)
+            }
+            Message::Spectate(running) => {
+                let running = self.live.running.iter().find(|duel| duel.id == running.id).cloned().unwrap_or(running);
+                self.watch(running)
+            }
+            Message::Staged(beatmap, stage) => {
+                if self.watch_asked == Some(beatmap) {
+                    self.watch_stage = Some((beatmap, stage));
                 }
-                self.broadcast = crate::duels::Broadcast::default();
-                self.rounds.clear();
-                self.heard_states.clear();
-                self.watching = Some(running);
-                if !self.linked {
-                    self.linked = true;
-                    effects.push(Effect::Link(true));
-                }
-                effects.push(Effect::Order(crate::duels::Order::Watch(id)));
-                effects
+                Vec::new()
             }
             Message::Unwatch => {
                 let Some(previous) = self.watching.take() else { return Vec::new() };
+                self.watch_stage = None;
+                self.watch_asked = None;
                 let mut effects = vec![Effect::Order(crate::duels::Order::Unwatch(previous.id))];
                 if self.linked && self.current().filter(|_| self.stage() == Stage::Busy).is_none() {
                     self.linked = false;
@@ -458,7 +464,7 @@ impl State {
                         *watching = fresh.clone();
                     }
                 }
-                Vec::new()
+                self.ask_stage()
             }
             Message::Act(action, body) if !self.acting => {
                 let Some(duel) = &self.duel else { return Vec::new() };
@@ -576,6 +582,10 @@ impl State {
                 self.duel = None;
                 self.rated.clear();
                 self.loading = true;
+                if self.keeps_link() {
+                    return vec![Effect::Hear(None), Effect::Load];
+                }
+                self.linked = false;
                 vec![Effect::Hear(None), Effect::Link(false), Effect::Load]
             }
             _ => Vec::new(),
@@ -593,6 +603,38 @@ impl State {
         if (smoothed - self.clock_offset * 1000).abs() > 750 {
             self.clock_offset = (smoothed as f64 / 1000.0).round() as i64;
         }
+    }
+
+    fn keeps_link(&self) -> bool {
+        self.watching.is_some() || (self.current().is_some() && self.stage() == Stage::Busy)
+    }
+
+    fn watch(&mut self, running: Running) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        if let Some(previous) = self.watching.take() {
+            effects.push(Effect::Order(crate::duels::Order::Unwatch(previous.id)));
+        }
+        let id = running.id.clone();
+        self.broadcast = crate::duels::Broadcast::default();
+        self.rounds.clear();
+        self.heard_states.clear();
+        self.watching = Some(running);
+        if !self.linked {
+            self.linked = true;
+            effects.push(Effect::Link(true));
+        }
+        effects.push(Effect::Order(crate::duels::Order::Watch(id)));
+        effects.extend(self.ask_stage());
+        effects
+    }
+
+    fn ask_stage(&mut self) -> Vec<Effect> {
+        let Some(beatmap) = self.watching.as_ref().and_then(|running| running.beatmap_id) else { return Vec::new() };
+        if self.watch_asked == Some(beatmap) {
+            return Vec::new();
+        }
+        self.watch_asked = Some(beatmap);
+        vec![Effect::Stage(beatmap)]
     }
 
     fn read(&mut self, id: String) -> Vec<Effect> {
@@ -658,7 +700,19 @@ impl State {
     }
 
     pub fn current(&self) -> Option<&Duel> {
-        self.mine.iter().find(|duel| !matches!(duel.state.as_str(), "COMPLETED" | "CANCELLED" | "DECLINED" | "EXPIRED"))
+        self.mine.iter().filter(|duel| !matches!(duel.state.as_str(), "COMPLETED" | "CANCELLED" | "DECLINED" | "EXPIRED"))
+            .max_by_key(|duel| match duel.state.as_str() {
+                "PLAYING" | "ABORTING" => 9,
+                "VERIFYING" | "FINALIZING" => 8,
+                "WAITING_READY" | "STARTING" | "ROUND_SETUP" => 7,
+                "DRAFTING" | "SELECTING" => 6,
+                "PREPARING" => 5,
+                "RECOVERING" | "PAUSED" => 4,
+                "WAITING_ROOM" | "ROOM_SETUP" | "WAITING_PLAYERS" => 3,
+                "ACCEPTED" | "GENERATING_POOL" | "RANGE_OFFERED" => 2,
+                "MATCH_OFFERED" | "INVITED" => 1,
+                _ => 0,
+            })
     }
 
     pub fn stage(&self) -> Stage {
@@ -991,7 +1045,7 @@ fn live_panel<'a>(w: &Words, live: &Live) -> Element<'a, Message> {
     if live.running.is_empty() {
         list = list.push(words(w.t("duels-running-none"), 14.0, FAINT));
     }
-    for duel in live.running.iter().take(6) {
+    for duel in &live.running {
         let note = duel.title.clone().filter(|title| !title.is_empty()).or_else(|| duel.slot.clone()).unwrap_or_else(|| w.t("duels-drafting"));
         list = list.push(row![
             container(pair(duel, 26.0)).width(46),
@@ -1011,7 +1065,7 @@ fn live_panel<'a>(w: &Words, live: &Live) -> Element<'a, Message> {
             container(words(ago(w, duel.seconds_ago), 12.0, FAINT)).width(56).align_x(iced::alignment::Horizontal::Right),
         ].spacing(10).align_y(Alignment::Center).height(30));
     }
-    container(slab(list.into(), 22.0)).width(LIVE_WIDTH).height(Length::Fill).into()
+    container(slab(scrollable(list).direction(crate::ui::hidden_bar()).into(), 22.0)).width(LIVE_WIDTH).height(Length::Fill).into()
 }
 
 fn ways<'a>(w: &Words, stacked: bool) -> Element<'a, Message> {
@@ -1217,6 +1271,38 @@ mod tests {
         assert!(effects.contains(&Effect::Link(false)) && state.shown().is_some());
         assert_eq!(state.update(Message::Close, 0), vec![Effect::Hear(None), Effect::Link(false), Effect::Load]);
         assert!(state.shown().is_none());
+    }
+
+    #[test]
+    fn looking_at_a_finished_duel_keeps_the_link_of_the_one_being_played() {
+        let mut state = State { player: Some(1), ..State::default() };
+        let mut playing = duel("PLAYING", &[]);
+        playing.id = "live".into();
+        let mut old = duel("COMPLETED", &[]);
+        old.id = "old".into();
+        let effects = state.update(Message::Loaded(Ok(Snapshot { queue: None, me: Me::default(), live: Live::default(), mine: vec![old.clone(), playing.clone()], notices: Vec::new() })), 0);
+        assert!(effects.contains(&Effect::Link(true)), "the played duel is picked over the finished one: {effects:?}");
+        state.reading = false;
+        let effects = state.update(Message::Read(Ok(old)), 0);
+        assert!(!effects.contains(&Effect::Link(false)) && state.linked);
+        assert_eq!(state.update(Message::Close, 0), vec![Effect::Hear(None), Effect::Load]);
+        assert!(state.linked);
+    }
+
+    #[test]
+    fn a_duel_opened_from_the_balance_desk_is_watched_with_its_map() {
+        let mut state = State { player: Some(9), ..State::default() };
+        let running = Running { id: "far".into(), state: "PLAYING".into(), beatmap_id: Some(898_576), ..Running::default() };
+        let effects = state.update(Message::Spectate(running), 0);
+        assert_eq!(effects, vec![Effect::Link(true), Effect::Order(crate::duels::Order::Watch("far".into())), Effect::Stage(898_576)]);
+        assert!(state.update(Message::Frame, 0).is_empty(), "the map is asked once");
+        state.update(Message::Staged(5, None), 0);
+        assert!(state.watch_stage.is_none(), "a map for another round is ignored");
+        state.update(Message::Staged(898_576, None), 0);
+        assert_eq!(state.watch_stage.as_ref().map(|(beatmap, stage)| (*beatmap, stage.is_none())), Some((898_576, true)));
+        let effects = state.update(Message::Unwatch, 0);
+        assert_eq!(effects, vec![Effect::Order(crate::duels::Order::Unwatch("far".into())), Effect::Link(false)]);
+        assert!(state.watch_stage.is_none() && state.watch_asked.is_none());
     }
 
     #[test]

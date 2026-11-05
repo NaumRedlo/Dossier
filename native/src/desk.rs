@@ -195,6 +195,8 @@ pub struct StuckRound {
     pub state: String,
     pub beatmap_id: Option<i64>,
     pub title: Option<String>,
+    pub attempt: u32,
+    pub ties: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -213,6 +215,10 @@ pub struct Due {
     pub at: Option<String>,
 }
 
+fn held_up() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct Stuck {
@@ -220,6 +226,9 @@ pub struct Stuck {
     pub state: String,
     pub reason: String,
     pub since: Option<String>,
+    #[serde(default = "held_up")]
+    pub stuck: bool,
+    pub watching: u32,
     pub wins: Wins,
     pub mode: String,
     pub players: Vec<Seat>,
@@ -227,6 +236,24 @@ pub struct Stuck {
     pub round: Option<StuckRound>,
     pub events: Vec<Happened>,
     pub deadline: Option<Due>,
+}
+
+impl Stuck {
+    pub fn running(&self) -> crate::duels::Running {
+        let round = self.round.as_ref();
+        crate::duels::Running {
+            id: self.id.clone(),
+            mode: self.mode.clone(),
+            state: self.state.clone(),
+            wins: self.wins.clone(),
+            players: self.players.clone(),
+            watching: self.watching,
+            slot: round.map(|round| round.slot.clone()).filter(|slot| !slot.is_empty()),
+            beatmap_id: round.and_then(|round| round.beatmap_id),
+            title: round.and_then(|round| round.title.clone()),
+            ..crate::duels::Running::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -482,7 +509,7 @@ pub fn load(account: &Account, roles: &[String]) -> Result<Desk, Failure> {
         desk.versions = listed(account, "/render/admin/duels/models", "models")?;
     }
     if allows(roles, OPERATOR) {
-        desk.stuck = listed(account, "/render/admin/duels/stuck", "duels")?;
+        desk.stuck = listed(account, "/render/admin/duels/stuck?all=1", "duels")?;
     }
     if allows(roles, OWNER) {
         desk.batches = listed(account, "/render/admin/duels/corpus/batches", "batches").unwrap_or_default();

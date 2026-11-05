@@ -1537,6 +1537,11 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             main.desk.reason = "API отдал игру с задержкой".into();
             main
         }),
+        ("main-community-balance-duels-running".to_owned(), {
+            let mut main = tabbed(Tab::Duels);
+            main.desk.stuck = Some("r1".into());
+            main
+        }),
         ("main-community-balance-journal".to_owned(), tabbed(Tab::Journal)),
         ("main-community-balance-people".to_owned(), {
             let mut main = tabbed(Tab::People);
@@ -1629,7 +1634,8 @@ fn staged_desk() -> crate::desk_screen::State {
         created_at: stamp(ago), published_at: None,
     };
     let seat = |player: i64, side: &str, name: &str| Seat { player, side: Some(side.into()), name: Some(name.into()), present: None, osu_id: None };
-    let stuck = |id: &str, reason: &str, a: Seat, b: Seat, wins: (u32, u32), ago: i64| Stuck { id: id.into(), state: "VERIFYING".into(), reason: reason.into(), since: stamp(ago), wins: Wins { a: wins.0, b: wins.1 }, mode: "rated".into(), players: vec![a, b], ..Stuck::default() };
+    let stuck = |id: &str, reason: &str, a: Seat, b: Seat, wins: (u32, u32), ago: i64| Stuck { id: id.into(), state: "VERIFYING".into(), reason: reason.into(), since: stamp(ago), stuck: true, wins: Wins { a: wins.0, b: wins.1 }, mode: "rated".into(), players: vec![a, b], ..Stuck::default() };
+    let going = |id: &str, state: &str, a: Seat, b: Seat, wins: (u32, u32), ago: i64| Stuck { id: id.into(), state: state.into(), reason: state.to_lowercase(), since: stamp(ago), stuck: false, wins: Wins { a: wins.0, b: wins.1 }, mode: "rated".into(), players: vec![a, b], ..Stuck::default() };
     let entry = |id: i64, name: &str, role: &str, action: &str, target: &str, reason: &str, ago: i64, after: serde_json::Value| Entry { id, actor: id, name: Some(name.into()), osu_id: None, role: role.into(), action: action.into(), target: target.into(), reason: reason.into(), at: stamp(ago), before: serde_json::Value::Null, after };
     let desk = Desk {
         tasks,
@@ -1637,7 +1643,7 @@ fn staged_desk() -> crate::desk_screen::State {
         stuck: vec![
             Stuck {
                 room: Some(crate::desk::StuckRoom { match_id: Some(114_482_093), name: "DSR: kotofey vs Mirrorwave".into(), status: "open".into() }),
-                round: Some(crate::desk::StuckRound { ordinal: 3, slot: "HR2".into(), state: "PLAYING".into(), beatmap_id: Some(5824105), title: Some("Ascension to Heaven".into()) }),
+                round: Some(crate::desk::StuckRound { ordinal: 3, slot: "HR2".into(), state: "PLAYING".into(), beatmap_id: Some(5824105), title: Some("Ascension to Heaven".into()), attempt: 2, ties: 0 }),
                 events: vec![
                     crate::desk::Happened { kind: "state".into(), reason: Some("VERIFYING".into()), at: stamp(480) },
                     crate::desk::Happened { kind: "state".into(), reason: Some("PLAYING".into()), at: stamp(700) },
@@ -1650,6 +1656,21 @@ fn staged_desk() -> crate::desk_screen::State {
             },
             stuck("s2", "absent", seat(4, "A", "d1ce"), seat(8, "B", "hmosha"), (2, 0), 900),
             stuck("s3", "room_setup", seat(5, "A", "aeris"), seat(7, "B", "mrekk"), (0, 0), 1500),
+            Stuck {
+                round: Some(crate::desk::StuckRound { ordinal: 4, slot: "DT1".into(), state: "playing".into(), beatmap_id: Some(4606518), title: Some("Kyouran Hey Kids!!".into()), attempt: 1, ties: 1 }),
+                room: Some(crate::desk::StuckRoom { match_id: Some(114_490_311), name: "DSR: ssnowy vs Lunarine".into(), status: "open".into() }),
+                events: vec![
+                    crate::desk::Happened { kind: "state".into(), reason: Some("PLAYING".into()), at: stamp(40) },
+                    crate::desk::Happened { kind: "tie".into(), reason: None, at: stamp(300) },
+                    crate::desk::Happened { kind: "round".into(), reason: None, at: stamp(620) },
+                ],
+                deadline: Some(crate::desk::Due { kind: "playing".into(), at: stamp(-260) }),
+                watching: 3,
+                players: vec![Seat { present: Some(true), ..seat(3, "A", "ssnowy") }, Seat { present: Some(true), ..seat(9, "B", "Lunarine") }],
+                ..going("r1", "PLAYING", seat(3, "A", "ssnowy"), seat(9, "B", "Lunarine"), (2, 1), 40)
+            },
+            going("r2", "SELECTING", seat(10, "A", "Akasha"), seat(11, "B", "rxzy"), (1, 0), 30),
+            going("r3", "WAITING_READY", seat(12, "A", "Kalindraz"), seat(13, "B", "miniature"), (0, 0), 200),
         ],
         journal: vec![
             Entry { actor: 5, ..entry(9, "aeris", "BALANCE_REVIEWER", "map_add", "5860624", "", 1_200, serde_json::json!({ "slot": "DT2" })) },
@@ -1784,17 +1805,39 @@ fn duel_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
         ("main-community-duel-watch".to_owned(), {
             let mut main = community(crate::community_screen::Section::Duels, None);
             main.duels = Box::new(staged_duels(false));
-            let running = main.duels.live.running[0].clone();
+            let mut running = main.duels.live.running[0].clone();
+            running.beatmap_id = Some(898_576);
+            running.slot = Some("TB".into());
+            running.title = Some("BLUE DRAGON".into());
+            running.song_seconds = None;
+            let map = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../crates/dossier-assay/corpus/maps/898576.osu")).ok();
+            let stage = map.and_then(|text| crate::duel_watch::Stage::read(898_576, &text)).map(std::sync::Arc::new);
+            main.duels.watch_asked = Some(898_576);
+            main.duels.watch_stage = Some((898_576, stage));
             let heard = std::time::Instant::now() - std::time::Duration::from_secs(10);
-            for (player, phase, score, combo, accuracy) in [(4_i64, 0.0_f32, 512_340_i64, 412_i64, 0.9871_f64), (5, 1.7, 498_115, 236, 0.9794)] {
+            for (player, phase, score, combo, accuracy, mods) in [(4_i64, 0.0_f32, 512_340_i64, 412_i64, 0.9871_f64, 1_u32), (5, 1.7, 498_115, 236, 0.9794, 25)] {
                 let frames: Vec<(i32, f32, f32, u32)> = (0..375).map(|step| {
                     let t = step as f32 / 60.0 + phase;
-                    (step * 16, 256.0 + 170.0 * (t * 1.3).sin(), 192.0 + 120.0 * (t * 2.1).cos(), 1)
+                    (35_016 + step * 16, 256.0 + 170.0 * (t * 1.3).sin(), 192.0 + 120.0 * (t * 2.1).cos(), 1)
                 }).collect();
                 main.duels.broadcast.take(player, 2, &frames, heard);
                 main.duels.rounds.insert(player, 2);
-                main.duels.heard_states.insert(player, serde_json::json!({ "score": score, "combo": combo, "accuracy": accuracy, "time": 108_000 }));
+                main.duels.heard_states.insert(player, serde_json::json!({ "score": score, "combo": combo, "accuracy": accuracy, "time": 41_000, "mods": mods }));
             }
+            main.duels.watching = Some(running);
+            main
+        }),
+        ("main-community-duel-watch-waiting".to_owned(), {
+            let mut main = community(crate::community_screen::Section::Duels, None);
+            main.duels = Box::new(staged_duels(false));
+            let mut running = main.duels.live.running[0].clone();
+            running.beatmap_id = Some(898_576);
+            main.duels.watch_asked = Some(898_576);
+            let heard = std::time::Instant::now() - std::time::Duration::from_secs(10);
+            let frames: Vec<(i32, f32, f32, u32)> = (0..375).map(|step| (35_016 + step * 16, 256.0 + 120.0 * (step as f32 / 40.0).sin(), 192.0, 1)).collect();
+            main.duels.broadcast.take(4, 2, &frames, heard);
+            main.duels.rounds.insert(4, 2);
+            main.duels.heard_states.insert(4, serde_json::json!({ "score": 312_000, "combo": 140, "accuracy": 0.9711, "time": 41_000 }));
             main.duels.watching = Some(running);
             main
         }),

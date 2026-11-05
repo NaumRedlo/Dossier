@@ -702,6 +702,8 @@ pub fn connect(account: Account, cursor: Option<Receiver<Cursor>>, mut heard: im
 }
 
 pub const WATCH_DELAY_MS: i64 = 3000;
+const RESTART_MS: i64 = 2000;
+const DRIFT_MS: i64 = 1500;
 
 #[derive(Debug, Clone)]
 struct Track {
@@ -717,6 +719,11 @@ pub struct Broadcast {
 impl Broadcast {
     pub fn take(&mut self, player: i64, round: u32, frames: &[(i32, f32, f32, u32)], now: Instant) -> usize {
         let track = self.tracks.entry((player, round)).or_insert(Track { frames: Vec::new(), anchor: None });
+        let restarted = frames.first().zip(track.frames.last()).is_some_and(|(first, last)| i64::from(first.0) < last.time_ms - RESTART_MS);
+        if restarted {
+            track.frames.clear();
+            track.anchor = None;
+        }
         let before = track.frames.len();
         for &(time, x, y, keys) in frames {
             let time = i64::from(time);
@@ -724,8 +731,11 @@ impl Broadcast {
                 continue;
             }
             track.frames.push(dossier_replay::ReplayFrame { time_ms: time, x, y, keys: dossier_replay::Keys((keys & 0xFF) as u8) });
-            if track.anchor.is_none() {
-                track.anchor = Some((time, now));
+        }
+        if let Some(newest) = track.frames.last().map(|frame| frame.time_ms).filter(|_| track.frames.len() > before) {
+            let drifted = track.anchor.is_none_or(|(time, heard)| (time + now.saturating_duration_since(heard).as_millis() as i64 - newest).abs() > DRIFT_MS);
+            if drifted {
+                track.anchor = Some((newest, now));
             }
         }
         track.frames.len() - before
@@ -761,7 +771,7 @@ mod tests {
         assert!(seen.visible(2, 1, start).is_empty());
         let later = start + Duration::from_millis(WATCH_DELAY_MS as u64 + 20);
         let shown = seen.visible(2, 1, later);
-        assert_eq!(shown.iter().map(|frame| frame.time_ms).collect::<Vec<_>>(), [1000, 1016]);
+        assert_eq!(shown.iter().map(|frame| frame.time_ms).collect::<Vec<_>>(), [1000, 1016, 1032], "the delay counts from the newest frame heard");
         assert_eq!(shown[0].keys, dossier_replay::Keys(1));
         assert_eq!(seen.visible(2, 1, later + Duration::from_secs(10)).len(), 4);
         assert!(seen.visible(3, 1, later).is_empty());
@@ -769,6 +779,22 @@ mod tests {
         seen.forget(2);
         assert!(seen.visible(2, 1, later + Duration::from_secs(10)).is_empty());
         assert_eq!(seen.visible(2, 2, later + Duration::from_secs(10)).len(), 1);
+    }
+
+    #[test]
+    fn a_restarted_map_starts_a_fresh_take_and_late_frames_move_the_clock() {
+        let start = Instant::now();
+        let mut seen = Broadcast::default();
+        seen.take(4, 1, &[(30_000, 1.0, 1.0, 0), (30_016, 2.0, 2.0, 0)], start);
+        let back = start + Duration::from_secs(5);
+        assert_eq!(seen.take(4, 1, &[(500, 3.0, 3.0, 0), (516, 4.0, 4.0, 0)], back), 2, "the replayed map is kept, not dropped as old");
+        let calm = back + Duration::from_millis(WATCH_DELAY_MS as u64);
+        assert_eq!(seen.visible(4, 1, calm).iter().map(|frame| frame.time_ms).collect::<Vec<_>>(), [500, 516]);
+        let stalled = calm + Duration::from_secs(4);
+        seen.take(4, 1, &[(1_000, 5.0, 5.0, 0)], stalled);
+        assert_eq!(seen.until(4, 1, stalled), Some(1_000 - WATCH_DELAY_MS), "a gap longer than the drift moves the clock to the newest frame");
+        seen.take(4, 1, &[(1_016, 6.0, 6.0, 0)], stalled + Duration::from_millis(300));
+        assert_eq!(seen.until(4, 1, stalled + Duration::from_millis(300)), Some(1_300 - WATCH_DELAY_MS), "small jitter does not jerk the clock");
     }
 
     #[test]

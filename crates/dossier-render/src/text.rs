@@ -80,7 +80,20 @@ impl Font {
 
             let left = (pen + metrics.xmin as f32).round() as i32;
             let top = (y - (metrics.height as i32 + metrics.ymin) as f32).round() as i32;
-            blit(pixmap, &coverage, metrics.width, left, top, colour);
+            blit(pixmap, &coverage, metrics.width, left, top, colour, &Window::OPEN);
+            pen += metrics.advance_width;
+        }
+    }
+
+    pub fn draw_within(&self, pixmap: &mut Pixmap, label: Label<'_>, window: Window) {
+        let mut pen = label.x;
+        for ch in label.text.chars() {
+            let (metrics, coverage) = self.face_for(ch).rasterize(ch, label.size);
+            let left = (pen + metrics.xmin as f32).round() as i32;
+            if (left as f32) < window.to && (left as f32 + metrics.width as f32) > window.from {
+                let top = (label.y - (metrics.height as i32 + metrics.ymin) as f32).round() as i32;
+                blit(pixmap, &coverage, metrics.width, left, top, label.colour, &window);
+            }
             pen += metrics.advance_width;
         }
     }
@@ -90,7 +103,28 @@ impl Font {
     }
 }
 
-fn blit(pixmap: &mut Pixmap, coverage: &[u8], width: usize, left: i32, top: i32, colour: Color) {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Window {
+    pub from: f32,
+    pub to: f32,
+    pub fade_from: f32,
+    pub fade_to: f32,
+}
+
+impl Window {
+    const OPEN: Window = Window { from: f32::NEG_INFINITY, to: f32::INFINITY, fade_from: 0.0, fade_to: 0.0 };
+
+    fn share(&self, x: f32) -> f32 {
+        if x < self.from || x >= self.to {
+            return 0.0;
+        }
+        let rise = if self.fade_from > 0.0 { ((x - self.from) / self.fade_from).clamp(0.0, 1.0) } else { 1.0 };
+        let fall = if self.fade_to > 0.0 { ((self.to - x) / self.fade_to).clamp(0.0, 1.0) } else { 1.0 };
+        rise.min(fall)
+    }
+}
+
+fn blit(pixmap: &mut Pixmap, coverage: &[u8], width: usize, left: i32, top: i32, colour: Color, window: &Window) {
     if width == 0 || coverage.is_empty() {
         return;
     }
@@ -109,7 +143,7 @@ fn blit(pixmap: &mut Pixmap, coverage: &[u8], width: usize, left: i32, top: i32,
             if x < 0 || x >= frame_w {
                 continue;
             }
-            let alpha = f32::from(coverage[row * width + column]) / 255.0 * sa;
+            let alpha = f32::from(coverage[row * width + column]) / 255.0 * sa * window.share(x as f32 + 0.5);
             if alpha <= 0.0 {
                 continue;
             }

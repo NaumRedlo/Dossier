@@ -51,7 +51,7 @@ impl Scene<'_> {
         let top = y + (drawn - 1.0) * step;
         for row in &rows {
             let baseline = top - row.slot * step + size * 1.15;
-            self.draw_board_row(pixmap, font, row, left, baseline, width, card_height, size);
+            self.draw_board_row(pixmap, font, row, left, baseline, width, card_height, size, time_ms);
         }
     }
 
@@ -132,6 +132,7 @@ impl Scene<'_> {
         width: f32,
         card_height: f32,
         size: f32,
+        time_ms: f64,
     ) {
         let presence = row.presence;
         let top = baseline - size * 1.15;
@@ -275,20 +276,34 @@ impl Scene<'_> {
 
         let text_x = face_x + face + card_height * 0.2;
         let text_room = left + width - rank_column - text_x;
-        let wanted = name_size(&row.entry.name, font, size);
+        let wanted = name_size(&row.entry.name, font, size).max(size * NAME_LEAST);
         let wide = font.width(&row.entry.name, wanted);
-        let fitted = if wide > text_room && wide > 0.0 { wanted * text_room / wide } else { wanted };
-        font.draw(
-            pixmap,
-            Label {
-                text: &row.entry.name,
-                x: text_x,
-                y: baseline,
-                size: fitted,
-                colour: with_alpha(colour, 0.95 * presence),
-                align: Align::Left,
-            },
-        );
+        let fitted = if wide > text_room && wide > 0.0 { (wanted * text_room / wide).max(size * NAME_LEAST) } else { wanted };
+        let over = font.width(&row.entry.name, fitted) - text_room;
+        let name = Label {
+            text: &row.entry.name,
+            x: text_x,
+            y: baseline,
+            size: fitted,
+            colour: with_alpha(colour, 0.95 * presence),
+            align: Align::Left,
+        };
+        if over > 0.5 {
+            let shift = name_glide(over, fitted, time_ms);
+            let fade = (fitted * 0.9).min(text_room / 3.0);
+            font.draw_within(
+                pixmap,
+                Label { x: text_x - shift, ..name },
+                crate::text::Window {
+                    from: text_x,
+                    to: text_x + text_room,
+                    fade_from: if shift > 0.5 { fade } else { 0.0 },
+                    fade_to: if over - shift > 0.5 { fade } else { 0.0 },
+                },
+            );
+        } else {
+            font.draw(pixmap, name);
+        }
         let under = compact(row.entry.score);
 
         let mut under_size = size * 0.78;
@@ -307,5 +322,44 @@ impl Scene<'_> {
                 align: Align::Left,
             },
         );
+    }
+}
+
+const NAME_LEAST: f32 = 0.8;
+const NAME_REST_S: f64 = 2.0;
+const NAME_SPEED: f64 = 1.8;
+
+pub(super) fn name_glide(over: f32, size: f32, time_ms: f64) -> f32 {
+    let travel = (f64::from(over) / (f64::from(size.max(1.0)) * NAME_SPEED)).max(0.8);
+    let cycle = 2.0 * (NAME_REST_S + travel);
+    let at = (time_ms.max(0.0) / 1000.0).rem_euclid(cycle);
+    let ease = |x: f64| x * x * (3.0 - 2.0 * x);
+    let share = if at < NAME_REST_S {
+        0.0
+    } else if at < NAME_REST_S + travel {
+        ease((at - NAME_REST_S) / travel)
+    } else if at < 2.0 * NAME_REST_S + travel {
+        1.0
+    } else {
+        1.0 - ease((at - 2.0 * NAME_REST_S - travel) / travel)
+    };
+    over * share as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::name_glide;
+
+    #[test]
+    fn a_long_name_rests_runs_to_its_end_rests_and_comes_back() {
+        assert_eq!(name_glide(40.0, 20.0, 0.0), 0.0);
+        assert_eq!(name_glide(40.0, 20.0, 1900.0), 0.0);
+        let travel = (40.0 / (20.0 * 1.8f64)).max(0.8);
+        let end = (2.0 + travel) * 1000.0 + 100.0;
+        assert!((name_glide(40.0, 20.0, end) - 40.0).abs() < 1e-3);
+        let back = 2.0 * (2.0 + travel) * 1000.0 - 1.0;
+        assert!(name_glide(40.0, 20.0, back) < 0.5);
+        let half = (2.0 + travel / 2.0) * 1000.0;
+        assert!((name_glide(40.0, 20.0, half) - 20.0).abs() < 1.0);
     }
 }

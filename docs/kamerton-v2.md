@@ -1,191 +1,205 @@
-# Kamerton v2: навык × мод, дополнительный слот
+# Kamerton v2: skill × mod, an extra slot
 
-Проект следующей версии модели слотов. Условие прежнее: архитектура меняется только
-при измеримом улучшении на тех же разбиениях по годам OWC. Серверный код находится в репозитории `1984`
-(`services/duels`), проверка — в `native/src/desk_screen.rs`.
+A plan for the next version of the slot model. The condition is unchanged: the
+architecture changes only with a measurable gain on the same OWC year splits.
+The server code lives in the `1984` repository (`services/duels`), the review in
+`native/src/desk_screen.rs`.
 
-## Почему одна метка на карту мешает
+## Why one label per map gets in the way
 
-Сейчас Kamerton — одна логистическая регрессия: признаки карты → один из слотов.
-Обучение тянет вероятность размеченного слота к 1, а **всех остальных к 0**.
-Отсюда три проблемы:
+Today Kamerton is one logistic regression: map features → one of the slots.
+Training pulls the labelled slot's probability towards 1 and **every other slot
+towards 0**. That causes three problems:
 
-1. Слот — это сочетание **навыка** и **мода**: NM1 «Джампы» и HR1 «Аим на HR» проверяют
-   один навык в разных модах. Модель учит их как несвязанные классы и делит между
-   ними и без того малую выборку.
-2. Карта, которая честно подходит под два слота, при обучении становится отрицательным
-   примером для второго. Модель учится путаться.
-3. Редкие слоты (HR1, HD1, DT3, FM1–FM4) почти не имеют примеров, а критерий M04 требует
-   не меньше 30 проверенных карт на слот.
+1. A slot is a combination of a **skill** and a **mod**: NM1 "Jumps" and HR1 "Aim
+   with HR" test one skill under different mods. The model learns them as
+   unrelated classes and splits an already small sample between them.
+2. A map that honestly fits two slots becomes a negative example for the second
+   one during training. The model learns to be confused.
+3. Rare slots (HR1, HD1, DT3, FM1–FM4) have almost no examples, while criterion
+   M04 asks for at least 30 checked maps per slot.
 
-## Навыки
+## Skills
 
-Навык — то, что карта проверяет у игрока независимо от мода. Каждый слот раскладывается
-на навык и мод; составные слоты дают навыку долю.
+A skill is what a map tests in a player regardless of the mod. Each slot splits
+into a skill and a mod; combined slots give a skill a share.
 
-| Навык | Что проверяет | Слоты (мод) |
+| Skill | What it tests | Slots (mod) |
 |---|---|---|
-| `aim` — аим | дальние прыжки, смена направления, нагрузка на руку | NM1, DT1, HR1, HD1 (стабильный аим), FM1 |
-| `stream` — стримы | длинные ровные серии нот | NM2 |
-| `alt` — альтернейт | серии с расстоянием между нотами на среднем темпе | NM3, HD3 (½) |
-| `speed` — скорость | высокая плотность нажатий, выносливость таппинга | NM5, DT2 |
-| `burst` — бёрсты | короткие быстрые серии 3–8 нот | DT3 |
-| `tech` — техника | смена ритма, слайдеры, нестандартные паттерны | NM4, HD3 (½), HR3, DT4 (½), FM3 |
-| `reading` — чтение | плотность на экране, наложения, низкий AR | HD2, NM6 (½), FM2 (½) |
-| `gimmick` — гиммики | необычные паттерны и антимод | NM6 (½), DT4 (½) |
-| `precision` — точность | мелкие круги и точные переходы | HR2, FM2 (½) |
-| `mix` — микс | ровная смесь навыков, длина | TB |
+| `aim` | long jumps, direction changes, arm load | NM1, DT1, HR1, HD1 (steady aim), FM1 |
+| `stream` | long even runs of notes | NM2 |
+| `alt` | runs with spacing between notes at a middle tempo | NM3, HD3 (½) |
+| `speed` | high tap density, tapping stamina | NM5, DT2 |
+| `burst` | short fast runs of 3–8 notes | DT3 |
+| `tech` | rhythm changes, sliders, unusual patterns | NM4, HD3 (½), HR3, DT4 (½), FM3 |
+| `reading` | screen density, overlaps, low AR | HD2, NM6 (½), FM2 (½) |
+| `gimmick` | unusual patterns and anti-mod | NM6 (½), DT4 (½) |
+| `precision` | small circles and exact transitions | HR2, FM2 (½) |
+| `mix` | an even mix of skills, length | TB |
 
-Фримод по правилам OWC разрешает HD, HR или HD+HR. FM1 считается аимом, как NM1, HD1 и HR1,
-FM2 — точностью и чтением, как HR2 и HD2, FM3 — техникалом, как NM4, HD3 и HR3. FM4 не используется.
+By OWC rules free mod allows HD, HR or HD+HR. FM1 counts as aim like NM1, HD1
+and HR1, FM2 as accuracy and reading like HR2 and HD2, FM3 as technique like
+NM4, HD3 and HR3. FM4 is not used.
 
-Навыки строже названий слотов: `stream`, `alt`, `speed` и `burst` разведены, потому что
-в пулах это разные задачи, а одна метка «скорость» их смешивала.
+The skills are stricter than the slot names: `stream`, `alt`, `speed` and
+`burst` are kept apart because in pools they are different tasks, and one
+"speed" label mixed them.
 
-### Профиль навыков — прозрачная оценка до обучения
+### The skill profile: a transparent estimate before training
 
-Чтобы модель начинала не с нуля, у каждого навыка есть **сигнатура**: формула из признаков
-анализатора с заранее заданными знаками, без обучения. Признаки нормируются по корпусу
-(медиана и межквартильный размах, как в `Normaliser`), сигнатура переводится в 0–1.
-Например:
+So that the model does not start from nothing, every skill has a **signature**:
+a formula over the analyser's features with signs fixed in advance, without
+training. Features are normalised over the corpus (median and interquartile
+range, as in `Normaliser`) and the signature is mapped to 0–1. For example:
 
-- `aim`: выше расстояния в радиусах (p90) и пиковая аим-нагрузка 2 с, ниже доля стримов;
-- `stream`: доля стримов и серии 16–31 и 32+;
-- `alt`: стримы × расстояние между нотами внутри серий выше обычного;
-- `speed`: короткий интервал (медиана), тап-нагрузка 10 с, доля нагруженного времени;
-- `burst`: серии 3–5 и 6–15 при короткой медианной паузе между сериями;
-- `tech`: смена ритма (p90), доля и скорость слайдеров, повторы;
-- `reading`: число видимых объектов (p90), наложения, длинное время появления;
-- `precision`: эффективный CS и расстояния в радиусах при малом радиусе;
-- `mix`: длина и ровность нагрузки (доля нагруженного времени 30 с, нет доминирующего навыка).
+- `aim`: larger distances in radii (p90) and peak 2 s aim load, smaller stream share;
+- `stream`: stream share and runs of 16–31 and 32+;
+- `alt`: streams × spacing between notes inside runs above the usual;
+- `speed`: a short interval (median), 10 s tap load, share of loaded time;
+- `burst`: runs of 3–5 and 6–15 with a short median pause between runs;
+- `tech`: rhythm changes (p90), slider share and speed, repeats;
+- `reading`: visible objects (p90), overlaps, long approach time;
+- `precision`: effective CS and distances in radii with a small radius;
+- `mix`: length and evenness of load (share of loaded time over 30 s, no dominant skill).
 
-Профиль служит трём целям: даёт модели готовые осмысленные признаки, показывается
-проверяющему («карта на 80% аим, на 40% техника») и проверяется на истинность — для
-каждого навыка считается, насколько сигнатура отделяет размеченные этим навыком карты
-от остальных (AUC). Сигнатура, которая не отделяет, исправляется или убирается.
+The profile serves three goals: it gives the model ready, meaningful features;
+it is shown to the reviewer ("the map is 80% aim, 40% technique"); and it is
+tested for truth: for each skill we measure how well the signature separates
+maps labelled with that skill from the rest (AUC). A signature that does not
+separate is fixed or dropped.
 
-## Модель в два слоя
+## A two-layer model
 
 ```
-признаки вида мода ─┬─► слой навыка: softmax по навыкам ──┐
-профиль навыков ────┘                                     ├─► слот = навык × мод
-признаки NF, NFHR, NFDT, правила ─► слой мода: да/нет ────┘
+features in the mod's form ─┬─► skill layer: softmax over skills ──┐
+skill profile ──────────────┘                                      ├─► slot = skill × mod
+NF, NFHR, NFDT features, rules ─► mod layer: yes/no ───────────────┘
 ```
 
-**Слой навыка.** Softmax по навыкам, вход — признаки **в виде мода слота** (DT1 — с DT,
-HR1 — с HR) и профиль навыков. Учится на всех слотах сразу: `aim` получает примеры
-NM1, DT1, HR1, HD1 и FM1. Составной слот даёт мягкую цель (HD3: `alt` 0,5, `tech` 0,5).
+**The skill layer.** A softmax over skills whose input is the features **in the
+slot's mod form** (DT1 with DT, HR1 with HR) and the skill profile. It learns from
+all slots at once: `aim` gets the examples of NM1, DT1, HR1, HD1 and FM1. A combined
+slot gives a soft target (HD3: `alt` 0.5, `tech` 0.5).
 
-**Слой мода.** Отдельное «да/нет» для NM, HD, HR и DT: моды не соревнуются, карта может
-подходить под несколько. Жёсткие правила сохраняются: HD при AR ≤ 8,5, HR при CS после HR ≥ 6,
-звёзды вида мода в 5–10★. Положительные примеры — мод, под который карту поставили, и
-подтверждённые дополнительные слоты; отрицательные — только явные решения людей
-(убрали из слота, перенесли). Остальное — «неизвестно» с малым весом отрицательного,
-иначе модель выучит, что почти любая карта «не для HR».
+**The mod layer.** A separate yes/no for NM, HD, HR and DT: mods do not compete,
+and a map may fit several. The hard rules stay: HD2 only at AR ≤ 8.5, HR2 only at
+CS ≥ 6 after HR, and stars in the mod's form within 5–10★. Positive examples are
+the mod the map was put under and confirmed extra slots; negative ones are only
+explicit decisions by people (removed from a slot, moved). Everything else is
+"unknown" with a small negative weight, otherwise the model would learn that
+almost any map is "not for HR".
 
-**Слот.** Оценка слота = вероятность навыка (в виде мода слота) × пригодность мода,
-нормированная по допустимым слотам. Лучшая комбинация — основной слот, вторая сильная
-другого навыка или мода — кандидат в дополнительный.
+**The slot.** A slot's score = the skill's probability (in the slot's mod form) ×
+the mod's fitness, normalised over the allowed slots. The best combination is the
+main slot; a strong second one with another skill or mod is a candidate extra slot.
 
-Обе части — логистические регрессии: на ~600 картах нейросеть переобучится и потеряет
-объяснимость. Объяснение становится двухчастным: «это аим-карта (расстояния, пики
-аим-нагрузки); с HR остаётся аимом и требует точности».
+Both parts are logistic regressions: on ~600 maps a neural network would overfit
+and lose explainability. The explanation becomes two-part: "this is an aim map
+(distances, aim load peaks); with HR it stays aim and asks for precision".
 
-## Дополнительный слот
+## The extra slot
 
-- У назначения остаётся один основной слот и появляется не больше одного дополнительного.
-  Хранится упорядоченным списком, чтобы позже расширить без миграции.
-- Дополнительный ставит только человек; Kamerton предлагает, если вторая комбинация
-  близка к первой.
-- Генератор пула берёт карту в дополнительный слот с наценкой к стоимости, то есть когда
-  в коридоре основного не хватает карт. Одна карта в пуле не повторяется.
-- Каталог показывает дополнительные отдельно: «5 +2».
-- Отзыв «не подходит под слот» относится к слоту, в котором карту сыграли.
-- Обучение: оба слоя принятой модели учат два допустимых ответа явно. В цели карты
-  дополнительному слоту отдаётся `SECONDARY_SHARE` (0,25), основному — остальное. В слое
-  навыков это смесь навыков двух слотов, в слое слотов дополнительный становится отдельным
-  классом, даже резервным. Поэтому HR1 на картах NM1 меняет модель, хотя навык у них общий.
-  Отпечаток данных учитывает дополнительный слот, и его добавление — повод обучиться заново.
-  В отчёте `admitted.acceptable` — доля допущенных карт, попавших в основной или
-  дополнительный слот.
+- An assignment keeps one main slot and gets at most one extra slot. It is stored
+  as an ordered list so it can grow later without a migration.
+- Only a person sets the extra slot; Kamerton suggests one when the second
+  combination is close to the first.
+- The pool generator takes a map into its extra slot at a surcharge, that is,
+  when the main slot's corridor lacks maps. A map is never repeated in a pool.
+- The catalogue shows extra slots separately: "5 +2".
+- "Does not fit the slot" feedback refers to the slot the map was played in.
+- Training: both layers of the accepted model learn the two allowed answers
+  explicitly. In a map's target the extra slot gets `SECONDARY_SHARE` (0.25) and
+  the main slot the rest. In the skill layer this is a mix of the two slots'
+  skills; in the slot layer the extra slot becomes a class of its own, even a
+  reserve one. That is why HR1 on NM1 maps changes the model although their skill
+  is shared. The data fingerprint includes the extra slot, and adding one is a
+  reason to train again. In the report, `admitted.acceptable` is the share of
+  admitted maps that landed in their main or extra slot.
 
-## Порядок и проверка
+## Order and checks
 
-1. **Честная оценка** (шаг 1 плана DT/FM4): один путь решения для проверки и рабочего
-   назначения; отчёт по всем классам, по навыкам и по модам, доля второго слота среди
-   двух лучших.
-2. **Окна нагрузки:** исправить ложный пик последней ноты, поднять `FEATURE_VERSION`,
-   пересчитать анализы по сохранённым файлам `.osu`.
-3. **Профиль навыков** и проверка сигнатур (AUC по навыкам).
-4. **Двухслойная модель** рядом с текущей, на тех же разбиениях. Отчёт сравнивает обе:
-   macro-F1 рабочих слотов, точность и полнота по слотам, редкие слоты, точность
-   уверенных решений. Публикуется только теневой версией и только если не хуже.
-5. **Дополнительный слот:** хранение, решение проверяющего, генератор, каталог, интерфейс.
+1. **An honest estimate** (step 1 of the DT/FM4 plan): one decision path for the
+   check and for real assignment; a report over all classes, by skill and by mod,
+   and the second slot's share among the top two.
+2. **Load windows:** fix the false peak of the last note, raise `FEATURE_VERSION`,
+   recompute analyses from the stored `.osu` files.
+3. **The skill profile** and the signature check (AUC per skill).
+4. **The two-layer model** next to the current one, on the same splits. The report
+   compares both: macro-F1 of the working slots, precision and recall per slot,
+   rare slots, precision of confident decisions. It is published only as a shadow
+   version and only if it is not worse.
+5. **The extra slot:** storage, the reviewer's decision, the generator, the
+   catalogue, the interface.
 
-Корпус для замеров собирается тем же `load_corpus` (пулы OWC 2021–2025 из osu-wiki и файлы
-с разрешённых зеркал). Метки OWC — исходные номера слотов, а не проверенные навыки:
-выводы по ним предварительные, решающую проверку даёт разметка проверяющих.
+The measuring corpus is built by the same `load_corpus` (OWC 2021–2025 pools from
+osu-wiki and files from allowed mirrors). OWC labels are the original slot
+numbers, not checked skills: conclusions from them are preliminary, and the
+decisive check is the reviewers' labelling.
 
-## Замер 27 октября 2026 года
+## Measurement of 27 October 2026
 
-Корпус: 566 карт OWC 2021–2025 (`load_corpus`, файлы с osu.direct; 40 карт не нашлись),
-признаки `features-v2` после `reanalyse`. Каждый год по очереди отложен, наборы карт
-не пересекаются с обучением; три модели решают через один путь (`kamerton.decide`,
-с правилами HD2 и HR2). Метки — номера слотов OWC.
+Corpus: 566 OWC 2021–2025 maps (`load_corpus`, files from osu.direct; 40 maps were
+not found), `features-v2` after `reanalyse`. Each year is held out in turn, map
+sets never overlap with training; the three models decide through one path
+(`kamerton.decide`, with the HD2 and HR2 rules). Labels are OWC slot numbers.
 
-| Рабочие слоты дуэлей, 287 карт | Текущий Kamerton | Навык × мод | Навыки → слоты |
+| Working duel slots, 287 maps | Current Kamerton | Skill × mod | Skills → slots |
 |---|---|---|---|
-| macro-F1 | 0,803 | 0,711 | 0,802 |
-| Правильный слот среди двух лучших | 0,83 | 0,79 | 0,83 |
-| Допущено бы в дуэли | 123 (43%) | 33 (11%) | 148 (52%) |
-| Точность допущенных | 0,94 | 0,85 | 0,95 |
-| Из них уверенных | 50 (17%) | 7 (2%) | 82 (29%) |
-| Точность уверенных | 0,92 | 1,00 | 0,95 |
-| Отказы: вне обученного диапазона / не рабочий слот / ниже порога | 6 / 43 / 115 | 14 / 46 / 194 | 5 / 48 / 86 |
-| Каталог, 566 карт: macro-F1 по рабочим слотам | 0,654 | 0,570 | 0,664 |
-| Каталог: macro-F1 по всем 21 классу | 0,393 | 0,345 | 0,397 |
+| macro-F1 | 0.803 | 0.711 | 0.802 |
+| Right slot among the top two | 0.83 | 0.79 | 0.83 |
+| Would be admitted to duels | 123 (43%) | 33 (11%) | 148 (52%) |
+| Precision of the admitted | 0.94 | 0.85 | 0.95 |
+| Of them confident | 50 (17%) | 7 (2%) | 82 (29%) |
+| Precision of the confident | 0.92 | 1.00 | 0.95 |
+| Refusals: outside the trained range / not a working slot / below threshold | 6 / 43 / 115 | 14 / 46 / 194 | 5 / 48 / 86 |
+| Catalogue, 566 maps: macro-F1 over working slots | 0.654 | 0.570 | 0.664 |
+| Catalogue: macro-F1 over all 21 classes | 0.393 | 0.345 | 0.397 |
 
-Таблица пересчитана после ревью. Прежний подсчёт засчитывал уверенным ответ модели,
-даже когда карта лежала вне обученного диапазона и в дуэль бы не попала (у стекинга
-было 88 уверенных при точности 0,93). А строка «каталог, 21 класс» на деле считала
-macro-F1 только по рабочим слотам. Теперь отчёт разделяет классификацию каталога
-(`macro_f1`, `macro_f1_all`) и реальный допуск (`admitted`: доля, точность, отказы
-по причинам).
+The table was recomputed after review. The earlier count took a model's answer as
+confident even when the map lay outside the trained range and would never reach a
+duel (stacking had 88 confident at 0.93 precision). And the "catalogue, 21
+classes" row actually computed macro-F1 over working slots only. The report now
+separates catalogue classification (`macro_f1`, `macro_f1_all`) from real
+admission (`admitted`: share, precision, refusals by reason).
 
-**Произведение «навык × мод» отклонено.** Навык, оценённый в виде мода слота, смешивается
-с модом: у HR2 CS умножен на 1,3, у DT3 вырос AR, и признаки «отличают» мод, а не навык.
-Кроме того, номера OWC не следуют схеме «HR1 — аим на HR», и произведение по 21 классу
-размазывает уверенность.
+**The skill × mod product is rejected.** A skill estimated in the slot's mod form
+mixes with the mod: HR2's CS is multiplied by 1.3, DT3's AR rises, and the
+features tell the mod apart rather than the skill. Besides, OWC numbering does
+not follow a "HR1 is aim with HR" scheme, and a product over 21 classes smears
+confidence.
 
-**Принят стекинг: навыки → слоты** (`kamerton.StackedModel`). Первый слой оценивает десять
-навыков по карте без модов и по её виду с DT (обучение вне своей трети наборов), второй —
-прежняя модель слотов, получающая эти оценки вместе с обычными признаками. Качество слотов
-то же, а уверенно назначаемых карт в 1,6 раза больше при не меньшей точности. Лучше стали
-HD2, HR2, NM1, HR1; хуже — NM3 и DT3, это следующая точка работы.
+**Stacking is accepted: skills → slots** (`kamerton.StackedModel`). The first
+layer estimates ten skills from the map without mods and in its DT form (trained
+outside its own third of the sets); the second is the old slot model, getting
+these estimates along with the usual features. Slot quality is the same, and 1.6
+times more maps are assigned confidently with no loss of precision. HD2, HR2, NM1
+and HR1 got better; NM3 and DT3 got worse, which is the next thing to work on.
 
-**Сигнатуры навыков** (AUC против меток OWC): точность 0,98, стримы 0,85, чтение 0,85,
-микс 0,76, техника 0,75, бёрсты 0,75, скорость 0,74, аим 0,69; альтернейт 0,45 и
-гиммики 0,52 — формулы неверны и будут пересобраны по признакам карты без модов.
+**Skill signatures** (AUC against OWC labels): precision 0.98, streams 0.85,
+reading 0.85, mix 0.76, technique 0.75, bursts 0.75, speed 0.74, aim 0.69; alt
+0.45 and gimmick 0.52, whose formulas are wrong and will be rebuilt from the
+map's features without mods.
 
-Повторить замер на базе сервера: `python scripts/duel_corpus.py compare`.
+To repeat the measurement on the server's database: `python scripts/duel_corpus.py compare`.
 
-## Ритм, замер 29 октября 2026 года
+## Rhythm, measurement of 29 October 2026
 
-Корпус: 602 карты OWC 2021–2026 с разрешённых зеркал, метки — номера слотов OWC, каждый год
-по очереди отложен. Анализатор `features-v3` считает для каждой пары соседних нот долю бита
-(1/2, 1/4, 1/3, 1/6, 1/8, целый бит, прочее), долю триолей, частоту смены сетки, паузы
-и число смен BPM. Без ритма с 2023 года NM3 не различается: отборщики кладут туда всё больше
-альтернейта на ритме 1/3.
+Corpus: 602 OWC 2021–2026 maps from allowed mirrors, labels are OWC slot numbers,
+each year held out in turn. The `features-v3` analyser computes for each pair of
+neighbouring notes the beat fraction (1/2, 1/4, 1/3, 1/6, 1/8, a whole beat,
+other), the triplet share, how often the grid changes, pauses and the number of
+BPM changes. Without rhythm NM3 cannot be told apart since 2023: pickers put more
+and more 1/3 alternating into it.
 
-| Рабочие слоты | v2 | Все ритмические признаки | Триоли и смена сетки |
+| Working slots | v2 | All rhythm features | Triplets and grid changes |
 |---|---|---|---|
-| macro-F1 | 0,820 | 0,807 | 0,817 |
-| Допущено бы в дуэли, точность | 174, 0,943 | 171, 0,953 | 173, 0,954 |
-| Уверенные, точность | 98, 0,949 | 102, 0,971 | 103, 0,971 |
-| NM3 | 0,676 | 0,667 | 0,706 |
-| NM4 | 0,757 | 0,833 | 0,806 |
-| HD2 | 0,812 | 0,727 | 0,824 |
+| macro-F1 | 0.820 | 0.807 | 0.817 |
+| Would be admitted to duels, precision | 174, 0.943 | 171, 0.953 | 173, 0.954 |
+| Confident, precision | 98, 0.949 | 102, 0.971 | 103, 0.971 |
+| NM3 | 0.676 | 0.667 | 0.706 |
+| NM4 | 0.757 | 0.833 | 0.806 |
+| HD2 | 0.812 | 0.727 | 0.824 |
 
-Все девять признаков разом добавляют шума: на 600 картах просели HD2 и NM2. В модель вошли
-только доля триолей и частота смены сетки; остальные доли сохраняются в анализе для следующих
-замеров без нового пересчёта.
+All nine features at once add noise: on 600 maps HD2 and NM2 dropped. Only the
+triplet share and the grid change rate went into the model; the other shares stay
+in the analysis for later measurements without recomputing.

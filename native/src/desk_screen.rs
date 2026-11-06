@@ -1808,8 +1808,7 @@ fn reason_colour(task: &Task) -> Color {
 fn queue_view<'a>(w: &Words, state: &'a State, now: i64, k: f32, wide: f32) -> Element<'a, Message> {
     let mut chips = row![].spacing(6);
     for filter in Filter::ALL {
-        let count = state.matching_tasks(filter).iter().map(|task| task.map.beatmapset_id.map(|id| (true, id)).unwrap_or((false, task.map.beatmap_id))).collect::<HashSet<_>>().len();
-        chips = chips.push(chip_k(format!("{} {count}", w.t(filter.key())), state.filter == filter, Message::Filter(filter), k));
+        chips = chips.push(chip_k(w.t(filter.key()), state.filter == filter, Message::Filter(filter), k));
     }
     let picked = state.task().map(|task| task.map.beatmap_id);
     let mut list = column![].spacing(6);
@@ -3169,8 +3168,7 @@ fn journal_view<'a>(w: &Words, state: &'a State, roles: &[String], now: i64, k: 
     let open = desk::allows(roles, desk::REVIEWER);
     let mut chips = row![].spacing(6);
     for kind in Kind::ALL {
-        let count = state.desk.journal.iter().filter(|entry| kind.holds(&entry.action) && state.journal_person.is_none_or(|player| entry.actor == player)).count();
-        chips = chips.push(chip_k(format!("{} {count}", w.t(kind.key())), state.journal_kind == kind, Message::JournalKind(kind), k));
+        chips = chips.push(chip_k(w.t(kind.key()), state.journal_kind == kind, Message::JournalKind(kind), k));
     }
     if let Some(player) = state.journal_person {
         let name = state.desk.people.iter().find(|person| person.player == player).and_then(|person| person.name.clone())

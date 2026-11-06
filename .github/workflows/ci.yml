@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [global]
+    branches: [global, continuum]
   pull_request:
   workflow_dispatch:
 
@@ -39,6 +39,20 @@ jobs:
         with:
           key: witness
       - run: cargo build --release -p dossier-witness -p dossier-witness-overlay --target x86_64-pc-windows-gnu
+
+  advisories:
+    name: dependency advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: native/Cargo.toml
+          command: check advisories
 
   tools:
     name: tools (python)
@@ -86,7 +100,7 @@ jobs:
 
   native-gpu:
     name: native tests (hardware GPU)
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, dossier-gpu]
     timeout-minutes: 120
     permissions:

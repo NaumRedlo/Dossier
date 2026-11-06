@@ -141,6 +141,7 @@ pub fn show(
     map_text: &str,
     origin: &locate::Origin,
     sounds: &[dossier_beatmap::storyboard::Sounded],
+    skin: &Skin,
 ) -> Option<dossier_render::storyboard::Show> {
     use dossier_beatmap::storyboard;
 
@@ -168,7 +169,7 @@ pub fn show(
         );
         return None;
     }
-    Some(show)
+    Some(show.dimmed(behind.dim.map_or(skin.background_dim, |at| at as f32 / 100.0)))
 }
 
 pub fn dress<'a>(
@@ -185,7 +186,8 @@ pub fn dress<'a>(
         Some(art) => scene.with_backdrop(art),
         None => scene,
     };
-    match show(behind, map_text, origin, sounded) {
+    let skin = scene.skin().clone();
+    match show(behind, map_text, origin, sounded, &skin) {
         Some(show) => scene.with_storyboard(show),
         None => scene,
     }

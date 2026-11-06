@@ -10,6 +10,11 @@ pub struct Show {
     board: Storyboard,
 
     pictures: HashMap<String, Pixmap>,
+    dim: f32,
+}
+
+thread_local! {
+    static SHELF: std::cell::RefCell<Option<Pixmap>> = const { std::cell::RefCell::new(None) };
 }
 
 impl Show {
@@ -27,7 +32,13 @@ impl Show {
                 }
             }
         }
-        Self { board, pictures }
+        Self { board, pictures, dim: 0.0 }
+    }
+
+    #[must_use]
+    pub fn dimmed(mut self, dim: f32) -> Self {
+        self.dim = dim.clamp(0.0, 1.0);
+        self
     }
 
     #[must_use]
@@ -41,15 +52,39 @@ impl Show {
     }
 
     pub fn draw(&self, pixmap: &mut Pixmap, time_ms: f64, layout: &Layout, over: bool) {
-        for drawn in self.board.at(time_ms) {
-            if drawn.layer == Layer::Fail {
-                continue;
-            }
-            if (drawn.layer == Layer::Overlay) != over {
-                continue;
-            }
-            self.paint(pixmap, &drawn, layout);
+        let shown: Vec<Drawn<'_>> = self
+            .board
+            .at(time_ms)
+            .into_iter()
+            .filter(|drawn| drawn.layer != Layer::Fail && (drawn.layer == Layer::Overlay) == over)
+            .collect();
+        if shown.is_empty() {
+            return;
         }
+        if over || self.dim <= 0.0 {
+            for drawn in &shown {
+                self.paint(pixmap, drawn, layout);
+            }
+            return;
+        }
+        SHELF.with(|shelf| {
+            let mut shelf = shelf.borrow_mut();
+            if shelf.as_ref().is_none_or(|kept| kept.width() != pixmap.width() || kept.height() != pixmap.height()) {
+                *shelf = Pixmap::new(pixmap.width(), pixmap.height());
+            }
+            let Some(layer) = shelf.as_mut() else {
+                for drawn in &shown {
+                    self.paint(pixmap, drawn, layout);
+                }
+                return;
+            };
+            layer.fill(tiny_skia::Color::TRANSPARENT);
+            for drawn in &shown {
+                self.paint(layer, drawn, layout);
+            }
+            darken(layer, 1.0 - self.dim);
+            pixmap.draw_pixmap(0, 0, layer.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+        });
     }
 
     fn paint(&self, pixmap: &mut Pixmap, drawn: &Drawn<'_>, layout: &Layout) {
@@ -128,4 +163,17 @@ fn frame_path(path: &str, frame: u32) -> String {
 
 fn key(path: &str) -> String {
     path.replace('\\', "/").to_ascii_lowercase()
+}
+
+fn darken(layer: &mut Pixmap, keep: f32) {
+    let keep = (keep.clamp(0.0, 1.0) * 256.0).round() as u32;
+    for pixel in layer.pixels_mut() {
+        if pixel.alpha() == 0 {
+            continue;
+        }
+        let scaled = |value: u8| ((u32::from(value) * keep) >> 8) as u8;
+        if let Some(dark) = tiny_skia::PremultipliedColorU8::from_rgba(scaled(pixel.red()), scaled(pixel.green()), scaled(pixel.blue()), pixel.alpha()) {
+            *pixel = dark;
+        }
+    }
 }

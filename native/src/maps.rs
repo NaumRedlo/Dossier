@@ -41,6 +41,7 @@ fn turned_away(name: &'static str, status: reqwest::StatusCode) {
 pub struct Found {
     pub from: &'static str,
     pub set: u64,
+    pub map: u64,
     pub artist: String,
     pub title: String,
     pub version: String,
@@ -243,6 +244,7 @@ fn found_from(from: &'static str, body: &serde_json::Value) -> Option<Found> {
     Some(Found {
         from,
         set,
+        map: body.get("id").and_then(serde_json::Value::as_u64).unwrap_or(0),
         artist: tidy(&said(body, &[&["beatmapset", "artist"], &["set", "artist"], &["artist"]])),
         title: tidy(&said(body, &[&["beatmapset", "title"], &["set", "title"], &["title"]])),
         version: said(body, &[&["version"]]).trim().to_owned(),
@@ -320,12 +322,43 @@ fn download(mirror: &'static Mirror, set: u64, into: &Path, leash: &mut Leash) -
     Ok(())
 }
 
-fn already(songs: &Path, found: &Found, hash: &str) -> Option<Map> {
+fn set_folders(songs: &Path, found: &Found) -> Vec<PathBuf> {
     let wanted = found.folder();
     std::iter::once(songs.join(&wanted))
         .chain((2..100).map(|n| songs.join(format!("{wanted} ({n})"))))
         .take_while(|folder| folder.is_dir())
-        .find_map(|folder| difficulty_in(&folder, hash))
+        .collect()
+}
+
+fn already(songs: &Path, found: &Found, hash: &str) -> Option<Map> {
+    set_folders(songs, found).into_iter().find_map(|folder| difficulty_in(&folder, hash))
+}
+
+const ONE_DIFFICULTY: [&str; 2] = ["https://osu.direct/api/osu/", "https://mirror.nekoha.moe/api4/osu/"];
+const ONE_DIFFICULTY_MOST: u64 = 16 * 1024 * 1024;
+
+fn exact_difficulty(map: u64, hash: &str, folder: &Path) -> Option<Map> {
+    if map == 0 || !folder.is_dir() {
+        return None;
+    }
+    let http = client(60).ok()?;
+    let bytes = ONE_DIFFICULTY.iter().find_map(|from| {
+        let reply = http.get(format!("{from}{map}")).send().ok().filter(|reply| reply.status().is_success())?;
+        if reply.content_length().is_some_and(|size| size > ONE_DIFFICULTY_MOST) {
+            return None;
+        }
+        let bytes = reply.bytes().ok()?;
+        (crate::library::md5_hex(&bytes) == hash).then_some(bytes)
+    })?;
+    let file = folder.join(format!("{map} {hash}.osu"));
+    std::fs::write(&file, &bytes).ok()?;
+    match difficulty_in(folder, hash) {
+        Some(found) => Some(found),
+        None => {
+            let _ = std::fs::remove_file(&file);
+            None
+        }
+    }
 }
 
 fn free_folder(songs: &Path, wanted: &str) -> PathBuf {
@@ -528,7 +561,7 @@ pub fn bring_from(hash: &str, set: Option<u64>, songs: &Path, stop: &AtomicBool,
     }
     let found = found
         .or_else(|| by_the_bot(&hash))
-        .or_else(|| set.filter(|set| *set > 0).map(|set| Found { from: "osu!", set, artist: String::new(), title: String::new(), version: String::new() }));
+        .or_else(|| set.filter(|set| *set > 0).map(|set| Found { from: "osu!", set, map: 0, artist: String::new(), title: String::new(), version: String::new() }));
     let Some(found) = found else {
         return match silence.filter(|_| !unknown) {
             Some(why) => Step::Failed(why),
@@ -550,6 +583,9 @@ pub fn bring_from(hash: &str, set: Option<u64>, songs: &Path, stop: &AtomicBool,
         std::thread::sleep(SET_BUSY);
     };
     if let Some(map) = already(songs, &found, &hash) {
+        return Step::Done(map);
+    }
+    if let Some(map) = set_folders(songs, &found).into_iter().find_map(|folder| exact_difficulty(found.map, &hash, &folder)) {
         return Step::Done(map);
     }
     let archive = songs.join(format!(".{}.osz.download", found.set));
@@ -581,7 +617,7 @@ pub fn bring_from(hash: &str, set: Option<u64>, songs: &Path, stop: &AtomicBool,
     }
 
     leash.tell(Step::Checking);
-    match difficulty_in(&into, &hash) {
+    match difficulty_in(&into, &hash).or_else(|| exact_difficulty(found.map, &hash, &into)) {
         Some(map) => Step::Done(map),
         None => {
             let _ = std::fs::remove_dir_all(&into);
@@ -709,7 +745,7 @@ mod tests {
 
         let songs = std::env::temp_dir().join(format!("dossier-sets-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&songs);
-        let found = Found { from: "osu.direct", set: 7, artist: "xi".into(), title: "Blue Zenith".into(), version: String::new() };
+        let found = Found { from: "osu.direct", set: 7, map: 0, artist: "xi".into(), title: "Blue Zenith".into(), version: String::new() };
         let osu = "osu file format v14\n\n[Metadata]\nTitle:Blue Zenith\nArtist:xi\nVersion:Another\n";
         let hash = library::md5_hex(osu.as_bytes());
         assert!(already(&songs, &found, &hash).is_none());

@@ -1,192 +1,196 @@
-# Dossier: правила интерфейса
+# Dossier: interface rules
 
-Это рабочий контракт для новых экранов и постепенного обновления существующих.
-Он сохраняет выбранное пользователем направление: тёмное стекло, насыщенный
-красный акцент, обложки карт, компактные пилюли сложности, минимум серых рамок.
-Не все существующие экраны уже приведены к контракту.
+This is the working contract for new screens and for gradually updating existing
+ones. It keeps the direction the owner chose: dark glass, a saturated red accent,
+map covers, compact difficulty pills, as few grey frames as possible. Not every
+existing screen follows the contract yet.
 
-## Характер и поверхности
+## Character and surfaces
 
-- Основа — `theme::GROUND`, основной текст — `INK`, вспомогательный — `MUTED`.
-  `FAINT` используется для второстепенных подписей, не для важных значений.
-- Красный `ACCENT` обозначает главное действие или выбранный раздел. Не заливать
-  им все элементы. Ошибка дополнительно объясняется текстом и значком.
-- Карусель и просмотр реплеев сохраняют выразительные обложки и живой фон.
-- Таблицы, формы и редакторы используют спокойную поверхность
-  `theme::workspace::surface`. Контент за ней не должен мешать чтению.
-- Обычная панель отделяется тоном и отступом, без декоративной серой рамки.
-  Рамки сохраняются для выбора, фокуса, категорий и диагностических состояний.
-- Настоящее размытие берётся из существующего GPU-композитора. Полупрозрачная
-  заливка сама по себе не называется размытием. Не добавлять размытие на каждую ячейку.
+- The ground is `theme::GROUND`, main text is `INK`, secondary text is `MUTED`.
+  `FAINT` is for minor captions, never for important values.
+- The red `ACCENT` marks the main action or the chosen section. Do not fill
+  everything with it. An error is also explained in words and with an icon.
+- The carousel and the replay view keep their expressive covers and live background.
+- Tables, forms and editors use the calm surface `theme::workspace::surface`.
+  Content behind it must not get in the way of reading.
+- An ordinary panel stands apart by tone and spacing, without a decorative grey
+  frame. Frames stay for selection, focus, categories and diagnostic states.
+- Real blur comes from the existing GPU compositor. A translucent fill alone is
+  not called blur. Do not blur every cell.
 
-## Текст и размеры
+## Text and sizes
 
-- Commissioner: обычный текст и полужирные заголовки. IBM Plex Mono: время и
-  технические числовые данные. Nunito ExtraBold: значения сложности в пилюлях.
-- Основные ступени: 12 — метаданные, 14 — текст, 16 — акцент строки,
-  22 — заголовок экрана. Не уменьшать текст для вмещения таблицы.
-- Отступы строятся на 4: 8 между связанными элементами, 16 между блоками,
-  20 внутри рабочей панели, 24–40 по краям экрана.
-- Общие скругления: 8 у контролов, 12 у карточек. Пилюли оставлять показателям
-  и компактным тегам, не превращать каждый контейнер в пилюлю.
-- Рабочий контрол по умолчанию высотой 36 логических пикселей. Уменьшенные
-  значки получают достаточную зону нажатия. Масштаб пользователя сохраняется.
+- Commissioner: body text and semibold headings. IBM Plex Mono: times and
+  technical numbers. Nunito ExtraBold: difficulty values in pills.
+- Main steps: 12 for metadata, 14 for text, 16 for a row's emphasis, 22 for a
+  screen title. Do not shrink text to fit a table.
+- Spacing is built on 4: 8 between related items, 16 between blocks, 20 inside a
+  working panel, 24–40 at the screen edges.
+- Shared radii: 8 for controls, 12 for cards. Pills are for values and compact
+  tags; do not turn every container into a pill.
+- A working control is 36 logical pixels high by default. Smaller icons keep a
+  large enough hit area. The user's scale is kept.
 
-## Действия и состояния
+## Actions and states
 
-- Одна основная кнопка на рабочий шаг; остальные действия спокойнее.
-- Убирать заметно серые заливки кнопок, сохраняя тёмные нейтральные оттенки.
-  Использовать `workspace::ITEM` и `HOVER`, не белую прозрачную заливку: на GPU
-  она может выглядеть значительно светлее.
-- Вкладки и переключатели: `workspace::choice`. Выбор виден постоянно,
-  наведение даёт лёгкую подсветку, нажатие не меняет размер элемента.
-- Недоступное действие не реагирует на наведение. Если причина не очевидна,
-  объяснить её рядом с действием.
-- Фокус клавиатуры должен отличаться от выбора. Интерактивные элементы
-  постепенно переводятся на контролы с клавиатурной активацией.
-- Загрузка, пустой результат и ошибка — разные состояния. Ошибка сервера не
-  называется отсутствием интернета, если сервер ответил.
-- Прослушивание начинается только по кнопке. Завершение и ошибка сбрасывают
-  состояние воспроизведения. Не использовать наведение как скрытую команду.
+- One main button per working step; the other actions are quieter.
+- Avoid visibly grey button fills and keep dark neutral tones. Use
+  `workspace::ITEM` and `HOVER`, not a white translucent fill: on the GPU it can
+  look much lighter.
+- Tabs and toggles: `workspace::choice`. The choice is always visible, hover
+  gives a light highlight, pressing does not change the element's size.
+- An unavailable action does not react to hover. If the reason is not obvious,
+  explain it next to the action.
+- Keyboard focus must look different from selection. Interactive elements are
+  moving gradually to controls that the keyboard can activate.
+- Loading, an empty result and an error are different states. A server error is
+  not called "no internet" when the server answered.
+- Listening starts only from a button. Finishing or an error resets playback.
+  Never use hover as a hidden command.
 
-## Адаптивная компоновка
+## Adaptive layout
 
-- Сначала менять расположение блоков, затем отступы; не сжимать всё полотно.
-- Цвет ячейки каталога растёт с числом карт: красный — пусто, янтарный — меньше пяти,
-  зелёный темнеет к двадцати. Справа и снизу стоят суммы по слоту и диапазону звёзд.
-- В каталоге Баланса ячейки сохраняют минимальный размер. Таблица прокручивается горизонтально;
-  наличие прокрутки должно быть заметно.
-- Панель выбранного слота и форма добавления карты остаются справа от таблицы,
-  в том числе в узком окне. Таблица имеет собственную прокрутку по обеим осям,
-  а содержимое боковой панели — независимую вертикальную прокрутку.
-- Вкладки переносятся, а не выходят за правый край окна.
-- Названия карт остаются в одну строку с существующим механизмом прокрутки
-  длинного текста; инструкции и сообщения могут переноситься.
-- Скрывать раздел нельзя только из-за нехватки ширины. Для боковых панелей
-  предусмотреть закрытие и возврат к исходному контексту.
+- First rearrange blocks, then spacing; do not squeeze the whole canvas.
+- A catalogue cell's colour grows with its map count: red when empty, amber
+  under five, green darkening up to twenty. Totals per slot and per star range
+  sit on the right and at the bottom.
+- In the balance desk's catalogue, cells keep a minimum size. The table scrolls
+  horizontally, and the scroll must be noticeable.
+- The chosen slot's panel and the add map form stay to the right of the table,
+  even in a narrow window. The table scrolls on both axes by itself, and the
+  side panel's content scrolls vertically on its own.
+- Tabs wrap instead of running past the window's right edge.
+- Map titles stay on one line with the existing long text scrolling;
+  instructions and messages may wrap.
+- A section is never hidden just for lack of width. Side panels can be closed
+  and return to where the person was.
 
-## Движение
+## Motion
 
-- Реакция на ввод начинается сразу. Анимация не откладывает действие.
-- Появление панели и её закрытие используют общую длительность существующих
-  переходов; не создавать отдельные циклы обновления для каждого контрола.
-- В фоне и трее не запускать анимации, которые пользователь не видит.
-- Учитывать отключение анимаций там, где такая настройка уже поддерживается.
-- Всё анимируется на месте: проявление и масштаб вокруг своего центра. Панели и
-  экраны не приподнимаются и не сдвигаются. Исключение: меню, которое вырастает
-  из своей кнопки.
+- The response to input starts at once. Animation never delays an action.
+- A panel's appearing and closing use the shared duration of existing
+  transitions; do not create separate update loops for each control.
+- Nothing animates in the background or in the tray where nobody sees it.
+- Respect turning animations off where such a setting is already supported.
+- Everything animates in place: fading and scaling around its own centre.
+  Panels and screens do not lift or slide. The exception is a menu that grows
+  out of its button.
 
-Страница исчезает целиком. Панели, отметки, холсты и подложки затухают вместе с
-текстом:
+A page fades out as a whole. Panels, marks, canvases and backings fade together
+with the text:
 
-- `ui::fading(k, …)` умножает текущее затухание; `ui::fade()` в его аргумент не
-  передаётся.
-- Стиль виджета выполняется при отрисовке, когда затухание страницы уже неизвестно.
-  Цвета с затуханием вычисляются до замыкания: `let fill = ui::faded(CARD)` и
-  `.style(move |_| …fill…)`. `theme::slab` и другие общие стили без затухания на
-  страницах не используются, для них есть `slab_faded` и `ui::box_at`.
-- Холст получает `alpha: ui::fade()` полем и умножает на него каждый цвет.
+- `ui::fading(k, …)` multiplies the current fade; `ui::fade()` is not passed
+  into it.
+- A widget's style runs at draw time, when the page's fade is no longer known.
+  Faded colours are computed before the closure: `let fill = ui::faded(CARD)`
+  and `.style(move |_| …fill…)`. `theme::slab` and other shared styles without
+  a fade are not used on pages; `slab_faded` and `ui::box_at` exist for that.
+- A canvas gets `alpha: ui::fade()` as a field and multiplies every colour by it.
 
-Правила держат два теста: `a_style_takes_its_fade_while_it_is_built` проверяет
-исходники, а `a_page_leaves_nothing_behind_once_it_has_faded_out` сравнивает на GPU
-исчезнувшую страницу с экраном без неё. Новая страница добавляется в его список.
+Two tests hold these rules: `a_style_takes_its_fade_while_it_is_built` checks the
+sources, and `a_page_leaves_nothing_behind_once_it_has_faded_out` compares a
+faded page with the screen without it on the GPU. A new page is added to its list.
 
-## Эталонные экраны и проверка
+## Reference screens and checks
 
-Мелкие значки и края картинок проверяются и на дробном масштабе: `DOSSIER_PREVIEW_SCALE=95`
-с размером `1512x982` (авто на встроенном экране) и `DOSSIER_PREVIEW_SCALE=119`. На 100 %
-расхождения размеров не видны.
+Small icons and picture edges are also checked at fractional scale:
+`DOSSIER_PREVIEW_SCALE=95` with the size `1512x982` (automatic on the built-in
+display) and `DOSSIER_PREVIEW_SCALE=119`. At 100% size differences do not show.
 
-| Экран | Галерея | Что проверять |
+| Screen | Gallery | What to check |
 |---|---|---|
-| Карусель | `main-rest` | строки, выбор, заголовки, контраст обложек |
-| Редактор пула | `main-pools-editor` | плотность карт, категории, формы и боковая панель |
-| Баланс | `main-community-balance-catalog` | таблица, вкладки, состояние ячеек, форма разметки |
-| Баланс, добавление карты | `main-community-balance-catalog-add` | поле ссылки, предпросмотр с зеркала, выбор слота, предупреждения |
+| Carousel | `main-rest` | rows, selection, headings, cover contrast |
+| Pool editor | `main-pools-editor` | map density, categories, forms and the side panel |
+| Balance desk | `main-community-balance-catalog` | table, tabs, cell states, labelling form |
+| Balance desk, adding a map | `main-community-balance-catalog-add` | link field, mirror preview, slot choice, warnings |
 
-Все проверки отрисовки интерфейса, эталонные PNG и предпросмотры выполняются
-только через `wgpu` на аппаратном GPU:
+Every interface drawing check, golden PNG and preview runs only through `wgpu`
+on a hardware GPU:
 
 ```sh
 DOSSIER_PREVIEW_SIZE=1100x760 cargo run --manifest-path native/Cargo.toml --example ui_preview -- main-community-balance-catalog /private/tmp/dossier-design
 ```
 
-Полный набор эталонов на русском и английском:
+The full set of references in Russian and English:
 
 ```sh
 bash tools/preview-design.sh /private/tmp/dossier-design
 ```
 
-Для одной итерации можно задать `DOSSIER_DESIGN_FRAMES`,
-`DOSSIER_DESIGN_SIZES` и `DOSSIER_DESIGN_LANGUAGES` (списки через пробел).
-Скрипт прекращает работу при ошибке GPU, без программной подмены.
+For a single iteration set `DOSSIER_DESIGN_FRAMES`, `DOSSIER_DESIGN_SIZES` and
+`DOSSIER_DESIGN_LANGUAGES` (space separated lists). The script stops on a GPU
+error, with no software fallback.
 
-Проверять узкое (980×720), обычное (1280×800) и широкое (1600×1000) окно,
-русский и английский текст, длинные названия, выбранное и пустое состояние.
-Программного запасного рендерера нет. CPU-адаптеры wgpu отклоняются.
-Тесты не обновляют эталоны автоматически; перед заменой PNG требуется просмотр.
-Тесты логики и парсеров не рисуют интерфейс и продолжают выполняться обычно.
+Check a narrow (980×720), ordinary (1280×800) and wide (1600×1000) window,
+Russian and English text, long titles, chosen and empty states.
+There is no software fallback renderer. wgpu CPU adapters are refused.
+Tests never update goldens on their own; PNGs are reviewed before they replace
+anything. Logic and parser tests draw no interface and run as usual.
 
-## Подсказки
+## Tooltips
 
-Все подсказки при наведении идут через `native/src/tip.rs`: плотная тёмная
-подложка с мягкой тенью, обычный шрифт, приглушённая вторая строка, сочетание
-клавиш справа. Появляются через 350 мс, проявляются за 120 мс; соседняя
-подсказка в течение 400 мс открывается сразу. Нажатие убирает подсказку, у края
-окна она переворачивается. Свои подсказки на `iced::widget::tooltip` не заводить.
+Every hover tooltip goes through `native/src/tip.rs`: a dense dark backing with a
+soft shadow, the regular face, a muted second line, the key chord on the right.
+They appear after 350 ms and fade in over 120 ms; a neighbouring tooltip within
+400 ms opens at once. A press dismisses the tooltip, and near the window's edge
+it flips. Do not build tooltips on `iced::widget::tooltip`.
 
-Постоянные пояснения не пишутся текстом под заголовком или переключателем: они
-уходят в значок вопроса `ui::told` или `ui::explained` рядом с подписью. Первая
-фраза идёт полужирной, остальное приглушённой строкой. Текстом остаются
-предупреждения, статусы, подтверждения и пустые состояния.
+Standing explanations are not written as text under a heading or a switch: they
+go into the question mark `ui::told` or `ui::explained` next to the label. The
+first sentence is semibold, the rest a muted line. Warnings, statuses,
+confirmations and empty states stay as text.
 
-## Картинка под затемнением
+## A picture under a veil
 
-Яркая картинка не должна доходить до скруглённого края: на сглаженной границе она
-просвечивает тонкой светлой дугой. Картинку под заливкой кладём только через
-`ui::veiled` или `ui::inset_picture`: она на 2 px меньше своей панели, заливка на
-1 px больше картинки. Тест `a_bright_picture_never_shows_as_a_thin_light_edge`
-проверяет это на белой картинке.
+A bright picture must not reach a rounded edge: on the antialiased border it
+shows through as a thin light arc. A picture under a fill goes only through
+`ui::veiled` or `ui::inset_picture`: it is 2 px smaller than its panel, and the
+fill is 1 px larger than the picture. The test
+`a_bright_picture_never_shows_as_a_thin_light_edge` checks this on a white
+picture.
 
-## Кнопка закрытия
+## The close button
 
-Крестик стоит на ненавязчивой квадратной подложке `ui::close_square`. Угловая
-подложка `ui::close_corner`, которая прилегает к углу и повторяет его радиус,
-остаётся только у карточек уведомлений. Маленькие кнопки снятия на чипах остаются
-без подложки.
+The cross sits on an unobtrusive square backing, `ui::close_square`. The corner
+backing `ui::close_corner`, which hugs a corner and repeats its radius, stays
+only on notification cards. Small remove buttons on chips stay without a backing.
 
-## Левое меню
+## The left menu
 
-Меню спрятано за левым краем окна и не занимает места на странице: в покое у края
-видны только риски разделов, выбранная красная. Риска и закладка одна фигура: при
-наведении риска вырастает в закладку, начиная с выбранной, поверх страницы; страница
-не сдвигается и не сжимается. Концы закладок образуют дугу, закладка под курсором выдвигается
-дальше. Смена выбранной закладки и подсветка идут плавно, без перескока цвета.
-Меню закрывается через 110 мс после ухода курсора, закладки втягиваются обратно в
-риски по той же кривой без отскока. Подложка плотная, настоящего размытия страницы
-за ней нет.
+The menu hides behind the window's left edge and takes no room on the page: at
+rest only the sections' ticks show at the edge, the chosen one red. A tick and a
+tab are one shape: on hover a tick grows into a tab, starting from the chosen
+one, over the page; the page neither moves nor shrinks. The tabs' ends form an
+arc, and the tab under the cursor reaches further. Changing the chosen tab and
+the highlight are smooth, with no colour jumps. The menu closes 110 ms after the
+cursor leaves, and the tabs draw back into ticks along the same curve without a
+bounce. The backing is solid; there is no real blur of the page behind it.
 
-## Фон и прокрутка
+## Background and scrolling
 
-Фон выбранной карты за интерфейсом есть только у подписчиков и выключается в
-настройках. Без него за экраном остаётся общий тёмно-красный фон, вуаль на нём не
-рисуется, поэтому при переходах он не меняется.
+The chosen map's background behind the interface is for subscribers only and can
+be turned off in the settings. Without it the shared dark red background stays
+behind the screen with no veil drawn over it, so it does not change in
+transitions.
 
-У края прокрутки строки тают сами: `ui::top_faded` режет строку на полосы со своей
-прозрачностью. Так устроены реплеи и лента. Там, где положение строк неизвестно,
-`glide::brim` заливает край цветом фона за страницей (`ui::page_ground`), а не
-почти чёрным `GROUND`, иначе на светлой карте виден тёмный прямоугольник.
+At a scroll edge the rows fade by themselves: `ui::top_faded` cuts a row into
+strips with their own opacity. The replays and the feed work this way. Where the
+rows' positions are unknown, `glide::brim` fills the edge with the colour of the
+ground behind the page (`ui::page_ground`), not the near-black `GROUND`,
+otherwise a dark rectangle shows on a light map.
 
-Подсветка при наведении (`ui::hover`) берёт радиус своей карточки: меньший радиус
-оставляет в углах светлые дуги.
+The hover highlight (`ui::hover`) takes its card's radius: a smaller radius
+leaves light arcs in the corners.
 
-## Порядок внедрения
+## Order of adoption
 
-1. Общие значения и стили в `native/src/theme/workspace.rs`; первым потребителем
-   служит «Баланс». Каталог получает перенос формы и несжимаемые ячейки.
-2. Редактор пула: переносить общие контролы без потери цветов категорий и
-   компактного вида карточек. Проверить все состояния добавления карты.
-3. Карусель: сохранить её собственную композицию; унифицировать поиск,
-   фильтры, загрузку и сообщения, а не превращать ленту в таблицу.
-4. Применять проверенные компоненты к остальным рабочим экранам. Изменения
-   глобальной темы проверять на всех трёх эталонах.
+1. Shared values and styles in `native/src/theme/workspace.rs`; the balance desk
+   is their first user. The catalogue gets the form moved aside and cells that
+   do not shrink.
+2. The pool editor: move shared controls over without losing category colours or
+   the compact cards. Check every state of adding a map.
+3. The carousel: keep its own composition; unify search, filters, loading and
+   messages instead of turning the feed into a table.
+4. Apply the checked components to the other working screens. Changes to the
+   global theme are checked on all three references.

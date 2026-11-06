@@ -1,37 +1,37 @@
-# Эталонные кадры
+# Golden frames
 
-Все тесты интерфейса используют `wgpu` на аппаратном GPU. `tiny-skia` не входит
-в сборку приложения; CPU-адаптеры (в том числе программный Vulkan) отклоняются.
-При отсутствии GPU тест завершается ошибкой, без подмены рендерера.
+Every interface test uses `wgpu` on a hardware GPU. `tiny-skia` is not part of
+the app's build; CPU adapters (software Vulkan included) are refused. Without a
+GPU the test fails instead of switching renderers.
 
 ```sh
 DOSSIER_GOLDEN_REVIEW=/private/tmp/dossier-review cargo test --manifest-path native/Cargo.toml --test golden -- --test-threads=1
 ```
 
-Текущие кадры записываются отдельно. Отсутствующий, повреждённый или отличающийся
-эталон вызывает ошибку; тест никогда не создаёт и не обновляет эталоны. Без
-`DOSSIER_GOLDEN_REVIEW` используется временная папка с ID процесса.
+The current frames are written separately. A missing, damaged or different
+golden is an error; a test never creates or updates goldens. Without
+`DOSSIER_GOLDEN_REVIEW` a temporary folder named after the process id is used.
 
-Для просмотра одного состояния:
+To look at one state:
 
 ```sh
 cargo run --manifest-path native/Cargo.toml --example ui_preview -- main-prefs /private/tmp/dossier-gpu
 ```
 
-Пример принимает `DOSSIER_PREVIEW_SIZE=980x720`, `DOSSIER_PREVIEW_LANG=ru-RU`
-(или `en-US`), а после пути — `scroll 500`, `drag 220 105 100 400`
-или `scroll-drag 1200 250 240 70 500`.
-Для матрицы размеров и языков: `bash tools/preview-design.sh /private/tmp/dossier-design`.
+The example takes `DOSSIER_PREVIEW_SIZE=980x720` and `DOSSIER_PREVIEW_LANG=ru-RU`
+(or `en-US`), and after the path `scroll 500`, `drag 220 105 100 400`
+or `scroll-drag 1200 250 240 70 500`.
+For the matrix of sizes and languages: `bash tools/preview-design.sh /private/tmp/dossier-design`.
 
-Перед заменой эталонов просмотрите новые кадры и проверьте, что изменения
-соответствуют задаче. Затем явно перенесите проверенные PNG в эту папку,
-сохранив суффикс `-wgpu`. Не переименовывайте старые CPU-кадры в GPU-эталоны.
-Экспорт сначала завершает PNG отдельно и только потом заменяет файл назначения.
+Before replacing goldens, look at the new frames and check that the changes
+are the ones the task asked for. Then move the reviewed PNGs into this folder
+by hand, keeping the `-wgpu` suffix. Never rename old CPU frames into GPU
+goldens. Export finishes the PNG on the side and only then replaces the target.
 
-В CI обычные Windows/Linux/macOS runners проверяют компиляцию всех тестов.
-Полный прогон native выполняет отдельная задача на runner с метками
-`self-hosted`, `dossier-gpu`: нужен аппаратный GPU, его драйвер и зависимости
-сборки Dossier (на Linux — также libasound2-dev). Задача запускается после push
-в `global` или вручную через workflow_dispatch. Код pull request на этой машине
-не запускается. Пока runner не подключён, GPU-задача ожидает его, а не выдаёт
-успешный результат программного рендера. Локальный прогон использует тот же путь.
+In CI the ordinary Windows, Linux and macOS runners compile every test. The full
+native run is a separate job for a runner labelled `self-hosted` and
+`dossier-gpu`: it needs a hardware GPU, its driver and Dossier's build
+dependencies (`libasound2-dev` on Linux as well). No such runner is registered
+yet, so since 7 November 2026 the job runs only when started by hand through
+`workflow_dispatch`; pull request code never runs on that machine. Until a
+runner is connected the GPU checks are run locally, along the same path.

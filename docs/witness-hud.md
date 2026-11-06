@@ -18,7 +18,7 @@ snapshot, and a `Stage` that holds the animation, and returns sprites: small
 premultiplied RGBA bitmaps with their place in the window. A host inside a client
 only has to upload each sprite as a texture and draw it at `x`, `y`.
 
-The look was agreed on the canvas page «Оверлей в игре» on 10 October 2026 and
+The look was agreed on the canvas page *In-game overlay* on 10 October 2026 and
 made plainer on 30 October 2026: every plate is the same flat dark panel with
 one corner radius and no edge, labels are in sentence case, the colour of a
 medals of the chat leaderboard are the only colours beside the accent, and
@@ -28,14 +28,14 @@ bottom-right corner on every screen.
 ## What is shown
 
 - **Every screen:** the common tile, only the Dossier mark. When the game is
-  first seen in a session it says «Witness подключился» for five seconds and folds
+  first seen in a session it says *Witness is on* for five seconds and folds
   back to the mark. When a play is kept, a green tick grows in place of the
   mark and its stroke draws itself; the mark comes back after three seconds.
   Nothing on the tile says a play is being recorded.
 - **Menu:** up to two Dossier notices in the top-right corner, drawn like the
   notices in Dossier: a round mark (a green tick, a grey «i» or a red «!»), a
   title and one line.
-- **Song select:** «Топ беседы», the first three places of the map in the
+- **Song select:** *Chat top*, the first three places of the map in the
   chat: a medal-coloured place, the name and the accuracy, with the player's own
   row tinted. Without places there is no card; the pool is not shown.
 - **Playing:** the PP reached so far and the unstable rate above the game's own
@@ -197,7 +197,7 @@ changes size. The state behind them is `crates/dossier-witness-overlay/src/hud.r
   writes `{"event":"send"}` on the overlay's output; Dossier reads it and asks
   the bot to post the play.
 - `--keeps` says that whoever started Witness keeps the replays, so the tile may
-  say «Игра сохранена» after a play; without it (and without `--offer`) a kept
+  show its green tick after a play; without it (and without `--offer`) a kept
   take changes nothing on the screen. A failed play counts as kept only with
   `--keeps-failed`.
 - At its start the overlay writes `{"event":"ready","version":2}` on its output.
@@ -223,8 +223,8 @@ changes size. The state behind them is `crates/dossier-witness-overlay/src/hud.r
   change the resolution), they are written again. All of it is read from the
   system and the window; the game's process is still not opened.
 
-In Dossier the overlay has its own tile in the settings, «Оверлей в игре»,
-with the switch «Показывать поверх игры», marked «эксперимент» and off by
+In Dossier the overlay has its own tile in the settings, *In-game overlay*,
+with the switch *Show over the game*, marked *experimental* and off by
 default (`Settings::witness_overlay`). It says whether the plates are being
 drawn or the overlay waits for Witness to see the game. Below it are the size
 slider, a switch for each plate and the chords. Dossier passes `--lang en` for
@@ -233,7 +233,7 @@ the English interface, `--keeps` when replays are saved to the journal,
 is linked to the bot; a change of any of them starts the overlay again. The
 size and the plate switches travel in the packet instead and apply at once.
 
-Failed plays are not saved to the journal unless «Сохранять зафейленные игры»
+Failed plays are not saved to the journal unless *Keep failed plays*
 is on (`Settings::witness_keep_failed`, off by default); they still reach
 the bot like before.
 

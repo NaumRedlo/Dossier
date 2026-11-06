@@ -1,31 +1,31 @@
-# Скины игроков для рендера через бота
+# Player skins for renders through the bot
 
-В боте `1984` участник общей с ботом группы отправляет файл `.osk` или ZIP с одной папкой скина. После проверки скин сохраняется для отправителя и автоматически выбирается для следующих реплеев. В `sts` → «Скин для рендера» доступны общие скины, личные загрузки и Dossier Default.
+In the `1984` bot, a member of a group shared with the bot sends an `.osk` file or a ZIP with one skin folder. Once checked, the skin is saved for the sender and chosen automatically for their next replays. `sts` → *Render skin* offers the shared skins, the person's own uploads and Dossier Default.
 
-Каждая загрузка хранится по хешу содержимого. Новая версия с тем же исходным именем не перезаписывает архив, который уже используется заданием. Загрузка скина сама по себе не запускает рендер: после неё нужно отправить `.osr`.
+Every upload is stored by the hash of its contents. A new version under the same original name does not overwrite an archive a queued job already uses. Uploading a skin does not start a render by itself: send an `.osr` after it.
 
-## Контракт задания
+## The job contract
 
-Ответ `POST /render/claim` сохраняет прежний формат; при выбранном скине содержит:
+The reply to `POST /render/claim` keeps its earlier shape; with a skin chosen it carries:
 
 ```json
-{"skin": {"name": "Player skin", "hash": "<SHA-256 архива, 64 hex-символа>", "size": 123456}}
+{"skin": {"name": "Player skin", "hash": "<SHA-256 of the archive, 64 hex characters>", "size": 123456}}
 ```
 
-Воркер скачивает бинарный архив через `GET /render/job/{id}/skin` с обычными Bearer-авторизацией и `X-Render-Worker`. Файл доступен только воркеру, владеющему заданием. Отсутствующий скин обозначается `skin: null` и означает Dossier Default.
+The worker downloads the binary archive from `GET /render/job/{id}/skin` with the usual Bearer authorisation and `X-Render-Worker`. Only the worker holding the job can fetch it. A missing skin is `skin: null` and means Dossier Default.
 
-Воркер сверяет размер (если он указан) и хеш скачанного архива. Поддержаны SHA-256 и прежний MD5. Архив сначала распаковывается во временную папку, затем проверяется наличие единственного скина. Вложенная папка поддержана. Готовый кэш публикуется только после успешной проверки; старый неполный кэш загружается заново. Цвета и спрайты передаются существующему рендеру, звуки — загрузчику звуков скина.
+The worker checks the size (when given) and the hash of the downloaded archive; SHA-256 and the older MD5 are both accepted. The archive is unpacked into a temporary folder first, then checked to hold exactly one skin, possibly inside a nested folder. The finished cache is published only after the check passes; an older incomplete cache is downloaded again. Colours and sprites go to the renderer, sounds to the skin's sound loader.
 
-## Таблица лидеров, громкость и видеокарта
+## Leaderboard, loudness and the graphics card
 
-С 30 октября 2026 года задание несёт `leaderboard`: до пятидесяти лучших результатов карты из API osu! (`GET /beatmaps/{id}/scores`) с именем, классическими очками, точностью в процентах и модами без `CL`. Бот берёт их при заказе рендера по найденной карте; если карты или ответа API нет, список пуст. Воркер передаёт их движку, и слева в видео стоит таблица, по которой игрок поднимается, как в игре. Сам игрок из списка соперников убирается. Старый Dossier поле просто не читает.
+Since 30 October 2026 a job carries `leaderboard`: up to fifty best results on the map with the name, classic score, accuracy in percent and mods without `CL`. The person picks the source in `sts` → *Leaderboard in the video*: the global top from the osu! API (`GET /beatmaps/{id}/scores`) or, since 31 October, the top of the chat they pinned, for osu!standard and only while they are still in that chat. When nobody in the chat has played the map, the global top is used. Without a map or an API answer the list is empty. The worker hands the list to the engine, and a leaderboard on the left of the video lets the player climb it as in the game. The player is left out of their own rivals. An older Dossier simply does not read the field.
 
-Громкость видео от бота приводится к −16 LUFS вместо −14: это около 80 % прежней громкости. Уровни музыки и звуков удара здесь не помогли бы, потому что после сведения звук всё равно выравнивается к цели.
+Videos from the bot are normalised to −16 LUFS instead of −14, about 80% of the earlier loudness. Music and hitsound levels would not help here, because the mix is levelled to the target afterwards anyway.
 
-Переключатель «Кодировать видео на видеокарте» в плитке «Рендер» действует и на задания бота. Перед первым рендером Dossier пробует закодировать два кадра аппаратным кодировщиком своей системы: VideoToolbox на macOS, NVENC, AMF и Quick Sync на Windows, NVENC и Quick Sync на Linux. Первый, который справился, запоминается до перезапуска; если не справился ни один, видео кодирует x264 на процессоре, как раньше. Сам кадр по-прежнему рисует процессор.
+The *Encode video on the graphics card* switch in the *Render* tile applies to the bot's jobs too. Before the first render Dossier tries to encode two frames with a hardware encoder of its system: VideoToolbox on macOS, NVENC, AMF and Quick Sync on Windows, NVENC and Quick Sync on Linux. The first one that works is remembered until restart; when none works, x264 encodes on the processor as before. The processor still draws the frames.
 
-## Ограничения и обновление
+## Limits and updating
 
-Бот по умолчанию принимает архив до 64 МиБ (`RENDER_SKIN_MOST`, максимум 256 МиБ), с общим хранилищем до 512 МиБ на игрока (`RENDER_SKIN_STORAGE_MOST`). Бот и воркер ограничивают распаковку 512 МиБ и 8192 элементами, отклоняют выход за каталог и символические ссылки. Ограничения скачивания также действуют без HTTP Content-Length и без заявленного размера Telegram-документа.
+By default the bot takes archives up to 64 MiB (`RENDER_SKIN_MOST`, at most 256 MiB), with up to 512 MiB stored per player (`RENDER_SKIN_STORAGE_MOST`). Both the bot and the worker limit unpacking to 512 MiB and 8192 entries and refuse paths outside the folder and symbolic links. The download limits hold even without an HTTP Content-Length or a declared Telegram document size.
 
-Для запуска этой функции нужно обновить код бота на сервере и перезапустить его, затем обновить приложения с включёнными воркерами. Локальные проверки не заменяют проверку реального скачивания через настроенный Telegram Bot API и отправку готового видео на сервере. Данные пользователей, токены и текущая база бота не менялись при тестировании.
+The feature needs the bot's code updated on the server and the bot restarted, then the apps with workers on updated. Local checks do not replace a real download through the configured Telegram Bot API and sending a finished video on the server. User data, tokens and the bot's live database were not touched while testing.

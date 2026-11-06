@@ -1,110 +1,110 @@
-# Проверка оставшихся расхождений mania в osu!stable
+# Checking the remaining mania differences in osu!stable
 
-Полное совпадение пока не подтверждено. Проверка корпуса от 2026-10-16:
-161/204 совпадений шести оценок, 196/204 совпадений максимума комбо.
-Диагностическая формула ScoreV1 совпадает с 36/50 NoMod-результатов stable;
-это отдельная проверка, она ещё не включена в расчёт очков движка.
+A full match is not confirmed yet. The corpus check of 2026-10-16 gave 161/204
+matches of the six judgement counts and 196/204 matches of the maximum combo.
+The diagnostic ScoreV1 formula matches 36/50 stable NoMod results; it is a
+separate check and not yet part of the engine's score.
 
-## Как получить независимый эталон
+## How to get an independent reference
 
-1. Использовать исходный `.osr` из `Documents/Dossier Corpus` и соответствующий
-   файл из `Mania Beatmaps`. Их MD5 приведены ниже. Не пересохранять карту в редакторе.
-2. Записать версию установленного stable и режим ограничения FPS. Версия,
-   записанная в реплее, также указана ниже; другая версия клиента может вести
-   себя иначе. Lazer Classic не заменяет эту проверку stable.
-3. Воспроизвести реплей с начала до конца без перемотки. Зафиксировать живой
-   счёт, комбо и оценки в конце игрового процесса. Итоговая карточка может
-   показывать сохранённые значения, поэтому одного её снимка недостаточно.
-4. Для двух случаев с повторным нажатием записать короткое видео указанного
-   участка с видимыми оценками, комбо и индикатором нажатий. Если включённые
-   штатные журналы клиента содержат результаты отдельных нот, сохранить их.
-   Инъектор или изменённый клиент для этой проверки не нужен.
-5. Для проверки комбо повторить один и тот же реплей без смены настроек.
-   Различие между двумя воспроизведениями надо сохранить как наблюдение,
-   а не выбирать более удобный результат.
+1. Use the original `.osr` from `Documents/Dossier Corpus` and the matching
+   file from `Mania Beatmaps`. Their MD5s are listed below. Do not resave the
+   map in the editor.
+2. Write down the installed stable version and the FPS limit mode. The version
+   recorded in the replay is listed below too; another client version may
+   behave differently. Lazer Classic does not replace this stable check.
+3. Play the replay from start to end without seeking. Write down the live
+   score, combo and judgements at the end of gameplay. The results screen may
+   show stored values, so a screenshot of it alone is not enough.
+4. For the two cases with a second press, record a short video of the given
+   stretch with judgements, combo and the key overlay visible. If the client's
+   own logs, when enabled, hold per-note results, keep them. No injector or
+   modified client is needed for this check.
+5. For the combo check, play the same replay twice without changing settings.
+   A difference between the two plays is kept as an observation, not resolved
+   by picking the more convenient result.
 
-Во всех списках оценки идут в порядке MAX, 300, 200, 100, 50, Miss.
-Индексы объектов в наших трассах начинаются с нуля, номера колонок с единицы.
-Показанное ниже «наблюдение» получено нашей моделью, а не клиентом stable.
+Every list gives judgements in the order MAX, 300, 200, 100, 50, Miss.
+Object indexes in our traces start at zero, column numbers at one.
+The "model" values below come from our model, not from the stable client.
 
-## 1. EVERYTHING BLACK [HYPER]: очки без длинных нот
+## 1. EVERYTHING BLACK [HYPER]: score without long notes
 
-- Реплей: `39aecf6b7e0ee50176f392cc9c064519`, версия `20250603`.
-- Карта: `70dd5255aff9cc50ffa0b3e7e64a9c1c`.
-- Игрок: Zedoreks; файл содержит `EVERYTHING BLACK` и `2025-06-09_01-02`.
-- Записанные очки: **934345**; модель: **929346**.
-- Оценки совпадают: `[584,273,41,3,0,0]`; комбо совпадает: **901**.
+- Replay: `39aecf6b7e0ee50176f392cc9c064519`, version `20250603`.
+- Map: `70dd5255aff9cc50ffa0b3e7e64a9c1c`.
+- Player: Zedoreks; the file name holds `EVERYTHING BLACK` and `2025-06-09_01-02`.
+- Recorded score: **934345**; model: **929346**.
+- Judgements match: `[584,273,41,3,0,0]`; combo matches: **901**.
 
-Это первый приоритет: в карте нет удержаний и пропусков. Если живое
-воспроизведение stable воспроизводит 934345, нужны промежуточные значения
-счёта, особенно в районе 72–80 секунд, где наша модель регистрирует три 100.
-Перестановка одновременных событий не меняет её итоговых 929346.
+This is the first priority: the map has no holds and no misses. If a live
+stable playback reproduces 934345, we need intermediate score values,
+especially around 72–80 seconds, where our model registers three 100s.
+Reordering simultaneous events does not change its final 929346.
 
-## 2. Navsegda [Insane]: очки и автоматические пропуски
+## 2. Navsegda [Insane]: score and automatic misses
 
-- Реплей: `63ac67c97e3c97eeb4bdd61e8e1b5b5a`, версия `20251022`.
-- Карта: `20683887d0372c2ce8c8ca13e8b2a924`.
-- Файл содержит `Navsegda` и `2025-10-28_01-36`.
-- Записанные очки: **909228**; модель: **908341**.
-- Оценки совпадают: `[729,491,34,1,2,9]`; комбо совпадает: **415**.
+- Replay: `63ac67c97e3c97eeb4bdd61e8e1b5b5a`, version `20251022`.
+- Map: `20683887d0372c2ce8c8ca13e8b2a924`.
+- The file name holds `Navsegda` and `2025-10-28_01-36`.
+- Recorded score: **909228**; model: **908341**.
+- Judgements match: `[729,491,34,1,2,9]`; combo matches: **415**.
 
-Удержаний нет. Обратить внимание на 28–29 секунд и 99–106 секунд,
-где есть автоматические Miss. Даже при свободной перестановке результатов
-с одинаковым временем диапазон нашей формулы составляет 908123–908341.
+No holds. Watch 28–29 seconds and 99–106 seconds, where automatic misses
+happen. Even with free reordering of results that share a time, our formula
+ranges over 908123–908341.
 
-## 3. DEUX EX MAXHINA [NOVICE]: отпускание до начала удержания
+## 3. DEUX EX MAXHINA [NOVICE]: a release before the hold starts
 
-- Реплей: `5dc9d27044b9e5b8a7cc5324ae3bfa15`, версия `20250815`.
-- Карта: `42299ca7a516f8658541a132a54f675e`.
-- Файл содержит `DEUX EX MAXHINA` и `2025-09-18_23-27`.
-- Записано: `[787,442,17,1,0,0]`; модель: `[787,442,16,1,1,0]`.
-- Очки: **981268 / 980841**; максимум комбо: **1453 / 1457**.
+- Replay: `5dc9d27044b9e5b8a7cc5324ae3bfa15`, version `20250815`.
+- Map: `42299ca7a516f8658541a132a54f675e`.
+- The file name holds `DEUX EX MAXHINA` and `2025-09-18_23-27`.
+- Recorded: `[787,442,17,1,0,0]`; model: `[787,442,16,1,1,0]`.
+- Score: **981268 / 980841**; maximum combo: **1453 / 1457**.
 
-Кандидат для проверки: объект 1244, колонка 1, удержание
-114917–115617 мс. Нажатие 114899, отпускание 114913, повторное нажатие
-114926, финальное отпускание 115662 мс. Модель ставит 50.
-Записанный итог содержит на одну 200 больше и на одну 50 меньше,
-но это ещё не доказывает, что отличается именно этот объект.
-Нужен участок примерно 1:54–1:56 с видимой оценкой.
+Candidate: object 1244, column 1, hold 114917–115617 ms. Press at 114899,
+release at 114913, second press at 114926, final release at 115662 ms. The
+model gives a 50. The recorded result has one more 200 and one less 50, but
+that does not prove it is this object that differs. We need roughly
+1:54–1:56 with the judgement visible.
 
-## 4. Dotabata Animation [Insane]: очень раннее нажатие и возврат
+## 4. Dotabata Animation [Insane]: a very early press and a return
 
-- Реплей: `c4e406a1241552a855edcbe6a10168aa`, версия `20251022`.
-- Карта: `21ed3f44e7507b21676ada576ff7737b`.
-- Файл содержит `Dotabata Animation` и `2025-10-29_03-03`.
-- Записано: `[1313,484,47,6,1,4]`; модель: `[1313,484,46,6,2,4]`.
-- Очки: **957475 / 955311**; комбо совпадает: **1910**.
+- Replay: `c4e406a1241552a855edcbe6a10168aa`, version `20251022`.
+- Map: `21ed3f44e7507b21676ada576ff7737b`.
+- The file name holds `Dotabata Animation` and `2025-10-29_03-03`.
+- Recorded: `[1313,484,47,6,1,4]`; model: `[1313,484,46,6,2,4]`.
+- Score: **957475 / 955311**; combo matches: **1910**.
 
-Кандидат: объект 1731, колонка 3, удержание 168231–168808 мс.
-Нажатие 168075, отпускание 168089, повторное нажатие 168238,
-финальное отпускание 168804 мс. Модель сохраняет исходную ошибку
-нажатия −156 мс и ставит 50. Нужен участок примерно 2:47–2:49.
-Замена предполагаемой 50 на 200 не устраняет всё расхождение очков.
+Candidate: object 1731, column 3, hold 168231–168808 ms. Press at 168075,
+release at 168089, second press at 168238, final release at 168804 ms. The
+model keeps the first press's −156 ms error and gives a 50. We need roughly
+2:47–2:49. Turning the assumed 50 into a 200 does not close the whole score
+difference.
 
-## 5. King For A Day [Normal]: одна единица комбо
+## 5. King For A Day [Normal]: one combo point
 
-- Реплей: `d3b6e5d328fcaff69132f69ba864df61`, версия `20250815`.
-- Карта: `3d692d9097270220c65651441866399d`.
-- Файл содержит `King For A Day`, `[Normal]`, `2025-09-19_00-09`.
-- Оценки совпадают: `[1244,516,34,0,0,0]`.
-- Комбо: **1959 / 1960**; очки: **975222 / 975223**.
+- Replay: `d3b6e5d328fcaff69132f69ba864df61`, version `20250815`.
+- Map: `3d692d9097270220c65651441866399d`.
+- The file name holds `King For A Day`, `[Normal]`, `2025-09-19_00-09`.
+- Judgements match: `[1244,516,34,0,0,0]`.
+- Combo: **1959 / 1960**; score: **975222 / 975223**.
 
-Нужны два полных воспроизведения и видимый счётчик комбо. Здесь нет
-удержаний, для которых ровно 100 мс на границе объясняли бы лишний тик.
-Отдельно полезны окончания удержаний в колонке 4 около 15.757 и
-180.244 секунды: модель завершает их автоматически после передержки.
-Это точки наблюдения, а не доказанные источники лишнего комбо.
+We need two full playbacks with the combo counter visible. There are no holds
+here where exactly 100 ms at the edge would explain an extra tick. The hold
+ends in column 4 near 15.757 and 180.244 seconds are worth watching on their
+own: the model ends them automatically after an overhold. These are places to
+watch, not proven sources of the extra combo.
 
-## Что уже исключено
+## Already ruled out
 
-- Неизвестная версия карты: все карты корпуса проверены по MD5 реплеев.
-- Исправление ScoreV1 одной перестановкой равновременных оценок: все 14
-  остаточных NoMod-результатов лежат вне вычисленных границ такого перебора.
-- Универсальное исключение последнего тика или отсчёт тиков от начала ноты:
-  эти варианты ухудшают совпадения комбо на остальном корпусе.
-- Простое снятие штрафа за раннее отпускание: оно не даёт нужные оценки
-  одновременно в двух спорных случаях.
+- An unknown map version: every corpus map was checked against the replays' MD5.
+- Fixing ScoreV1 by one reordering of simultaneous judgements: all 14
+  remaining NoMod results lie outside the computed bounds of such a search.
+- Dropping the last tick everywhere, or counting ticks from the note's start:
+  these make combo matches worse on the rest of the corpus.
+- Simply removing the early release penalty: it does not give the needed
+  judgements in both disputed cases at once.
 
-41 расхождение lazer отдельно совместимо с потерей долей миллисекунды при
-экспорте, но найденные варианты времени не являются восстановленными данными.
-Подробности и команды проверки: [mania-corpus-status.md](mania-corpus-status.md).
+The 41 lazer differences are each consistent with losing a fraction of a
+millisecond on export, but the timing variants found are not recovered data.
+Details and the check commands: [mania-corpus-status.md](mania-corpus-status.md).

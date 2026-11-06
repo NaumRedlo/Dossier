@@ -1925,3 +1925,20 @@ fn a_page_leaves_nothing_behind_once_it_has_faded_out() {
     }
     assert!(left.is_empty(), "these pages stay on screen after they fade out: {left:#?}");
 }
+
+#[test]
+fn regression_pictures_still_on_screen_survive_a_full_picture_cache() {
+    let mut main = signed("main-menu-waiting");
+    let avatar = "test://kept-avatar".to_owned();
+    main.kept_pictures.community.insert(avatar.clone());
+    let _ = main.update(super::Message::NewsPicture(avatar.clone(), Some(iced::widget::image::Handle::from_rgba(1, 1, vec![255; 4]))));
+    let stale = "test://stale-cover".to_owned();
+    let _ = main.update(super::Message::NewsPicture(stale.clone(), Some(iced::widget::image::Handle::from_rgba(1, 1, vec![255; 4]))));
+    for at in 0..3 {
+        let big = iced::widget::image::Handle::from_rgba(4096, 4096, vec![0; 4]);
+        let _ = main.update(super::Message::NewsPicture(format!("test://big-{at}"), Some(big)));
+    }
+    assert!(main.news_pictures.contains_key(&avatar));
+    assert!(!main.news_pictures.contains_key(&stale));
+    assert!(!main.ask_picture(&avatar, std::time::Instant::now()));
+}

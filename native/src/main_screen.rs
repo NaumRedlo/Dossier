@@ -670,6 +670,7 @@ pub struct Main {
     pub news_pictures: HashMap<String, image::Handle>,
     news_picture_order: VecDeque<String>,
     news_picture_bytes: usize,
+    kept_pictures: KeptPictures,
     pub moving_pictures: HashMap<String, Moving>,
     moving_order: VecDeque<String>,
     pub news_frosts: HashMap<String, crate::community_screen::Frost>,
@@ -979,6 +980,7 @@ impl Main {
             news_pictures: HashMap::new(),
             news_picture_order: VecDeque::new(),
             news_picture_bytes: 0,
+            kept_pictures: KeptPictures::default(),
             moving_pictures: HashMap::new(),
             moving_order: VecDeque::new(),
             news_frosts: HashMap::new(),
@@ -5940,6 +5942,7 @@ impl Main {
         let stories = self.news.stories.iter().take(4).filter_map(|story| story.image.clone()).map(|url| (url, (192, 108)));
         let posts = self.news.posts.iter().take(12).filter_map(|post| post.cover().map(str::to_owned)).map(|url| (url, (128, 128)));
         let candidates: Vec<_> = stories.chain(posts).collect();
+        self.kept_pictures.news = candidates.iter().map(|(url, _)| url.clone()).collect();
         for (url, size) in candidates {
             if self.ask_picture(&url, Instant::now()) {
                 wanted.push((url, size));
@@ -6269,7 +6272,7 @@ impl Main {
         let mut skipped = 0;
         while self.news_picture_bytes > NEWS_PICTURE_CACHE_BYTES && skipped < self.news_picture_order.len() {
             let Some(oldest) = self.news_picture_order.pop_front() else { break; };
-            if oldest == url {
+            if oldest == url || self.kept_pictures.holds(&oldest) {
                 self.news_picture_order.push_back(oldest);
                 skipped += 1;
                 continue;
@@ -6327,6 +6330,7 @@ impl Main {
         sharing.sort_unstable();
         sharing.dedup();
         wanted.extend(sharing.into_iter().filter_map(|player| self.shared_avatar(player)).map(|avatar| (avatar.to_owned(), 128)));
+        self.kept_pictures.community = wanted.iter().map(|(url, _)| url.clone()).collect();
         let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| self.ask_picture(url, Instant::now())).collect();
         let flag = self.flag_task();
         if wanted.is_empty() {
@@ -6373,6 +6377,7 @@ impl Main {
     }
 
     fn wide_pictures_task(&mut self, urls: Vec<String>) -> Task<Message> {
+        self.kept_pictures.wide = urls.iter().map(|url| crate::community_screen::wide(url)).collect();
         let wanted: Vec<String> = urls.into_iter().filter(|url| self.ask_picture(&crate::community_screen::wide(url), Instant::now())).collect();
         if wanted.is_empty() {
             return Task::none();
@@ -7675,6 +7680,19 @@ pub fn decoded_bytes(bytes: &[u8], side: u32) -> Option<image::Handle> {
     let picture = ::image::load_from_memory(bytes).ok()?;
     let picture = picture.resize_to_fill(side, side, ::image::imageops::FilterType::Lanczos3).to_rgba8();
     Some(image::Handle::from_rgba(side, side, picture.into_raw()))
+}
+
+#[derive(Debug, Clone, Default)]
+struct KeptPictures {
+    community: std::collections::HashSet<String>,
+    news: std::collections::HashSet<String>,
+    wide: std::collections::HashSet<String>,
+}
+
+impl KeptPictures {
+    fn holds(&self, url: &str) -> bool {
+        self.community.contains(url) || self.news.contains(url) || self.wide.contains(url)
+    }
 }
 
 fn image_pixels(handle: &image::Handle) -> u64 {

@@ -647,12 +647,12 @@ fn tier_card<'a>(state: &'a State, tier: &str, name: String, words: &'a Words) -
     let rank = state.tiers().iter().position(|(other, _)| other == tier).unwrap_or(0);
     let tint = tint_at(rank);
     let Some(plan) = state.offered(tier) else {
-        let inside = column![row![ui::fading(0.5, || crate::badge::mark(Some(rank), 1, 18.0)), text(name).font(theme::SANS_SEMI).size(16.0).color(ui::faded(FAINT))].spacing(8).align_y(iced::Center), Space::new().height(Length::Fill), text(words.t("billing-month-only")).font(theme::SANS).size(14.0).color(ui::faded(FAINT))];
+        let inside = column![row![ui::fading(0.5, || crate::badge::mark(Some(rank), 1, 18.0)), text(name).font(theme::SANS_SEMI).size(16.0).color(ui::faded(FAINT))].spacing(6).align_y(iced::Center), Space::new().height(Length::Fill), text(words.t("billing-month-only")).font(theme::SANS).size(14.0).color(ui::faded(FAINT))];
         return container(ui::dashed(container(inside).padding(16).width(Length::Fill).height(TIER_HIGH), 16.0, Color::from_rgba(1.0, 1.0, 1.0, 0.2 * k))).width(Length::FillPortion(1)).into();
     };
     let chosen = state.tier.as_deref() == Some(tier);
     let own = state.changing && state.subscription().is_some_and(|held| offer_of(&held.plan) == tier);
-    let mut title = row![container(crate::badge::mark(Some(rank), state.stage(), 18.0)).center_y(20.0), container(text(name.clone()).font(theme::SANS_SEMI).size(16.0).line_height(1.15).wrapping(text::Wrapping::Word).color(ui::faded(INK))).width(Length::Fill).padding(Padding::ZERO.top(1.0))].spacing(8).align_y(iced::Top);
+    let mut title = row![crate::badge::mark(Some(rank), state.stage(), 18.0), container(ui::moving_text(name.clone(), theme::SANS_SEMI, 16.0, INK)).width(Length::Fill)].spacing(6).align_y(iced::Center);
     if chosen {
         title = title.push(container(crate::glyphs::glyph(crate::glyphs::Icon::Check, 12.0, Color::from_rgb(0.07, 0.03, 0.04))).center(20.0).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..tint })), border: Border { radius: 10.0.into(), ..Border::default() }, ..container::Style::default() }));
     }

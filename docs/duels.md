@@ -1,378 +1,378 @@
-# Дуэльная система Dossier и бота 1984
+# The duel system of Dossier and the 1984 bot
 
-## Текущее поведение: 28 октября 2026
+## Current behaviour: 7 November 2026
 
-Модель учится на OWC, пользовательских наборах и решениях балансировщиков. Опубликованная версия оценивает новые карты с зеркал отдельно от каталога. Для девяти слотов пул содержит четыре карты из каталога и пять новых либо наоборот; соотношение определяется seed. Новые карты не получают автоматический допуск в каталог и не становятся учебными метками. Учебные карты, уже добавленные в каталог карты и карантин исключаются из нового источника.
+The model learns from OWC, user collections and balance reviewers' decisions. The published version assesses new maps from mirrors separately from the catalogue. A nine-slot pool takes seven maps from the catalogue and up to two that Kamerton found among new ranked maps, only in slots where its auto admission is open; if the found maps do not fit the corridor, the generator takes one, then none, and builds the pool from the catalogue alone. New maps are not admitted to the catalogue automatically and do not become training labels. Training maps, maps already in the catalogue and quarantined maps are excluded from the new source.
 
-Для новых карт нужна уверенная оценка (вероятность от 0,80 и отрыв от 0,20), Ranked, osu!standard, проверенный файл и точный старрейт с модами слота. Поиск ограничен 35 секундами и 24 анализируемыми картами за попытку; результаты анализа сохраняются для следующих дуэлей. При нехватке кандидатов квота не заменяется целиком каталогом: дуэль отменяется с объяснением, участники освобождаются для нового поиска. Качество опубликованной модели и доступность зеркал влияют на возможность собрать пул.
+A new map needs a confident estimate (probability at least 0.80 and a lead of at least 0.20), Ranked status, osu!standard, a checked file and an exact star rating with the slot's mods. The search is limited to 35 seconds and 24 analysed maps per attempt; analyses are kept for later duels. When the catalogue cannot fill a slot's corridor either, the duel is cancelled with an explanation and both players are free to search again. The published model's quality and the mirrors' availability affect whether a pool can be built.
 
-После получения пула обоими игроками сразу начинается драфт. Скачать карты можно кнопкой; отдельного ожидания загрузки нет. Готовность игроков по одной версии экрана принимается независимо, но запрос из предыдущего раунда отклоняется. Настройка комнаты ограничена 60 секундами, подтверждение старта — 30 секундами. При отсутствии ответа дуэль отменяется.
+Once both players have the pool, the draft starts at once. Maps can be downloaded with a button; there is no separate wait for downloads. A ban or a pick is made with one click (since 6 November 2026), and a meeting screen comes before every duel. Readiness on one version of the screen is accepted from each player independently, but a request from the previous round is refused. Setting up the room is limited to 60 seconds and confirming the start to 30 seconds. Without an answer the duel is cancelled.
 
-Для игрока без истории используется начальная оценка 5,5★ с высокой неопределённостью, соответствующая диапазону каталога 5–10★. Отсутствующая история не считается доказательством разницы в силе при поиске соперника. Ограничения близости рейтинга и повторных рейтинговых встреч сохраняются.
+A player without history starts at 5.5★ with high uncertainty, matching the catalogue's 5–10★ range. Missing history is not taken as evidence of a difference in strength when looking for an opponent. Limits on rating closeness and on repeated rated meetings stay.
 
-Проектный документ первой версии
+The design document of the first version
 
-Версия 1.0 · 23 октября 2026 года · Владелец и принимающая сторона: разработчик Dossier
+Version 1.0 · 23 October 2026 · Owner and acceptor: the developer of Dossier
 
-Документ определяет реализацию дуэлей один на один в osu!standard для пользователей Dossier. Цель первой версии: тренировать турнирные навыки, собирать проверяемые сведения о качестве пулов и развивать генератор на результатах матчей и обратной связи. В состав версии входят прямые вызовы без изменения рейтинга, рейтинговая очередь с Glicko-2, обязательная калибровка, автоматическое ведение официальных комнат osu!stable и восстановление после сбоев.
+The document defines how one-on-one osu!standard duels are implemented for Dossier users. The first version's goal: practise tournament skills, collect checkable information about pool quality and grow the generator on match results and feedback. The version includes direct challenges that do not change rating, a rated queue with Glicko-2, mandatory calibration, automatic running of official osu!stable rooms and recovery after failures.
 
-Все обязательные продуктовые условия получены от владельца. Конкретные таймеры, формулы подбора, начальные пороги анализатора и технические процедуры ниже являются проектными решениями, разработанными по его поручению. Они заданы полностью, чтобы реализация не зависела от неявных догадок. Их значения подлежат проверке на пилоте и хранятся в версионируемой конфигурации. Никакой указанный порог точности не является заявлением об уже достигнутом качестве.
+Every mandatory product condition came from the owner. The specific timers, matching formulas, initial analyser thresholds and technical procedures below are design decisions made at his request. They are given in full so that the implementation does not depend on implicit guesses. Their values are to be checked in a pilot and are kept in versioned configuration. No accuracy threshold stated here claims quality already reached.
 
-## 1 Как пользоваться документом
+## 1 How to use this document
 
-Разделы 2–6 определяют правила и пользовательский путь. Разделы 7–12 описывают карты, анализатор, портфолио, подбор и рейтинг. Разделы 13–19 задают архитектуру, хранение, внешние интеграции, проверку результатов и восстановление. Разделы 20–24 содержат управление балансом, наблюдаемость, порядок реализации и критерии приёмки. Раздел 25 содержит источники.
+Sections 2–6 define the rules and the player's path. Sections 7–12 describe maps, the analyser, the portfolio, matching and rating. Sections 13–19 set the architecture, storage, external integrations, result checks and recovery. Sections 20–24 hold balance management, observability, the order of implementation and acceptance criteria. Section 25 lists sources.
 
-Термин «серия» означает одну дуэль BO5 до трёх побед. «Раунд» означает розыгрыш одной выбранной карты. У раунда могут быть несколько попыток из-за ничьей, прерывания или нарушения условий. «Пул» содержит девять разных сложностей карт. «Слот» задаёт проверяемый навык и обязательные модификаторы. «Карта» в каталоге идентифицируется beatmap_id, а не beatmapset_id: разные сложности одного набора являются разными картами.
+In this document "series" means one BO5 duel to three wins; the interface says "duel". A "round" is playing one picked map. A round may have several attempts because of a tie, an interruption or a broken condition. A "pool" holds nine different map difficulties. A "slot" sets the skill tested and the mandatory mods. A "map" in the catalogue is identified by beatmap_id, not beatmapset_id: different difficulties of one set are different maps.
 
-BO5 означает best of five. NM означает No Mod, HD означает Hidden, HR означает Hard Rock, DT означает Double Time, NF означает No Fail, FM означает Free Mod, TB означает Tiebreaker. На практике NM в Dossier всегда включает обязательный NF. SR означает Star Rating, звёздную сложность при конкретных модификаторах. AR определяет время появления объектов, OD влияет на окна попадания, CS определяет размер объектов, BPM обозначает темп. API является программным интерфейсом osu!, IRC используется для управления комнатами через Bancho.
+BO5 means best of five. NM is No Mod, HD Hidden, HR Hard Rock, DT Double Time, NF No Fail, FM Free Mod, TB Tiebreaker. In practice NM in Dossier always includes the mandatory NF. SR is Star Rating, the star difficulty with specific mods. AR sets when objects appear, OD affects hit windows, CS sets object size, BPM is the tempo. The API is osu!'s programming interface; IRC is used to run rooms through Bancho.
 
-Glicko-2 хранит рейтинг r, неопределённость RD и изменчивость sigma. Портфолио навыков является отдельной внутренней оценкой. Высокая неопределённость любого показателя должна сохраняться как данные; отсутствие наблюдений не означает слабую игру.
+Glicko-2 keeps a rating r, an uncertainty RD and a volatility sigma. The skill portfolio is a separate internal estimate. High uncertainty in any value is kept as data; the absence of observations does not mean weak play.
 
-## 2 Границы первой версии
+## 2 Scope of the first version
 
-Участвуют пользователи Dossier с подтверждённой привязкой osu! аккаунта. Ограничений по рангу, опыту или возрасту аккаунта нет. Один osu! аккаунт соответствует одной активной игровой личности Dossier. Одновременно пользователь может находиться только в одной очереди, принятой дуэли или играющей серии. Приложение должно поддерживать связь с сервером в течение дуэли.
+Dossier users with a confirmed linked osu! account take part. There are no limits by rank, experience or account age. One osu! account is one active playing identity in Dossier. A user can be in only one queue, accepted duel or running series at a time. The app must stay connected to the server throughout a duel.
 
-Поддерживаются только osu!standard, официальный multiplayer и клиент stable. Результаты lazer не допускаются в зачёт. Доступные через API метаданные и клиентская проверка установки используются для проверки совместимости, но само заявление клиента о версии не является доказательством. Если источники не позволяют надёжно различить условия, режим не считается проверенным до интеграционного испытания.
+Only osu!standard, official multiplayer and the stable client are supported. lazer results do not count. Metadata available through the API and the client's install check are used to check compatibility, but the client's claim about its version is not proof. If the sources cannot reliably tell the conditions apart, the mode is not considered checked until an integration test.
 
-Функции первой версии:
+Features of the first version:
 
-- прямой вызов с предупреждением о большой разнице силы;
-- автоматическая очередь, обязательные пять калибровочных серий и Glicko-2;
-- девять навыковых слотов и генерация пула после принятия матча;
-- две блокировки на игрока, поочерёдный выбор и обязательный TB при 2:2;
-- автоматическое создание комнаты либо подключение бота судьёй к комнате игроков;
-- проверка условий, результатов, потери связи и восстановление состояния;
-- история, статистика, скрытое портфолио навыков, отзывы и инструменты администраторов баланса;
-- очередь ресурсов с местом и оценкой ожидания, уведомление в Telegram об открытии комнаты;
-- дополнительный нерейтинговый TB после завершённой серии по взаимному согласию.
+- a direct challenge with a warning about a large difference in strength;
+- an automatic queue, five mandatory calibration series and Glicko-2;
+- nine skill slots and pool generation after the match is accepted;
+- two bans per player, alternating picks and a mandatory TB at 2:2;
+- automatic room creation or the bot joining the players' room as referee;
+- checking conditions, results, lost connections and restoring state;
+- history, statistics, a hidden skill portfolio, feedback and tools for balance reviewers;
+- a queue for resources with a place and a wait estimate, a Telegram notice when the room opens;
+- an extra unrated TB after a finished series by mutual consent.
 
-Не входят: собственный игровой сервер, другие режимы osu!, поддержка lazer в дуэлях, апелляции и расследование подозрительных результатов, автоматическое наказание за читы, чтение памяти Witness, сезоны и ретроспективное массовое изменение рейтингов. Техническая проверка корректности результата и административная фиксация при сбое входят в версию и не являются системой рассмотрения споров.
+Not included: a game server of our own, other osu! modes, lazer support in duels, appeals and investigation of suspicious results, automatic punishment for cheating, reading memory with Witness (superseded by section 27), seasons and retroactive mass changes to ratings. A technical check of a result's correctness and an administrative fix after a failure are part of the version and are not a dispute system.
 
-Запрет предварительной тренировки относится к игре на уже раскрытых картах до их зачётного запуска. Он не запрещает прошлое знакомство с картой. Полностью доказать соблюдение запрета через доступные источники невозможно; интерфейс сообщает правило, а система фиксирует только наблюдаемые нарушения. Чтение памяти для усиления контроля не используется.
+The ban on practising concerns playing maps already revealed before their counted start. It does not forbid having known a map before. The rule cannot be fully proved through the available sources; the interface states it and the system records only observable violations. Memory reading is not used to tighten control.
 
-## 3 Режимы участия и калибровка
+## 3 Participation modes and calibration
 
-Прямой вызов доступен до, во время и после калибровки. Он сохраняет историю, результаты и подтверждённые наблюдения навыков, но не изменяет Glicko-2 и счётчик калибровки. При сильном различии в оценке показывается предупреждение обоим игрокам до принятия. Отказ не имеет последствий.
+A direct challenge is available before, during and after calibration. It keeps history, results and confirmed skill observations but does not change Glicko-2 or the calibration counter. When the estimates differ strongly, both players see a warning before accepting. Declining has no consequences.
 
-Рейтинговая очередь создаёт пары автоматически. После предложения пары оба подтверждают участие. Принятие создаёт неизменяемую связь двух участников и запускает сбор пула. Пользователь не выбирает первую калибровочную карту или стартовый диапазон сложности.
+The rated queue pairs players automatically. After a pair is offered, both confirm. Accepting creates a fixed link between the two and starts building the pool. A user does not choose the first calibration map or the starting difficulty range.
 
-Калибровка состоит из пяти завершённых рейтинговых серий BO5. Серии с технической отменой, техническим присуждением победы без естественного окончания BO5, дополнительный TB и прямые вызовы не засчитываются. Рейтинг рассчитывается и во время калибровки; наружу показываются прогресс и статус предварительной оценки. После пятой серии статус меняется на «калибровка завершена» после обработки соответствующего рейтингового периода. Значение RD не обнуляется: пять серий не гарантируют точную оценку.
+Calibration is five finished rated BO5 series. Series cancelled for technical reasons, technical wins without a natural end of the BO5, the extra TB and direct challenges do not count. Rating is computed during calibration too; outwardly the progress and a provisional status are shown. After the fifth series the status changes to "calibration finished" once the matching rating period is processed. RD is not reset: five series do not guarantee an exact estimate.
 
-Калибрующийся игрок может встретить другого калибрующегося или уже оценённого участника. При подборе используются и рейтинг с RD, и подтверждённая оценка игровой сложности. Новому сильному игроку не назначается новичок только потому, что обоим выдан одинаковый стартовый рейтинг.
+A calibrating player may meet another calibrating player or one already rated. Matching uses both rating with RD and the confirmed estimate of playable difficulty. A strong new player is not paired with a beginner just because both got the same starting rating.
 
-## 4 Правила серии и модификаторы
+## 4 Series rules and mods
 
-Побеждает первый, кто выиграл три раунда. Сравнивается итоговый ScoreV2, полученный для конкретной игры multiplayer из официального источника. Счёт не пересчитывается из точности, комбо, реплея или PP. Любые встроенные эффекты разрешённых модификаторов учитываются так, как их применяет игра.
+The first to win three rounds wins. The final ScoreV2 of the specific multiplayer game from the official source is compared. The score is not recomputed from accuracy, combo, the replay or PP. Any built-in effects of allowed mods count as the game applies them.
 
-| Слот | Обязательные модификаторы | Выбор игрока |
+| Slot | Mandatory mods | Player's choice |
 |---|---|---|
-| NM1, NM2, NM3, NM4 | NF | Нет |
-| HD2 | NF и HD | Нет |
-| HR2 | NF и HR | Нет |
-| DT1, DT2 | NF и DT | Нет |
-| TB | NF | NM, HD, HR или HD и HR |
+| NM1, NM2, NM3, NM4 | NF | None |
+| HD2 | NF and HD | None |
+| HR2 | NF and HR | None |
+| DT1, DT2 | NF and DT | None |
+| TB | NF | NM, HD, HR or HD and HR |
 
-Скорость DT стандартная, 1.5. NC не разрешён в первой версии: эквивалентность не подразумевается. EZ, FL, HT, Relax, Autopilot, SpunOut и все модификаторы вне белого списка запрещены. ScoreV2 проверяется как режим подсчёта отдельно от игрового набора модификаторов; если источник также кодирует его битом, адаптер нормализует представление и сохраняет исходные данные.
+DT speed is the standard 1.5. NC is not allowed in the first version: equivalence is not assumed. EZ, FL, HT, Relax, Autopilot, SpunOut and every mod outside the allow list are forbidden. ScoreV2 is checked as a scoring mode separately from the game's mod set; if a source also encodes it as a bit, the adapter normalises the representation and keeps the original data.
 
-NF обязателен для обоих на каждой карте, включая TB. Не используются дополнительные коэффициенты Dossier для HD, HR или NF. Отсутствие NF делает попытку недействительной независимо от результата. Поле passed само по себе не заменяет проверку завершения игры, состава участников и наличия двух результатов.
+NF is mandatory for both on every map, TB included. Dossier adds no multipliers of its own for HD, HR or NF. A missing NF makes the attempt invalid whatever the result. The passed field alone does not replace checking that the game ended, who took part and that both results exist.
 
-Разминок, произвольных перерывов и общего лимита продолжительности серии нет. Технические ожидания ограничены. Таймер зависания не может прервать исправно идущую длинную карту.
+There are no warm-ups, free breaks or an overall time limit on a series. Technical waits are limited. A hang timer cannot interrupt a long map that is running properly.
 
-## 5 Раскрытие пула и порядок выбора
+## 5 Revealing the pool and the order of picks
 
-Пул создаётся после принятия вызова или предложения очереди. До выделения комнаты пул хранится на сервере скрытым. Это позволяет выполнить генерацию заранее и не создавать неравное время ознакомления, если ресурсов не хватает. При готовой комнате и подключённых приложениях сервер одновременно раскрывает обоим один снимок пула.
+The pool is created after a challenge or a queue offer is accepted. Until a room is assigned the pool is kept hidden on the server. This lets generation run ahead and avoids unequal familiarisation time when resources run short. When the room is ready and the apps are connected, the server reveals one snapshot of the pool to both at once.
 
-Отсчёт подготовки начинается после доставки снимка обоим клиентам; срок подтверждения доставки составляет 15 секунд. Затем каждому доступно общее окно 120 секунд. Это время на просмотр и скачивание, а не на тренировку. Если доставка не подтверждена, раскрытие не считается синхронным, серия переходит в ожидание связи. Сервер хранит фактические моменты выдачи: уже увидевшему пул повторно не выдаются новые карты для получения более выгодного состава.
+Preparation starts after the snapshot reaches both clients; delivery must be confirmed within 15 seconds. Then each gets a common 120 second window. This is time for looking and downloading, not for practice. If delivery is not confirmed, the reveal does not count as synchronous and the series waits for the connection. The server keeps the actual moments of delivery: someone who has seen the pool is never given new maps for a better line-up.
 
-Стороны A и B определяются равновероятно криптографическим генератором сервера при создании серии и фиксируются в журнале. Порядок блокировок: A, B, A, B. Блокировать можно только ещё доступные обычные карты. TB защищён. Четыре оставшиеся карты выбираются в порядке B, A, B, A; сторона, начинавшая блокировки, не получает первый выбор. Очерёдность не зависит от победы на предыдущей карте.
+Sides A and B are chosen with equal chance by the server's cryptographic generator when the series is created and are logged. Bans go A, B, A, B. Only ordinary maps still available can be banned. TB is protected. The four remaining maps are picked in the order B, A, B, A; the side that started banning does not get the first pick. The order does not depend on who won the previous map.
 
-Каждая выбранная карта сразу помечается использованной для последующего выбора. Переигровка относится к тому же раунду и не расходует новую карту. При счёте 3:0 или 3:1 несыгранные обычные карты остаются в истории как неиспользованные. При 2:2 автоматически выбирается TB, и отказ играть его рассматривается как отказ продолжать серию.
+Each picked map is marked used for later picks at once. A replay belongs to the same round and does not use a new map. At 3:0 or 3:1 the unplayed ordinary maps stay in history as unused. At 2:2 TB is picked automatically, and refusing to play it counts as refusing to continue the series.
 
-На блокировку и выбор даётся 30 секунд. При первом истечении таймера сервер выполняет воспроизводимый случайный выбор среди законных вариантов, используя сохранённый seed и номер хода; интерфейс заранее объясняет это правило. Два последовательных пропуска действий одним игроком переводят серию в ожидание присутствия на 120 секунд. До первого раунда неявка отменяет серию без рейтинга; после начала действуют правила технического отказа из раздела 6. Случайный автоматический выбор не анализирует слабости соперника.
+A ban or a pick has 30 seconds. When the timer first runs out, the server makes a reproducible random choice among the legal options using the stored seed and the turn number; the interface explains this rule in advance. Two missed actions in a row by one player put the series into a 120 second wait for presence. Before the first round a no-show cancels the series without rating; after the start the technical refusal rules of section 6 apply. The random automatic choice does not look at the opponent's weaknesses.
 
-Перед каждой картой, включая первую после блокировок, отводится до 90 секунд на готовность и скачивание. Появление обоих результатов готовности запускает обратный отсчёт 5 секунд. Выход игрока, потеря Dossier или изменение настроек отменяет отсчёт. Модификаторы TB каждый выбирает сам в osu! из разрешённых (NM, HD, HR, HDHR); в Dossier выбора нет, допустимость проверяется по официальному матчу.
+Before every map, including the first one after the bans, there are up to 90 seconds for readiness and downloading. When both readiness answers arrive, a 5 second countdown starts. A player leaving, losing Dossier or changing settings cancels the countdown. TB mods are each player's own choice in osu! among the allowed ones (NM, HD, HR, HDHR); Dossier has no choice for them, and whether they are allowed is checked against the official match.
 
-## 6 Таймеры и исключительные ситуации
+## 6 Timers and exceptional situations
 
-Все сроки хранятся в UTC на сервере и показываются локально в приложении. Во время работы процесса используются монотонные часы, после перезапуска восстанавливаются абсолютные сроки. Дублированное событие таймера не выполняет действие повторно.
+All deadlines are kept in UTC on the server and shown in local time in the app. While the process runs, monotonic clocks are used; after a restart the absolute deadlines are restored. A duplicated timer event does not repeat its action.
 
-| Событие | Значение первой версии | Последствие |
+| Event | First version value | Consequence |
 |---|---|---|
-| Ответ на прямой вызов | 120 секунд | Истечение приглашения |
-| Подтверждение пары очереди | 30 секунд | Принявший возвращается с прежним стажем ожидания |
-| Выбор расширенного диапазона | 60 секунд | Без двух согласий предложение отменяется |
-| Вход обоих в готовую комнату | 10 минут | Отмена без рейтинга и закрытие комнаты |
-| Подготовка после раскрытия | 120 секунд | Переход к блокировкам |
-| Блокировка или выбор | 30 секунд | Автоматический законный выбор |
-| Готовность к раунду | 90 секунд | Ожидание присутствия до 120 секунд |
-| Возврат после отключения | 120 секунд | Техническое завершение или отмена |
-| Восстановление инфраструктуры | 10 минут | Техническая отмена без зачёта серии |
-| Ожидание API после раунда | До 10 минут | Техническая отмена при отсутствии доказательств |
-| Согласие на дополнительный TB | 30 секунд | Завершение без дополнительной игры |
+| Answer to a direct challenge | 120 seconds | The invitation expires |
+| Confirming a queue pair | 30 seconds | Whoever accepted returns with their earlier waiting time |
+| Choosing a wider range | 60 seconds | Without two consents the offer is cancelled |
+| Both entering the ready room | 10 minutes | Cancelled without rating, the room closed |
+| Preparation after the reveal | 120 seconds | Moves on to bans |
+| A ban or a pick | 30 seconds | An automatic legal choice |
+| Readiness for a round | 90 seconds | A wait for presence of up to 120 seconds |
+| Return after a disconnect | 120 seconds | Technical end or cancellation |
+| Infrastructure recovery | 10 minutes | Technical cancellation; the series does not count |
+| Waiting for the API after a round | Up to 10 minutes | Technical cancellation without evidence |
+| Consent to an extra TB | 60 seconds | Ends without an extra game |
 
-Немедленный abort означает отправку команды сразу после достоверного обнаружения отключения, без ожидания конца карты. Система не может обнаружить сетевой разрыв раньше, чем об этом сообщит доступный источник. Событие выхода из игровой комнаты от Bancho является основанием для прерывания. Обычный выход IRC-пользователя из чата без подтверждения выхода из игрового слота не приравнивается к отключению игрока.
+An immediate abort means sending the command right after a disconnect is reliably detected, without waiting for the map to end. The system cannot detect a network break earlier than an available source reports it. Bancho's event of leaving the game room is grounds for aborting. An IRC user merely leaving the chat without leaving the game slot is not treated as a player disconnecting.
 
-Dossier передаёт heartbeat каждые 5 секунд. Явное закрытие приложения запускает остановку сразу; отсутствие heartbeat в течение 20 секунд считается потерей присутствия. В активном раунде бот отправляет abort, подтверждает остановку, сохраняет попытку как ABORTED и ждёт возвращения. Если фактически пришло подтверждённое завершение раунда до отключения, сначала применяется порядок событий из раздела 17, а не безусловная отмена уже завершённой игры.
+Dossier sends a heartbeat every 5 seconds. Closing the app explicitly triggers a stop at once; no heartbeat for 20 seconds counts as lost presence. In an active round the bot sends an abort, confirms the stop, saves the attempt as ABORTED and waits for the return. If a confirmed end of the round actually arrived before the disconnect, the order of events from section 17 applies first, not an unconditional cancellation of a game already finished.
 
-После возвращения проверяются участники и настройки, затем переигрывается та же карта с тем же выбором модификаторов. Первые два подтверждённых отключения игрока за серию допускают восстановление. Третье либо отсутствие возврата за 120 секунд после начала первого раунда означает техническую победу соперника, если инфраструктура исправна. Это проектное ограничение предотвращает бесконечные рестарты. До первого раунда серия отменяется. Одновременная потеря обоих участников или невозможность определить сторону сбоя ведёт к технической отмене, а не к назначению виновного.
+After the return, players and settings are checked, then the same map is replayed with the same mod choice. A player's first two confirmed disconnects in a series allow recovery. A third one, or no return within 120 seconds after the first round started, means a technical win for the opponent if the infrastructure is fine. This design limit prevents endless restarts. Before the first round the series is cancelled. Losing both players at once, or being unable to tell which side failed, leads to a technical cancellation rather than naming someone at fault.
 
-Техническая победа отображается отдельно от игрового счёта: например, «1:1, техническая победа A». Ей не дорисовываются выигранные карты. Она учитывается в Glicko-2 после начала хотя бы одного корректно запущенного раунда, но не завершает калибровочную серию. Добровольная сдача после начала первого раунда имеет те же последствия. До старта отказ отменяет серию без рейтинга. Повторная неявка до старта в течение 24 часов временно запрещает поиск на 10 минут; это ограничение поведения, а не уровня навыка.
+A technical win is shown apart from the game score: for example "1:1, technical win A". No won maps are added to it. It counts in Glicko-2 once at least one properly started round has begun, but it does not finish a calibration series. Giving up voluntarily after the first round has started has the same consequences. Before the start a refusal cancels the series without rating. A repeated no-show before the start within 24 hours bans searching for 10 minutes; this limits behaviour, not skill level.
 
-При равном итоговом ScoreV2 оба результата сохраняются, очко не присуждается, карта переигрывается. Допускаются две переигровки после первоначальной ничьей. Третья подряд ничья на одном раунде отменяет серию с причиной UNRESOLVED_TIE и без рейтинга: замена карты изменила бы состав согласованного пула. В тренировочной истории ничейные попытки остаются, но портфолио и калибровка отменённой серии не обновляются.
+With equal final ScoreV2 both results are kept, no point is given and the map is replayed. Two replays after the first tie are allowed. A third tie in a row in one round cancels the series with the reason `unresolved_tie` and without rating: replacing the map would change the agreed pool. Tied attempts stay in the practice history, but the portfolio and calibration of a cancelled series are not updated.
 
-При неверной карте, модах или составе участников попытка аннулируется. Первую техническую ошибку настройки бот исправляет и повторяет карту. Повторение той же непредотвратимой ошибки останавливает серию как CONTROL_FAILURE без рейтинга. Наказания за предполагаемое намеренное нарушение автоматически не назначаются.
+With a wrong map, mods or line-up the attempt is voided. The bot fixes the first technical setup error and repeats the map. The same unavoidable error again stops the series as `control_failure` without rating. No penalties for an assumed deliberate violation are given automatically.
 
-Сбой сервера, потеря управления ботом и длительная недоступность API не считаются поражением игрока. Отмена сохраняет журнал и полученные результаты, но не изменяет рейтинг, победы и поражения, прогресс калибровки или портфолио. Производные показатели поэтому записываются только после финализации всей серии.
+A server failure, losing control of the bot or a long API outage is not a player's loss. A cancellation keeps the log and the results received but does not change rating, wins and losses, calibration progress or the portfolio. Derived values are therefore written only after the whole series is finalised.
 
-После естественного окончания BO5 игрокам предлагается дополнительный TB, если он ещё не был сыгран как решающий. Два согласия за 30 секунд создают отдельную тренировочную игру. Основной результат и рейтинг уже неизменяемы. Комната удерживается только на этот короткий выбор и сам TB; при отказе сразу закрывается. Это явное исключение из правила закрытия комнаты сразу после итога, необходимое для согласованной дополнительной игры. Её сбой не отменяет основную серию.
+After a BO5 ends naturally, the players are offered an extra TB if it was not already played as the decider. Two consents within 60 seconds create a separate practice game. The main result and rating are already fixed. The room is held only for this short choice and the TB itself; on refusal it closes at once. This is an explicit exception to closing the room right after the result, needed for an agreed extra game. Its failure does not cancel the main series.
 
-## 7 Словарь навыковых слотов
+## 7 The skill slot dictionary
 
-Цифра в турнирном обозначении является номером карты внутри группы модификаторов. Единого обязательного для всех турниров стандарта навыков нет. Организаторы Non-Gimmick Tournament, например, прямо описывают NM1 как aim/consistency, NM2 как streams, NM3 как alternating, NM4 как technical, HD2 как reading, HR2 как precision, DT1 как aim, DT2 как speed. Их же правила отдельно оговаривают отличия некоторых других слотов [S6]. Поэтому Dossier фиксирует собственный словарь версии 1, опирающийся на эту практику; импорт номера из OWC не заменяет анализ карты.
+The number in a tournament label is the map's number inside its mod group. There is no skill standard binding on all tournaments. The organisers of the Non-Gimmick Tournament, for example, describe NM1 as aim/consistency, NM2 as streams, NM3 as alternating, NM4 as technical, HD2 as reading, HR2 as precision, DT1 as aim and DT2 as speed. Their rules separately note how some other slots differ [S6]. So Dossier fixes a dictionary of its own, version 1, built on this practice; importing a number from OWC does not replace analysing the map.
 
-Дополнительная проверка первичных правил подтверждает вариативность: Sedi's Scuffed Amateur Tourney объединяет в NM3 flow aim и alternating, а в NM4 finger control и tech [S13]. В 6 Digit United States Cup 3 DT2 описан через более низкотемповые mechanics, а DT3 через tapping [S14]. Поэтому утверждение «DT2 всегда один конкретный BPM или тип стримов» не используется. В Dossier границы намеренно закреплены явно, чтобы исправления модели не меняли смысл слота.
+Checking other primary rules confirms the variety: Sedi's Scuffed Amateur Tourney puts flow aim and alternating into NM3, and finger control and tech into NM4 [S13]. In 6 Digit United States Cup 3, DT2 is described through lower-tempo mechanics and DT3 through tapping [S14]. So the claim "DT2 is always one particular BPM or kind of stream" is not used. In Dossier the boundaries are fixed explicitly so that model fixes do not change a slot's meaning.
 
-| Слот | Главное назначение в Dossier | Что не является достаточным признаком |
+| Slot | Main purpose in Dossier | Not enough on its own |
 |---|---|---|
-| NM1 | Стабильное наведение на прыжках и последовательностях объектов | Только высокий aim SR |
-| NM2 | Потоковое наведение, стримы и удержание равномерных нажатий | Один короткий стрим |
-| NM3 | Альтернирование и контроль среднетемповых последовательностей | Только BPM или фактическая раскладка пальцев |
-| NM4 | Техническое наведение, слайдеры и сложные переходы ритма | Просто высокая общая сложность |
-| HD2 | Чтение с Hidden при относительно длинном окне появления | Только включённый HD |
-| HR2 | Точность наведения на малые объекты с Hard Rock | Только высокий OD |
-| DT1 | Стабильное наведение и чтение на ускорении DT | Любая карта с DT |
-| DT2 | Скорость нажатий, серии и выносливость с DT | Только высокий итоговый BPM |
-| TB | Сочетание нескольких навыков и удержание качества игры | Самая сложная карта коллекции |
+| NM1 | Steady aim on jumps and object sequences | Only a high aim SR |
+| NM2 | Flow aim, streams and holding even taps | One short stream |
+| NM3 | Alternating and control of mid-tempo sequences | Only BPM or the actual finger layout |
+| NM4 | Technical aim, sliders and hard rhythm transitions | Just a high overall difficulty |
+| HD2 | Reading with Hidden at a relatively long approach window | Only HD turned on |
+| HR2 | Precise aim on small objects with Hard Rock | Only a high OD |
+| DT1 | Steady aim and reading at DT speed | Any map with DT |
+| DT2 | Tap speed, bursts and stamina with DT | Only a high final BPM |
+| TB | A combination of several skills and keeping quality | The hardest map in the collection |
 
-Следующие определения являются контрактом Dossier для разметки и тестов, а не утверждением об универсальном турнирном стандарте.
+The definitions below are Dossier's contract for labelling and tests, not a claim about a universal tournament standard.
 
 ### 7 1 NM1
 
-Основная нагрузка создаётся последовательностями заметных перемещений курсора, повторяющимися прыжками, сменой углов и удержанием качества на протяжении карты. Потоки и слайдеры допустимы как вторичная нагрузка. Карта не подходит, если её сложность почти целиком определяется скоростью длинных стримов, низким AR либо одним коротким аномальным фрагментом. Анализатор показывает долю aim-нагрузки, распределение расстояний в радиусах объектов и число независимых сложных участков.
+The main load comes from sequences of noticeable cursor movement, repeated jumps, changing angles and keeping quality over the map. Streams and sliders are allowed as a secondary load. A map does not fit if its difficulty comes almost entirely from the speed of long streams, low AR or one short abnormal stretch. The analyser shows the share of aim load, the distribution of distances in object radii and the number of independent hard stretches.
 
 ### 7 2 NM2
 
-Определяющий навык: равномерные нажатия на последовательностях и непрерывное наведение вдоль них. Учитываются длины серий, расстояния между объектами, темп, повторение нагрузки и короткие промежутки восстановления. На малой сложности серии могут быть короткими, но должны систематически определять рисунок карты. Единственный поток среди обычных прыжков не делает карту NM2. Высокий BPM без последовательностей также недостаточен.
+The defining skill: even taps on sequences and continuous aim along them. Run lengths, distances between objects, tempo, repetition of load and short recovery gaps count. At low difficulty runs may be short but must systematically define the map's pattern. A single stream among ordinary jumps does not make a map NM2. A high BPM without sequences is not enough either.
 
 ### 7 3 NM3
 
-Определяющий навык: контроль чередующихся нажатий и наведения на последовательностях, отличающихся от доминирующих длинных стримов NM2. Анализируются ритмические интервалы, короткие группы, повороты и чередование рисунков. Карта может создавать условия, в которых альтернирование удобно, но файл .osu не доказывает, какими пальцами человек играет. Назначение описывает требование карты, не предписывает технику ввода.
+The defining skill: control of alternating taps and aim on sequences that differ from NM2's dominant long streams. Rhythmic intervals, short groups, turns and alternating patterns are analysed. A map can create conditions where alternating is convenient, but an .osu file does not prove which fingers a person plays with. The assignment describes what the map asks for and does not prescribe an input technique.
 
 ### 7 4 NM4
 
-Определяющий навык: управление техническими переходами. Значимы скорости и кривизна слайдеров, смены направления, сочетания слайдеров и кругов, перемены ритма, неоднородные интервалы и необходимость точного перехода между паттернами. Один большой слайдер либо высокая доля слайдеров без сложных переходов не является основанием для слота. Карта со сложным чтением, но простой моторикой не автоматически считается NM4.
+The defining skill: handling technical transitions. Slider speeds and curvature, direction changes, mixes of sliders and circles, rhythm changes, uneven intervals and the need for exact transitions between patterns matter. One big slider, or a high slider share without hard transitions, is no reason for the slot. A map with hard reading but simple motion is not NM4 automatically.
 
 ### 7 5 HD2
 
-Слот проверяет чтение исчезающих объектов, память последовательностей, управление визуальным перекрытием и плотностью при Hidden. Для версии 1 используется условие базового AR не выше 8.5; это проектный фильтр Dossier, не закон турниров. Дополнительно нужна доказуемая нагрузка чтения: перекрытия, порядок объектов, плотные окна появления или неоднозначные переходы. При нехватке карт фильтр не снимается молча. Сложность моторики подбирается по уровню игроков, чтобы чтение оставалось главным различающим навыком.
+The slot tests reading disappearing objects, memory of sequences and handling visual overlap and density with Hidden. Version 1 requires a base AR of at most 8.5; this is Dossier's design filter, not a tournament law. A provable reading load is also needed: overlaps, object order, dense approach windows or ambiguous transitions. When maps run short the filter is never dropped silently. Motion difficulty is matched to the players' level so that reading stays the main distinguishing skill.
 
 ### 7 6 HR2
 
-Слот проверяет пространственную точность с HR. Проектный фильтр: эффективный CS после HR не ниже 6.0. Рассчитываются радиусы объектов, нормализованные расстояния, углы и доля сложных точных переходов. Большой OD означает узкое временное окно, но сам по себе не подтверждает precision aim. Карта на быстрых стримах с мелкими кругами должна пройти сравнительную проверку, чтобы скорость не подменяла назначение HR2.
+The slot tests spatial precision with HR. Design filter: an effective CS after HR of at least 6.0. Object radii, normalised distances, angles and the share of hard precise transitions are computed. A high OD means a narrow timing window but does not confirm precision aim by itself. A map of fast streams with small circles must pass a comparative check so that speed does not stand in for HR2's purpose.
 
-### 7 7 DT1 и DT2
+### 7 7 DT1 and DT2
 
-DT1 требует устойчивого наведения и чтения при ускорении. DT2 требует прежде всего скорости повторных нажатий, burst-последовательностей и/или удержания темпа. Dossier объединяет speed и stamina внутри DT2, поскольку в пуле нет DT3. Для DT2 в карточке указывается подтип «короткие быстрые серии» или «длительная нагрузка». Во время генерации подтип учитывается, чтобы одни и те же игроки не получали постоянно только один вариант. DT1 не назначается исключительно по высокому AR, DT2 исключительно по BPM.
+DT1 asks for steady aim and reading at speed. DT2 asks above all for repeated tap speed, bursts and/or holding the tempo. Dossier joins speed and stamina inside DT2 because the pool has no DT3. For DT2 the card names the subtype "short fast runs" or "long load". Generation takes the subtype into account so that the same players do not always get only one variant. DT1 is never assigned only for a high AR, nor DT2 only for BPM.
 
 ### 7 8 TB
 
-TB должен содержать несколько самостоятельных участков с разными требованиями, оставаться сопоставимым по сложности с пулом и не давать всей решающей нагрузки одному узкому навыку. Жёсткого ограничения продолжительности нет. Предпочитаются карты, где ни один навык не составляет более 60 процентов нормализованной нагрузки и присутствуют хотя бы три измеримых направления; порог проверяется на размеченных примерах. NF обязателен, выбор NM/HD/HR/HDHR свободен. Анализатор рассчитывает все четыре варианта, чтобы показать различие нагрузки, но не обещает равную эффективность модификаторов для каждого игрока.
+TB must contain several independent stretches with different demands, stay comparable in difficulty to the pool and not put all the deciding load on one narrow skill. There is no hard length limit. Maps where no skill exceeds 60 percent of the normalised load and at least three measurable directions are present are preferred; the threshold is checked on labelled examples. NF is mandatory, the choice of NM/HD/HR/HDHR is free. The analyser computes all four variants to show how the load differs, but does not promise that the mods are equally effective for every player.
 
-## 8 Каталог карт и импорт примеров
+## 8 The map catalogue and importing examples
 
-Дуэльные кандидаты берутся из Ranked-карт osu!standard. Approved, Loved, Qualified, Pending, WIP и Graveyard не допускаются в игровой пул первой версии. Для учебного корпуса разрешены карты любого статуса из пулов OWC 2021–2025 [S1–S5]. Корпус и каталог кандидатов хранятся раздельно: использование карты как примера не даёт ей допуска к дуэли.
+Duel candidates are taken from Ranked osu!standard maps. Approved, Loved, Qualified, Pending, WIP and Graveyard maps are not allowed into a first version pool. The training corpus allows maps of any status from the OWC 2021–2025 pools [S1–S5]. The corpus and the candidate catalogue are stored apart: using a map as an example does not admit it to duels.
 
-Импорт сохраняет год, стадию, исходный слот, beatmap_id, beatmapset_id, ссылку источника, модификаторы, хеш .osu, время получения и статус на момент импорта. Повторные появления карты не становятся независимыми учебными примерами. При разных исходных слотах хранится весь набор наблюдений и признак конфликта. Такой пример не размечается автоматически голосованием большинства.
+An import keeps the year, the stage, the original slot, beatmap_id, beatmapset_id, the source link, the mods, the .osu hash, the time fetched and the status at import time. Repeated appearances of a map do not become independent training examples. With different original slots the whole set of observations is kept along with a conflict mark. Such an example is not labelled automatically by majority vote.
 
-Примеры NM5, HD1, HR1, DT3, FM и других отсутствующих в Dossier слотов сохраняются для отрицательных сравнений и изучения границ, а не переименовываются в ближайший разрешённый слот. Перенос метки OWC в словарь Dossier выполняется через анализ и проверяемую таблицу соответствия конкретной версии корпуса.
+Examples of NM5, HD1, HR1, DT3, FM and other slots Dossier does not have are kept for negative comparisons and for studying boundaries, not renamed into the nearest allowed slot. Moving an OWC label into Dossier's dictionary goes through analysis and a checkable mapping table for a specific corpus version.
 
-Для beatmap_id существует не более одного активного назначения слота во всём каталоге. Назначенная NM1 карта не становится DT1 при добавлении DT. Разные сложности одного beatmapset_id могут иметь разные назначения. До первого включения в опубликованный пул анализатор может сравнивать гипотезы. При первом назначении в каталог фиксируются слот и версия решения. После этого автоматическая переклассификация запрещена.
+A beatmap_id has at most one active slot assignment in the whole catalogue. A map assigned NM1 does not become DT1 when DT is added. Different difficulties of one beatmapset_id may have different assignments. Until a map first enters a published pool, the analyser may compare hypotheses. On the first assignment to the catalogue the slot and the decision's version are fixed. After that automatic reclassification is forbidden.
 
-Модель не меняет слот, который уже назначила уверенно. Решение о слоте остаётся за человеком: ревьюер подтверждает назначение, переносит карту в правильный слот, отклоняет её как неподходящую ни к одному слоту или отправляет в карантин. Перенос владелец разрешил 24 октября 2026 года: он записывается как решение человека, и модель учится на правильном слоте, а не на отказе. Отклонённая карта в другой слот не переезжает. Пулы, уже собранные до переноса, не меняются.
+The model does not change a slot it already assigned confidently. The slot decision belongs to a person: a reviewer confirms the assignment, moves the map to the right slot, rejects it as fitting no slot or sends it to quarantine. The owner allowed moving on 24 October 2026: a move is recorded as a person's decision, and the model learns the right slot rather than a refusal. A rejected map does not move to another slot. Pools built before a move do not change.
 
-Состояния назначения: UNASSIGNED, AUTO_ASSIGNED, HUMAN_APPROVED, REJECTED, QUARANTINED. Для AUTO_ASSIGNED допустимы уровни уверенности и очередь проверки. HUMAN_APPROVED фиксирует личность проверяющего, дату, заметку и версию анализатора. Обновление анализатора может поставить карту в карантин с объяснением, но не может отменить ручное решение незаметно.
+Assignment states: UNASSIGNED, AUTO_ASSIGNED, HUMAN_APPROVED, REJECTED, QUARANTINED. AUTO_ASSIGNED allows confidence levels and a review queue. HUMAN_APPROVED records the reviewer, the date, a note and the analyser version. An analyser update can quarantine a map with an explanation but cannot quietly undo a person's decision.
 
-Если содержимое .osu изменилось, создаётся новая ревизия с новым хешем. beatmap_id и закреплённый слот сохраняются, а допуск ревизии аннулируется до анализа. Уже раскрытый пул с изменившейся картой не получает тихую замену: до первого старта серия отменяется с причиной MAP_REVISION_CHANGED, после старта действует техническая отмена всей серии. Это сохраняет смысл выполненных блокировок.
+If an .osu file's contents change, a new revision with a new hash is created. beatmap_id and the fixed slot stay, and the revision's admission is voided until analysed. A pool already revealed with a changed map gets no silent replacement: before the first start the series is cancelled with the reason MAP_REVISION_CHANGED; after the start the whole series is cancelled for technical reasons. This keeps the meaning of the bans already made.
 
-Входные файлы проверяются на размер, допустимость формата, отрицательные и нечисловые значения, порядок объектов, корректность timing points и геометрии. Ошибка разбора ведёт в карантин. Фоновая загрузка не выполняет массовый обход API: используются разрешённые наборы данных, адресные запросы, кеш и ограничения источника [S8].
+Input files are checked for size, a valid format, negative and non-numeric values, object order, valid timing points and geometry. A parse error leads to quarantine. Background loading does not crawl the API in bulk: allowed datasets, targeted requests, a cache and the source's limits are used [S8].
 
-## 9 Прозрачный анализатор карты
+## 9 A transparent map analyser
 
-Анализ выполняется на сервере или отдельным рабочим процессом на том же VPS, без блокирования цикла IRC. Клиентский анализ можно использовать для интерфейса, но опубликованные метрики и решение слота получаются сервером. Результат воспроизводим по хешу файла, версии парсера, версии расчётной библиотеки, модификаторам, версии признаков и модели.
+Analysis runs on the server or in a separate worker process on the same VPS, without blocking the IRC loop. Client-side analysis may be used for the interface, but the published metrics and the slot decision come from the server. A result is reproducible from the file hash, the parser version, the computing library's version, the mods, the feature version and the model.
 
-Для SR и игровых параметров применяется проверенная библиотека с закреплённой версией и явно выбранной семантикой stable; кандидат для Rust-компонента: rosu-pp [S11]. Перед принятием библиотека сверяется с эталонными картами. Её расчёт aim/speed или PP не считается готовым классификатором турнирных слотов.
+SR and game parameters come from a checked library with a pinned version and explicitly chosen stable semantics; the candidate for a Rust component was rosu-pp [S11]. Before it is accepted, the library is compared against reference maps. Its aim/speed or PP computation is not taken as a ready classifier of tournament slots. (In the code, stars with mods come from the osu! API's `beatmaps/{id}/attributes`, see section 26.)
 
-### 9 1 Вычисляемые признаки
+### 9 1 Computed features
 
-Время нормализуется по реальному темпу игры: при DT временные интервалы делятся на 1.5. Геометрия HR, эффективные AR/OD/CS и stacking рассчитываются по закреплённым правилам stable. Слайдер не сводится к прямой между началом и концом: учитываются форма, повторения, длительность и переход к следующему объекту.
+Time is normalised to the real game tempo: with DT, time intervals are divided by 1.5. HR geometry, effective AR/OD/CS and stacking are computed by fixed stable rules. A slider is not reduced to a line between its start and end: its shape, repeats, duration and the move to the next object count.
 
-Для каждого объекта и пары соседних объектов вычисляются временной интервал, расстояние между целями, расстояние в радиусах объекта, угол поворота, скорость перемещения, тип перехода и ритмическое отношение к локальному beat length. Для слайдеров вычисляются длина, длительность, средняя и пиковая скорость, повороты, повторения и переход после завершения. Спиннеры учитываются в длительности и восстановлении, но не создают фиктивную aim-нагрузку.
+For every object and every pair of neighbouring objects the time interval, the distance between targets, the distance in object radii, the turning angle, the movement speed, the transition type and the rhythmic ratio to the local beat length are computed. For sliders: length, duration, average and peak speed, turns, repeats and the move after the end. Spinners count towards duration and recovery but create no fictitious aim load.
 
-Потоки определяются как цепочки кругов с близкими межобъектными интервалами: отклонение от медианы цепочки не выше 12 процентов, минимум три объекта. Хранятся отдельные гистограммы длин 3–5, 6–15, 16–31 и 32 и более. Это начальное правило выделения кандидатов на цепочки, а не универсальное определение стрима. Результат сопоставляется с ритмической сеткой и расстояниями; случайное равенство интервалов не завершает классификацию.
+Streams are found as chains of circles with similar intervals between objects: deviation from the chain's median at most 12 percent, at least three objects. Separate histograms of lengths 3–5, 6–15, 16–31 and 32 or more are kept. This is an initial rule for finding chain candidates, not a universal definition of a stream. The result is compared with the rhythmic grid and distances; an accidental equality of intervals does not finish the classification.
 
-Окна анализа: 2, 10 и 30 секунд со сдвигом в половину окна. Для каждой группы признаков сохраняются медиана, 90-й и 99-й процентили, максимальный участок, доля времени под нагрузкой и длины восстановлений. Конец короткой карты обрабатывается неполным окном с фактической длительностью. Это отличает одну вспышку сложности от постоянной нагрузки.
+Analysis windows: 2, 10 and 30 seconds with a half-window step. For each feature group the median, the 90th and 99th percentiles, the peak stretch, the share of time under load and recovery lengths are kept. The end of a short map is handled by a partial window with its real length. This tells a single burst of difficulty from a constant load.
 
-Чтение оценивается через число одновременно видимых объектов, время видимости, перекрытие областей, пересечения траекторий, повторяющиеся координаты и смену порядка. Эти показатели являются приближением требований чтения; они не измеряют восприятие конкретного человека. Техническая нагрузка описывается распределением углов, кривизны слайдеров, смен скоростей и ритмической неоднородности.
+Reading is estimated from the number of objects visible at once, visibility time, overlapping areas, crossing paths, repeated coordinates and order changes. These are approximations of reading demands; they do not measure a particular person's perception. The technical load is described by the distributions of angles, slider curvature, speed changes and rhythmic unevenness.
 
-Вектор карты содержит восемь направлений: jump aim, flow aim, tapping speed, tapping stamina, rhythm control, reading, precision и slider control. Значения нормализуются по размеченным примерам сопоставимой сложности. Границы нормализации и исходные единицы хранятся, чтобы можно было восстановить объяснение. Усреднение признаков по всей карте без временного профиля запрещено.
+A map's vector has eight directions: jump aim, flow aim, tapping speed, tapping stamina, rhythm control, reading, precision and slider control. Values are normalised over labelled examples of comparable difficulty. Normalisation bounds and original units are kept so that the explanation can be rebuilt. Averaging features over the whole map without a time profile is forbidden.
 
-### 9 2 Модель назначения
+### 9 2 The assignment model
 
-Первый рабочий вариант: многоклассовая логистическая регрессия с регуляризацией по нормализованным признакам, обязательными фильтрами слотов и отдельным классом OTHER. Она позволяет показать вклад признаков. Более сложная модель допустима только после сравнения на одинаковой отложенной выборке и сохранения объяснимости. Большая языковая модель не является источником окончательной метки.
+The first working variant: a regularised multiclass logistic regression over normalised features, with mandatory slot filters and a separate OTHER class. It can show the features' contributions. A more complex model is allowed only after comparison on the same held-out sample while keeping explainability. A large language model is never the source of a final label.
 
-Нормализация каждого признака использует медиану и межквартильный размах учебной выборки; нулевой размах заменяется 1. Затем z ограничивается диапазоном от -5 до 5. Вероятности классов рассчитываются softmax от линейных оценок. Недопустимые по обязательным фильтрам слоты исключаются до выбора. Теги игроков являются отдельными признаками с ограниченным вкладом; имя автора карты не может само определять слот.
+Each feature is normalised by the training sample's median and interquartile range; a zero range is replaced by 1. Then z is clamped to −5…5. Class probabilities come from a softmax of linear scores. Slots ruled out by mandatory filters are excluded before choosing. Players' tags are separate features with limited weight; the mapper's name can never decide the slot by itself.
 
-Разделение данных проводится группами по beatmapset_id и повторным появлениям карты. Основной временной тест: обучение на 2021–2023, настройка на 2024, финальная оценка на 2025 с удалением пересечений. Дополнительно обязательна независимая ручная выборка Ranked-карт за пределами OWC по диапазонам сложности. Иначе модель может узнавать стиль элитных пулов, не подходя большинству пользователей.
+Data is split in groups by beatmapset_id and repeated appearances of a map. The main time test: train on 2021–2023, tune on 2024, final estimate on 2025 with overlaps removed. An independent hand-picked sample of Ranked maps outside OWC, across difficulty ranges, is also mandatory. Otherwise the model may learn the style of elite pools without fitting most users.
 
-Уверенность калибруется на отдельной валидационной выборке, например температурным масштабированием. Пока калибровка вероятностей не подтверждена, интерфейс показывает «оценку согласованности признаков», не процент вероятности правильного назначения. Ручное одобрение показывается отдельно и не превращает число автоматически в 100 процентов.
+Confidence is calibrated on a separate validation sample, for example with temperature scaling. Until probability calibration is confirmed, the interface shows a "feature agreement score", not a percentage chance of the right assignment. A person's approval is shown separately and does not turn the number into 100 percent.
 
-Начальные границы: уверенное назначение p не ниже 0.80 и отрыв от второго допустимого класса не ниже 0.20; неуверенное назначение p от 0.60 и отрыв от 0.10. Ниже этих границ карта не используется и направляется на разметку. Класс OTHER и обнаруженный выход за распределение исключают допуск. Неуверенные карты разрешены в рейтинговых и прямых дуэлях с предупреждением; первая версия допускает не более двух таких карт на пул и только уверенный или вручную подтверждённый TB.
+Initial bounds: a confident assignment needs p at least 0.80 and a lead over the second allowed class of at least 0.20; an uncertain one needs p from 0.60 and a lead from 0.10. Below these bounds a map is not used and goes to labelling. The OTHER class and a detected out-of-distribution case rule out admission. Uncertain maps are allowed in rated and direct duels with a warning; the first version allows at most two such maps per pool and only a confident or person-confirmed TB.
 
-Выход за распределение фиксируется, если более 20 процентов значимых признаков лежат за 1–99 процентилями обучающего диапазона соответствующего уровня или отсутствуют обязательные признаки. Числовой порог является начальной эвристикой. Автоматическое снижение требований для заполнения пустого слота запрещено.
+Out of distribution is recorded when more than 20 percent of significant features lie outside the 1st–99th percentiles of the training range for that level, or mandatory features are missing. The number is an initial heuristic. Automatically lowering requirements to fill an empty slot is forbidden.
 
-### 9 3 Объяснение для игрока и администратора
+### 9 3 Explanations for players and administrators
 
-Карточка слота показывает его назначение, модификаторы, SR с ними, краткую причину выбора, уверенность и отметку ручной проверки. Например, объяснение NM2 строится из реальных признаков: доля объектов в цепочках, длины цепочек, темп, время непрерывной нагрузки. Числа не подставляются из текстового шаблона без расчёта.
+A slot card shows its purpose, the mods, the SR with them, a short reason for the choice, the confidence and a mark of a person's check. For example, an NM2 explanation is built from real features: the share of objects in chains, chain lengths, tempo, time of continuous load. Numbers are never filled into a text template without computing them.
 
-Администратор дополнительно видит временной график восьми направлений, проблемные участки, исходные значения, альтернативные гипотезы до фиксации, источник метки, версии и историю отзывов. Сравнение с похожими проверенными картами содержит их идентификаторы и расстояние признаков. Личные слабости участников при этом не раскрываются.
+An administrator also sees a time graph of the eight directions, problem stretches, raw values, alternative hypotheses before fixing, the label's source, versions and the feedback history. A comparison with similar checked maps gives their ids and feature distance. Participants' personal weaknesses are not revealed in it.
 
-## 10 Портфолио навыков и начальная сложность
+## 10 The skill portfolio and starting difficulty
 
-Портфолио хранит отдельно наблюдения и их интерпретацию. Для каждой карты: источник, время, пользователь, модификаторы, показатели игры, версия карты, качество подтверждения и назначение слота. Для каждого слота и направления: оценка доступной сложности, неопределённость, число независимых карт, давность и происхождение данных. Портфолио не публикуется другим игрокам; собственная детализация доступна владельцу аккаунта, а доступ администратора к служебным данным журналируется.
+The portfolio keeps observations and their interpretation apart. For each map: the source, time, user, mods, play values, map version, confirmation quality and slot assignment. For each slot and direction: an estimate of playable difficulty, the uncertainty, the number of independent maps, age and where the data came from. The portfolio is not published to other players; its owner sees their own details, and an administrator's access to service data is logged.
 
-Приоритет имеют официальные результаты матчей и подтверждённые отправленные результаты osu!. Локальные .osr и scores.db помогают обнаруживать интересующие карты и запрашивать подтверждение, но не увеличивают доверенную оценку силы и не меняют рейтинг. Неподтверждённые локальные наблюдения могут отображаться пользователю отдельно, не участвуя в рейтинговом подборе. Имя игрока в реплее не является привязкой личности.
+Official match results and confirmed submitted osu! results take priority. Local .osr and scores.db help find maps of interest and ask for confirmation but do not raise the trusted strength estimate or change rating. Unconfirmed local observations may be shown to the user separately without taking part in rated matching. A player name in a replay is not a link to an identity.
 
-Первичная загрузка использует доступные лучшие результаты, последние игры, историю уже синхронизированных попыток, модификаторы и профиль. Ранг и PP являются слабыми общими признаками: они не заменяют измерение HD-чтения или HR-точности. Не проводится массовое извлечение чужих профилей. Если последние игры недоступны или не содержат нужного слота, это фиксируется как отсутствие наблюдений.
+The first load uses available best results, recent plays, the history of attempts already synced, mods and the profile. Rank and PP are weak general signs: they do not replace measuring HD reading or HR precision. Other people's profiles are not mined in bulk. If recent plays are unavailable or contain no play of the needed slot, that is recorded as an absence of observations.
 
-### 10 1 Начальный воспроизводимый расчёт
+### 10 1 The initial reproducible computation
 
-Для подтверждённой игры вводится показатель качества y = 0.65 × accuracy + 0.25 × combo_ratio + 0.10 × (1 - miss_ratio). Все доли лежат от 0 до 1; combo_ratio ограничивается единицей и использует максимальное комбо именно этой ревизии карты. Этот показатель не используется для определения победителя раунда.
+For a confirmed play a quality value is introduced: y = 0.65 × accuracy + 0.25 × combo_ratio + 0.10 × (1 − miss_ratio). All shares lie between 0 and 1; combo_ratio is capped at one and uses the maximum combo of exactly this map revision. This value is not used to decide a round's winner.
 
-miss_ratio равен числу промахов по основным объектам, делённому на число таких объектов; отдельные slider breaks не добавляются второй раз. При недоступном знаменателе или неполной статистике наблюдение не участвует в начальной формуле. Для устойчивой выборки из менее десяти независимых карт допускается только одно актуальное наблюдение на карту; ограничение относительного веса 10 процентов применяется после достижения десяти карт.
+miss_ratio is the number of misses on main objects divided by the number of such objects; slider breaks are not added a second time. When the denominator is unavailable or the statistics are incomplete, the observation does not take part in the initial formula. For a stable sample of fewer than ten independent maps only one current observation per map is allowed; the 10 percent cap on relative weight applies once ten maps are reached.
 
-Для карты слотного типа со сложностью s вводится наблюдение доступной сложности a = s + 2 × (y - 0.85), ограниченное диапазоном s - 1.7 до s + 0.3. Коэффициенты являются начальной эвристикой Dossier; они не равны физическому измерению навыка. Вес наблюдения равен весу источника, умноженному на 2 в степени (-возраст_в_днях / 90). Полный подтверждённый результат имеет вес источника 1; результат с неполной метаинформацией не участвует. Для одной карты берётся не более одного наблюдения за день, а суммарный вес одного beatmap_id ограничен 10 процентами веса слота.
+For a map of the slot's type with difficulty s, an observation of playable difficulty is a = s + 2 × (y − 0.85), clamped to s − 1.7…s + 0.3. The coefficients are Dossier's initial heuristic and not a physical measurement of skill. An observation's weight is the source weight times 2 to the power of (−age in days / 90). A full confirmed result has source weight 1; a result with incomplete metadata does not take part. At most one observation a day is taken per map, and the total weight of one beatmap_id is capped at 10 percent of the slot's weight.
 
-Оценка theta слота: взвешенный 60-й процентиль a. Неопределённость u = max(0.25, 1.2 / sqrt(n_eff)), где n_eff = (сумма весов)² / сумма квадратов весов. Если независимых карт меньше трёх, u не меньше 0.8. Это технический диапазон неопределённости в единицах SR, не статистически откалиброванный доверительный интервал. При отсутствии наблюдений слот заимствует общую оценку с u = 1.2 и явной меткой UNKNOWN_SLOT.
+A slot's theta estimate is the weighted 60th percentile of a. The uncertainty u = max(0.25, 1.2 / sqrt(n_eff)), where n_eff = (sum of weights)² / sum of squared weights. With fewer than three independent maps, u is at least 0.8. This is a technical uncertainty range in SR units, not a statistically calibrated confidence interval. Without observations the slot borrows the overall estimate with u = 1.2 and an explicit UNKNOWN_SLOT mark.
 
-Восемь направлений портфолио получают наблюдения, взвешенные вкладом соответствующего направления карты. Не менее 30 процентов нагрузки должно относиться к направлению, чтобы игра его обновляла. По TB используются только направления, реально представленные в этой карте; один TB не считается девятью независимыми проверками.
+The portfolio's eight directions get observations weighted by the matching direction's share in the map. At least 30 percent of the load must belong to a direction for a play to update it. For TB only the directions really present in that map are used; one TB does not count as nine independent checks.
 
-### 10 2 Профиль без результатов
+### 10 2 A profile without results
 
-Сначала система проверяет профиль и существующий кеш, доступные подтверждённые результаты и модификаторы. Затем, если есть только общие данные, применяет модель начальной сложности, обученную на пользователях с известной историей: признаки log(1 + PP), log(1 + playcount), общая точность и доступные распределения результатов; отсутствующие признаки имеют отдельные маски. Модель обучается только на согласованной внутренней выборке, не обещает точной оценки и выдаёт широкую неопределённость.
+First the system checks the profile and the existing cache, the available confirmed results and mods. Then, with only general data, it applies a starting difficulty model trained on users with known history: features log(1 + PP), log(1 + playcount), overall accuracy and available result distributions; missing features have separate masks. The model is trained only on an agreed internal sample, does not promise an exact estimate and gives a wide uncertainty.
 
-Если достоверных данных нет вообще, индивидуальный навык вычислить невозможно. В таком случае используется общий консервативный prior theta = 2.5 SR, u = 1.5 с автоматической адаптацией после первой серии. Это проектное значение для запуска, а не выбор игрока и не установленный факт о его силе. При отсутствии допустимых карт нужных слотов система предлагает согласованный более высокий диапазон либо сообщает, что подходящего пула пока нет. Пользователь не отсекается по рангу, но система не выдаёт неподходящую карту ради формального запуска.
+With no reliable data at all an individual skill cannot be computed. The document set a general conservative prior of theta = 2.5 SR, u = 1.5, adapting automatically after the first series; the code now starts at 5.5★ with u = 1.5 to match the 5–10★ catalogue (see the current behaviour above). This is a design value for launching, not the player's choice and not an established fact about their strength. When no allowed maps of the needed slots exist, the system offers an agreed higher range or says that no suitable pool exists yet. A user is never cut off by rank, but the system does not hand out an unsuitable map just to start formally.
 
-Во время BO5 пул и профиль подбора фиксированы. Новые результаты обновляют портфолио только после завершения серии, поэтому система не меняет сложность под текущий счёт. После отмены серии наблюдения остаются в диагностическом архиве без изменения портфолио. Дополнительный TB обновляет портфолио отдельной транзакцией после своей проверки.
+During a BO5 the pool and the matching profile are fixed. New results update the portfolio only after the series ends, so the system does not change difficulty to the current score. After a cancelled series the observations stay in a diagnostic archive without changing the portfolio. The extra TB updates the portfolio in a separate transaction after its own check.
 
-## 11 Подбор соперников и сложность пула
+## 11 Matching opponents and pool difficulty
 
-### 11 1 Выбор пары
+### 11 1 Choosing a pair
 
-Поиск работает каждые 5 секунд по присутствующим пользователям. Сначала рассматривается самый давно ожидающий игрок, затем допустимые кандидаты. Время ожидания не сбрасывается после отказа соперника принять найденную пару. Выход самого пользователя завершает его заявку. При потере Dossier заявка приостанавливается на 20 секунд, затем удаляется без штрафа.
+The search runs every 5 seconds over present users. The player waiting longest is considered first, then the allowed candidates. Waiting time is not reset when an opponent declines a found pair. Leaving ends the user's own request. When Dossier is lost, the request is paused for 20 seconds, then removed without a penalty.
 
-Для первичного сравнения используется p = 1 / (1 + 10^((r_B - r_A) / 400)). Это симметричный показатель близости рейтингов для очереди, а не точная вероятность исхода Glicko-2. Дополнительно сравниваются доступная сложность слотов и RD. Высокий RD не даёт автоматически разрешение на любое различие навыков.
+The first comparison uses p = 1 / (1 + 10^((r_B − r_A) / 400)). This is a symmetric closeness measure for the queue, not an exact Glicko-2 outcome probability. Playable slot difficulty and RD are compared as well. A high RD does not automatically allow any difference in skills.
 
-Первые 60 секунд допустим p от 0.40 до 0.60, разность общих theta не более 0.6 SR. От 60 до 180 секунд допустим p от 0.35 до 0.65 и разность до 0.8 SR. После 180 секунд границы составляют 0.30–0.70 и 1.0 SR. Для неизвестных theta расстояние не приравнивается нулю: приоритет получают другие пользователи с неизвестной оценкой или близким общим prior; показывается предупреждение о недостатке данных.
+For the first 60 seconds p from 0.40 to 0.60 is allowed and a difference in overall theta of at most 0.6 SR. From 60 to 180 seconds p from 0.35 to 0.65 and up to 0.8 SR. After 180 seconds the bounds are 0.30–0.70 and 1.0 SR. For unknown theta the distance is not taken as zero: other users with an unknown estimate or a close general prior get priority, and a warning about missing data is shown.
 
-Кандидаты ранжируются по сумме: 2 × |p - 0.5| + 0.5 × min(|theta_A - theta_B|, 2) + 0.2 × repeat_opponent. repeat_opponent равен 1, если эта пара уже играла в последние 60 минут, иначе 0. При равных значениях выигрывает более ранняя заявка. Третья рейтинговая встреча одной пары за 24 часа не назначается автоматической очередью; прямой вызов остаётся доступен. Это ограничение снижает повторение малой выборки, не расследуя умысел игроков.
+Candidates are ranked by the sum 2 × |p − 0.5| + 0.5 × min(|theta_A − theta_B|, 2) + 0.2 × repeat_opponent. repeat_opponent is 1 if the pair already played in the last 60 minutes, otherwise 0. On a tie the earlier request wins. The automatic queue does not arrange a pair's third rated meeting within 24 hours; a direct challenge stays available. This limit reduces repetition in a small sample without investigating anyone's intent.
 
-За пределами последнего диапазона очередь не расширяется молча. Пользователь продолжает ждать или отправляет прямой вызов. В прямом вызове предупреждение о большой разнице показывается при p вне 0.20–0.80 либо различии общей theta более 1.5 SR. При недостаточных данных вместо точного утверждения показывается неопределённость. Оба игрока всегда получают одинаковые условия карты; форы и индивидуальная скорость не предусмотрены.
+Beyond the last range the queue does not widen silently. The user keeps waiting or sends a direct challenge. In a direct challenge the warning about a large difference shows when p is outside 0.20–0.80 or the overall theta differs by more than 1.5 SR. With too little data, uncertainty is shown instead of an exact statement. Both players always get the same map conditions; there are no handicaps or individual speeds.
 
-### 11 2 Выбор сложности внутри слота
+### 11 2 Choosing difficulty inside a slot
 
-Для каждого слота вычисляются theta_A,s, theta_B,s и неопределённости. Начальная целевая сложность t_s = 0.7 × min(theta_A,s, theta_B,s) + 0.3 × max(theta_A,s, theta_B,s). При u больше 0.8 у любого игрока t_s уменьшается на 0.25 SR. Формула немного ориентирует уровень на более слабого участника, не пытаясь устранить реальную разницу силы. Начальный коридор кандидатов: t_s ± 0.4 SR.
+For each slot theta_A,s, theta_B,s and their uncertainties are computed. The initial target difficulty is t_s = 0.7 × min(theta_A,s, theta_B,s) + 0.3 × max(theta_A,s, theta_B,s). When either player's u exceeds 0.8, t_s is lowered by 0.25 SR. The formula leans slightly towards the weaker participant without trying to erase a real difference in strength. The initial candidate corridor is t_s ± 0.4 SR.
 
-Одинаковый SR не означает одинаковую нагрузку разных навыков. Поэтому каждый слот использует собственную theta, а для модовых карт SR считается с обязательными модификаторами. TB имеет базовый целевой SR, равный медиане t_s обычных слотов; предпочтительный коридор ±0.4 SR. Для него также проверяются четыре разрешённых сочетания модов и предупреждаются крайние скачки нагрузки.
+Equal SR does not mean equal load across skills. So each slot uses its own theta, and for mod maps SR is computed with the mandatory mods. TB has a base target SR equal to the median t_s of the ordinary slots, with a preferred corridor of ±0.4 SR. Its four allowed mod combinations are also checked, and extreme jumps in load are flagged.
 
-Для ранжирования кандидатов используется h_i(m) = sigmoid((theta_i,s - SR_m) / max(0.35, u_i,s)), где sigmoid(x) = 1 / (1 + exp(-x)). Это эвристический индекс доступности, пока нет эмпирической калибровки вероятностей. Нельзя называть его вероятностью победы, прохождения или заданной точности. Значение около 0.5 означает близость к оценённому уровню.
+Candidates are ranked by h_i(m) = sigmoid((theta_i,s − SR_m) / max(0.35, u_i,s)), where sigmoid(x) = 1 / (1 + exp(−x)). This is a heuristic accessibility index while there is no empirical probability calibration. It must not be called a probability of winning, passing or reaching a given accuracy. A value near 0.5 means closeness to the estimated level.
 
-Штраф нагрузки карты равен |h_A - 0.6| + |h_B - 0.6|. Дополнительно штрафуется выраженная асимметрия сильных сторон: |advantage(m) - baseline_pair|, где advantage(m) = h_A - h_B, baseline_pair является медианой этой разницы по всем доступным кандидатам слотов. Так генератор не превращает все карты в проверки единственной слабости одного игрока и не обещает равные шансы при заведомо неравной паре.
+A map's load penalty is |h_A − 0.6| + |h_B − 0.6|. A marked asymmetry of strengths is penalised as well: |advantage(m) − baseline_pair|, where advantage(m) = h_A − h_B and baseline_pair is the median of this difference over all available slot candidates. So the generator does not turn every map into a test of one player's single weakness and does not promise equal chances to a clearly unequal pair.
 
-Портфолио влияет на состав симметрично: перестановка A и B не меняет оценку качества пула. В рейтинговой очереди запрещена скрытая персональная компенсация через отдельные правила победы. Версия формулы и входные снимки сохраняются до раскрытия.
+The portfolio affects the line-up symmetrically: swapping A and B does not change the pool's quality score. In the rated queue hidden personal compensation through separate win rules is forbidden. The formula's version and the input snapshots are kept before the reveal.
 
-### 11 3 Знакомство и повторы
+### 11 3 Familiarity and repeats
 
-В историю знакомства входят подтверждённые игры, прежние дуэли, известное попадание карты в раскрытый пул и вспомогательный факт локального наличия. Наличие файла означает доступность карты, но не доказывает тренировку; отсутствие известной игры не доказывает незнакомство.
+Familiarity history includes confirmed plays, earlier duels, a map's known presence in a revealed pool and the auxiliary fact of having it locally. Having a file means the map is available, not that it was practised; the absence of a known play does not prove unfamiliarity.
 
-Штраф повтора для игрока: max(2^(-days_since_play / 14), 0.5 × 2^(-days_since_reveal / 7)). При отсутствии события соответствующая часть равна нулю, а неизвестность хранится отдельно. Для пары учитывается максимум двух штрафов и разность знакомства. Исходно исключаются карты, сыгранные кем-либо из пары в последние 7 дней; это мягкий фильтр, снимаемый при нехватке кандидатов.
+A player's repeat penalty: max(2^(−days_since_play / 14), 0.5 × 2^(−days_since_reveal / 7)). Without such an event the matching part is zero, and the unknown is kept separately. For a pair the maximum of the two penalties and the difference in familiarity count. Maps played by either player in the last 7 days are excluded at first; this soft filter is lifted when candidates run short.
 
-В одном пуле нельзя повторить beatmap_id. Предпочтительно не более одной сложности одного beatmapset_id и не более двух карт одного маппера. Последние два ограничения мягкие. Имя маппера используется для разнообразия, но не как замена измеренных навыков.
+A beatmap_id cannot repeat in one pool. Preferably at most one difficulty of one beatmapset_id and at most two maps by one mapper. The last two limits are soft. The mapper's name is used for variety, not as a stand-in for measured skills.
 
-### 11 4 Алгоритм генерации
+### 11 4 The generation algorithm
 
-1. Зафиксировать участников, портфолио, правила, seed, версии каталога и анализатора.
-2. Для каждого из девяти слотов отобрать Ranked-карты нужного неизменяемого назначения, доступной ревизии, правильного режима и разрешённой уверенности.
-3. Применить коридор сложности и исходные ограничения повторов. Проверить, что хотя бы один кандидат остаётся в каждом слоте.
-4. Рассчитать цену кандидата: 3 × штраф нагрузки + 2 × асимметрия + 2 × штраф повтора + 1 × различие знакомства + 2 × (1 - уверенность) + 0.5 × штраф пикового участка. Все компоненты нормализуются в 0–1; неизвестная уверенность без ручного допуска запрещает использование.
-5. Взять до 100 лучших кандидатов каждого слота. Построить пул поиском с ограниченной шириной 50 частичных решений, добавляя слоты от самого дефицитного. Проверять уникальность и ограничения разнообразия на каждом шаге.
-6. Из до 20 лучших полных решений выбрать одно воспроизводимо по seed с весами exp(-(cost - min_cost) / 0.25). Это предотвращает постоянную выдачу одного минимального решения.
-7. Выполнить финальную проверку девяти слотов, неизменяемых назначений, модов, ревизий и объяснений. Сохранить снимок и hash_manifest. Только затем разрешить раскрытие.
+1. Fix the participants, portfolios, rules, seed, catalogue and analyser versions.
+2. For each of the nine slots, select Ranked maps with the needed fixed assignment, an available revision, the right mode and an allowed confidence.
+3. Apply the difficulty corridor and the initial repeat limits. Check that at least one candidate stays in every slot.
+4. Compute a candidate's cost: 3 × load penalty + 2 × asymmetry + 2 × repeat penalty + 1 × familiarity difference + 2 × (1 − confidence) + 0.5 × peak stretch penalty. All parts are normalised to 0–1; an unknown confidence without a person's admission rules a map out.
+5. Take up to 100 best candidates per slot. Build the pool with a beam search of width 50 partial solutions, adding slots from the scarcest. Check uniqueness and variety limits at every step.
+6. Among up to 20 best full solutions pick one reproducibly by seed with weights exp(−(cost − min_cost) / 0.25). This avoids always handing out one minimal solution.
+7. Run the final check of the nine slots, fixed assignments, mods, revisions and explanations. Save the snapshot and hash_manifest. Only then allow the reveal.
 
-Цена пула равна среднему цены девяти карт плюс штраф концентрации одного маппера и повторного набора. В журнале сохраняются кандидаты, причины отсева и выбранная ступень ослабления. Полный перебор всей базы в момент вызова не выполняется: признаки и индексы кандидатов готовы заранее.
+A pool's cost is the average cost of its nine maps plus penalties for one mapper's concentration and repeated sets. The log keeps the candidates, the reasons they were dropped and the relaxation stage chosen. The whole database is not searched at the moment of a challenge: features and candidate indexes are ready in advance.
 
-Нормализация цены фиксирована: штраф нагрузки делится на 2; асимметрия делится на 2; обе величины ограничиваются 0–1. Различие знакомства равно модулю разности индивидуальных штрафов знакомства. Штраф пика равен clamp((peak_2s / max(p90_10s, 0.01) - 2) / 3, 0, 1), где нагрузка измерена в одной шкале анализатора. Для ручного допуска без калиброванной вероятности штраф неопределённости равен нулю с признаком HUMAN_OVERRIDE; интерфейс не отображает это как вероятность 100 процентов. За каждую карту маппера сверх двух добавляется 0.1 к цене пула, за каждую дополнительную сложность одного набора 0.2. Эти добавки действуют только после разрешения соответствующей ступени ослабления.
+Cost normalisation is fixed: the load penalty is divided by 2; the asymmetry is divided by 2; both are clamped to 0–1. The familiarity difference is the absolute difference of the individual familiarity penalties. The peak penalty is clamp((peak_2s / max(p90_10s, 0.01) − 2) / 3, 0, 1), with load measured on one analyser scale. For a person's admission without a calibrated probability the uncertainty penalty is zero with a HUMAN_OVERRIDE mark; the interface does not show it as a 100 percent probability. Each map by a mapper beyond two adds 0.1 to the pool's cost, each extra difficulty of one set adds 0.2. These additions apply only once the matching relaxation stage is allowed.
 
-### 11 5 Ступени нехватки кандидатов
+### 11 5 Stages when candidates run short
 
-Ступень 0 использует все исходные условия. Ступень 1 разрешает повтор карты за последние 7 дней, оставляя штраф давности. Ступень 2 разрешает больше двух карт одного маппера и разные сложности одного набора с дополнительным штрафом. Ступень 3 расширяет коридор сложности до ±0.7 SR при сохранении целевого уровня. Если нагрузка выходит за исходно показанный диапазон, оба подтверждают обновлённый диапазон до раскрытия пула.
+Stage 0 uses all the initial conditions. Stage 1 allows a map played in the last 7 days, keeping the recency penalty. Stage 2 allows more than two maps by one mapper and several difficulties of one set with an extra penalty. Stage 3 widens the difficulty corridor to ±0.7 SR while keeping the target level. If the load goes beyond the range shown at first, both confirm the updated range before the pool is revealed.
 
-Ступень 4 предлагает обоим конкретный другой диапазон, рассчитанный по ближайшему полному набору слотов. Показываются новые границы и причина; два согласия нужны за 60 секунд. Без согласия серия отменяется до игры, рейтинг не меняется. Нельзя автоматически повышать диапазон через многократные малые расширения.
+Stage 4 offers both a specific other range computed from the nearest full set of slots. The new bounds and the reason are shown; two consents are needed within 60 seconds. Without consent the series is cancelled before play and rating does not change. The range must not be raised automatically through many small widenings.
 
-Никогда не ослабляются Ranked, osu!standard, уникальность beatmap_id внутри пула, закреплённый слот, белый список модификаторов, отсутствие карантина, целостность карты, минимальное качество классификации и проверка источника результата. Если полный пул не собирается, возвращается POOL_UNAVAILABLE с перечислением дефицитных слотов. Повторы помогают только при ограничении истории, но не создают отсутствующий навык в каталоге.
+Never relaxed: Ranked, osu!standard, unique beatmap_id within the pool, the fixed slot, the mod allow list, no quarantine, map integrity, the minimum classification quality and checking the result's source. If a full pool cannot be built, POOL_UNAVAILABLE is returned with the scarce slots listed. Repeats help only where history is the limit; they do not create a skill missing from the catalogue.
 
-## 12 Рейтинг Glicko 2
+## 12 Glicko 2 rating
 
-Рейтинговая единица: исход всей серии, а не отдельной карты. Победа даёт результат 1, поражение 0. Счёт 3:0 и 3:2 не получает разных коэффициентов. Прямые вызовы, отмены и дополнительный TB не входят в рейтинг. Технические победы включаются только по условиям раздела 6 и имеют отдельный код причины.
+The rated unit is the outcome of the whole series, not of a single map. A win is 1, a loss 0. 3:0 and 3:2 get no different coefficients. Direct challenges, cancellations and the extra TB are not rated. Technical wins are included only under the conditions of section 6 and carry their own reason code.
 
-Начальные значения r = 1500, RD = 350, sigma = 0.06, tau = 0.5. Общий рейтинговый период составляет один час UTC. Все результаты с verified_finalized_at в пределах часа обрабатываются вместе после его окончания; участники и соперники используются с состоянием на начало периода. Система показывает время следующего обновления. Начальные значения и часовое окно являются проектными настройками, которые необходимо оценить на данных пилота. Канонический алгоритм работает по периодам; параметры и пример расчёта приведены автором Glicko-2 [S10].
+Initial values r = 1500, RD = 350, sigma = 0.06, tau = 0.5. The common rating period is one UTC hour. All results with verified_finalized_at inside an hour are processed together after it ends; participants and opponents are taken as they were at the start of the period. The system shows when the next update is. The initial values and the hourly window are design settings to be evaluated on pilot data. The canonical algorithm works in periods; the parameters and a worked example are given by Glicko-2's author [S10].
 
-Поздно подтверждённая серия попадает в период фактической финализации, а не задним числом в уже закрытый час. Сервер не смешивает последовательно обновлённый рейтинг первого игрока со старым рейтингом второго. Время карты, клиента или реплея не определяет период.
+A series confirmed late falls into the period of its actual finalisation, not backdated into an hour already closed. The server does not mix one player's sequentially updated rating with the other's old one. The map's, client's or replay's time does not set the period.
 
-### 12 1 Вычисления
+### 12 1 Computation
 
-Преобразование: mu = (r - 1500) / 173.7178; phi = RD / 173.7178. Для каждого соперника j: g_j = 1 / sqrt(1 + 3 × phi_j² / pi²); E_j = 1 / (1 + exp(-g_j × (mu - mu_j))). Затем v = 1 / sum(g_j² × E_j × (1 - E_j)); delta = v × sum(g_j × (s_j - E_j)).
+Conversion: mu = (r − 1500) / 173.7178; phi = RD / 173.7178. For each opponent j: g_j = 1 / sqrt(1 + 3 × phi_j² / pi²); E_j = 1 / (1 + exp(−g_j × (mu − mu_j))). Then v = 1 / sum(g_j² × E_j × (1 − E_j)); delta = v × sum(g_j × (s_j − E_j)).
 
-Для изменчивости: a = ln(sigma²). Функция f(x) = exp(x) × (delta² - phi² - v - exp(x)) / (2 × (phi² + v + exp(x))²) - (x - a) / tau². Корень ищется канонической процедурой из [S10] с точностью 0.000001 и защитой от нечислового результата. sigma_new = exp(root / 2).
+For volatility: a = ln(sigma²). The function f(x) = exp(x) × (delta² − phi² − v − exp(x)) / (2 × (phi² + v + exp(x))²) − (x − a) / tau². The root is found with the canonical procedure of [S10] to a precision of 0.000001, guarded against non-numeric results. sigma_new = exp(root / 2).
 
-Итерационный шаг записывается следующим образом. Начать с A = a. Если delta² > phi² + v, взять B = ln(delta² - phi² - v); иначе найти первое целое k от 1, для которого f(a - k × tau) не меньше нуля, и взять B = a - k × tau. Вычислить f_A и f_B. Пока |B - A| > 0.000001: C = A + (A - B) × f_A / (f_B - f_A); f_C = f(C). При f_C × f_B ≤ 0 присвоить A = B и f_A = f_B, иначе уменьшить f_A вдвое. Затем B = C, f_B = f_C. После сходимости root = A. Защита реализации: не более 1000 шагов, проверка деления на ноль и конечности каждого числа; нарушение не подменяется старой sigma, а останавливает фиксацию периода.
+The iteration step is written as follows. Start with A = a. If delta² > phi² + v, take B = ln(delta² − phi² − v); otherwise find the first integer k from 1 for which f(a − k × tau) is not below zero, and take B = a − k × tau. Compute f_A and f_B. While |B − A| > 0.000001: C = A + (A − B) × f_A / (f_B − f_A); f_C = f(C). If f_C × f_B ≤ 0, set A = B and f_A = f_B, otherwise halve f_A. Then B = C, f_B = f_C. After convergence root = A. Implementation guards: at most 1000 steps, checks for division by zero and finiteness of every number; a violation does not fall back to the old sigma but stops fixing the period.
 
-Обновление: phi_star = sqrt(phi² + sigma_new²); phi_new = 1 / sqrt(1 / phi_star² + 1 / v); mu_new = mu + phi_new² × sum(g_j × (s_j - E_j)). Возврат: r_new = 173.7178 × mu_new + 1500; RD_new = 173.7178 × phi_new. Округление применяется только в интерфейсе.
+Update: phi_star = sqrt(phi² + sigma_new²); phi_new = 1 / sqrt(1 / phi_star² + 1 / v); mu_new = mu + phi_new² × sum(g_j × (s_j − E_j)). Back: r_new = 173.7178 × mu_new + 1500; RD_new = 173.7178 × phi_new. Rounding is applied only in the interface.
 
-Если игр в периоде нет, mu и sigma не меняются, phi_new = sqrt(phi² + sigma²). При нескольких пропущенных периодах прирост вычисляется сразу через их число. Верхняя граница RD в проекте равна 350; это дополнительное правило Dossier, записанное в версии рейтинга. Для нового аккаунта отсчёт периодов начинается с создания рейтинговой записи, не с даты регистрации osu!.
+With no games in a period mu and sigma do not change, phi_new = sqrt(phi² + sigma²). For several missed periods the increase is computed at once from their count. The design's upper bound on RD is 350; this is an extra Dossier rule recorded in the rating version. For a new account periods are counted from the creation of the rating record, not from the osu! registration date.
 
-### 12 2 Обработка и проверка
+### 12 2 Processing and checks
 
-Задача периода блокирует строку rating_period, загружает все неиспользованные исходы, вычисляет обновления из снимка, записывает рейтинг, журнал переходов и отметки применения в одной транзакции. Уникальный ключ пары rating_version, duel_id, user_id исключает повторное начисление. Если расчёт одного результата не проходит проверку, период не фиксируется частично; задача завершается ошибкой и повторяется после исправления.
+The period task locks the rating_period row, loads all unused outcomes, computes updates from the snapshot and writes the rating, the transition log and the applied marks in one transaction. A unique key on rating_version, duel_id and user_id rules out double crediting. If one result's computation fails a check, the period is not fixed partially; the task fails and is repeated after the fix.
 
-Эталонный тест [S10]: старт 1500/200/0.06, соперники 1400/30, 1550/100 и 1700/300, исходы 1/0/0, tau 0.5. Ожидается приблизительно r 1464.06, RD 151.52, sigma 0.059996. Дополнительно проверяются отсутствие игр, одинаковые игроки, большие разницы, несколько игр с одним соперником, перестановка порядка входов и повтор выполнения периода.
+The reference test [S10]: start 1500/200/0.06, opponents 1400/30, 1550/100 and 1700/300, outcomes 1/0/0, tau 0.5. Expected about r 1464.06, RD 151.52, sigma 0.059996. Also checked: no games, identical players, large differences, several games with one opponent, reordering inputs and running a period twice.
 
-Для тестового запуска версия рейтинга отдельная: glicko2-v1-test. История исходов хранится так, чтобы пересчёт был технически возможен, но автоматического изменения уже опубликованной истории в первой версии нет. Исправление технически ошибочного результата фиксируется отдельным административным событием и останавливает публикацию затронутого расчёта до решения владельца; оно не стирает исходные данные.
+A test run has its own rating version: glicko2-v1-test. The outcome history is kept so that a recount is technically possible, but the first version never automatically changes an already published history. Correcting a technically wrong result is recorded as a separate administrative event and stops publishing the affected computation until the owner decides; it does not erase the original data.
 
-## 13 Архитектура
+## 13 Architecture
 
-Основное хранилище: PostgreSQL. Python-сервис 1984 использует SQLAlchemy 2 async и asyncpg. SQLite и старый botdata.db не являются источником новых дуэлей. Если используются SQLite-тесты, они не заменяют PostgreSQL-проверки транзакций, блокировок и уникальных индексов.
+The main store is PostgreSQL. The Python service 1984 uses SQLAlchemy 2 async and asyncpg. SQLite and the old botdata.db are not a source for new duels. SQLite tests, where used, do not replace PostgreSQL checks of transactions, locks and unique indexes.
 
-Rust-приложение Dossier отвечает за авторизованный интерфейс, присутствие, принятие вызова, просмотр пула, блокировки, выборы и готовность. Оно не назначает победителя и не записывает рейтинг напрямую. Witness не подключается. Имеющиеся механизмы чтения .osr и scores.db сохраняют только вспомогательную роль.
+The Rust app Dossier handles the authorised interface, presence, accepting a challenge, viewing the pool, bans, picks and readiness. It does not name the winner or write rating directly. Witness was not connected at first (superseded by section 27). The existing .osr and scores.db readers keep an auxiliary role only.
 
-В Python выделяются модули: DuelService, MatchmakingService, PoolService, CatalogService, ProfileService, RatingService, RoomCoordinator, BanchoGateway, OsuMatchVerifier, NotificationService и BalanceAdminService. Названия обозначают ответственность, а не требование немедленно разнести всё по разным сетевым сервисам.
+The Python side is split into modules: DuelService, MatchmakingService, PoolService, CatalogService, ProfileService, RatingService, RoomCoordinator, BanchoGateway, OsuMatchVerifier, NotificationService and BalanceAdminService. The names mark responsibilities, not a requirement to split everything into separate network services at once.
 
-Первый запуск допускает один основной процесс с асинхронными задачами и отдельный процесс анализа карт на том же VPS. Очереди надёжных заданий, события, блокировки и outbox хранятся в PostgreSQL; Redis не обязателен. Тяжёлый анализ .osu никогда не выполняется внутри цикла IRC или транзакции игрового действия.
+The first launch allows one main process with async tasks and a separate map analysis process on the same VPS. Durable job queues, events, locks and the outbox live in PostgreSQL; Redis is not required. Heavy .osu analysis never runs inside the IRC loop or a game action's transaction.
 
-Поток основной серии: Dossier → DuelService → сохранённое событие и outbox → RoomCoordinator → BanchoGateway → официальная комната. Обратный поток: Bancho → входящий журнал → состояние дуэли; osu! API → OsuMatchVerifier → подтверждённая попытка → результат серии → портфолио и очередь рейтингового периода. Telegram получает только задания уведомления после фиксации события в базе.
+The main series flow: Dossier → DuelService → stored event and outbox → RoomCoordinator → BanchoGateway → the official room. Back: Bancho → incoming log → duel state; osu! API → OsuMatchVerifier → confirmed attempt → series result → portfolio and the rating period queue. Telegram gets only notification jobs after the event is committed to the database.
 
-### 13 1 Принципы согласованности
+### 13 1 Consistency principles
 
-Каждое действие имеет operation_id, actor_id, duel_id и expected_version. В транзакции сервер блокирует строку дуэли, проверяет роль и версию, применяет допустимый переход, увеличивает версию и пишет событие с заданием внешнего действия. Повтор operation_id возвращает первоначальный ответ. Устаревшая версия даёт конфликт и актуальный снимок.
+Every action carries operation_id, actor_id, duel_id and expected_version. In a transaction the server locks the duel row, checks the role and version, applies an allowed transition, increments the version and writes the event together with the external action's job. Repeating an operation_id returns the original answer. A stale version gives a conflict and the current snapshot.
 
-Команда внешнему сервису не выполняется внутри открытой транзакции. Outbox-работник доставляет её после commit. Между отправкой и подтверждением возможен сбой; поэтому повторяется не вся операция вслепую, а процедура сверки фактического состояния комнаты. Создание комнаты, старт и abort имеют отдельные сценарии неопределённого исхода.
+A command to an external service is never run inside an open transaction. The outbox worker delivers it after commit. A failure between sending and confirmation is possible; so instead of repeating the whole operation blindly, a reconciliation of the room's actual state runs. Creating a room, starting and aborting have their own scenarios for an uncertain outcome.
 
-Один координатор владеет комнатой через lease с epoch. После смены владельца старые задания с прежним epoch отбрасываются перед отправкой. Lease обновляется раз в 5 секунд и истекает через 20 секунд. Само истечение lease не доказывает, что комната закрылась и слот создания свободен.
+One coordinator owns a room through a lease with an epoch. After the owner changes, old jobs with the previous epoch are dropped before sending. The lease is renewed every 5 seconds and expires after 20. A lease expiring does not by itself prove that the room closed and the creation slot is free.
 
-## 14 Модель данных
+## 14 Data model
 
-Все идентификаторы osu! хранятся как целые числа достаточной разрядности. Локальные сущности используют UUID. Времена имеют timezone UTC. Деньги и платежи системой не обрабатываются. Процентные и рейтинговые показатели хранятся без преждевременного округления.
+All osu! ids are stored as integers wide enough. Local entities use UUIDs. Times are in UTC. The system handles no money or payments. Percentages and ratings are stored without premature rounding.
 
-| Сущность | Основные поля и назначение |
+| Entity | Main fields and purpose |
 |---|---|
 | duel | id, mode, state, state_version, rules_version, seed, created_at, finalized_at, outcome_reason |
 | duel_participant | duel_id, user_id, osu_user_id, side, accepted_at, connection_state, calibration_snapshot |
@@ -403,340 +403,343 @@ Rust-приложение Dossier отвечает за авторизованн
 | balance_review | beatmap_id, revision_hash, requested_at, reason, decision, reviewer_id, decided_at |
 | notification_outbox | event_id, user_id, channel, payload, delivery_state, attempts |
 
-Таблица official_evidence хранит исходный официальный ответ и его хеш; изменённый ответ сохраняется отдельной ревизией. Пароли, OAuth-токены, IRC-пароль и Telegram-токен в payload не попадают. У комнаты room_id для присоединения и match_id для истории могут быть разные представления; адаптер не предполагает их равенство без проверки.
+The official_evidence table keeps the original official answer and its hash; a changed answer is kept as a separate revision. Passwords, OAuth tokens, the IRC password and the Telegram token never go into a payload. A room's room_id for joining and its match_id for history may be represented differently; the adapter does not assume they are equal without checking.
 
-Обязательные ограничения: уникальный активный пользователь в очереди/дуэли; уникальный active room_binding по комнате; уникальные (pool_id, slot) и (pool_id, beatmap_id); одно назначение слота на beatmap_id; уникальные (duel_id, turn_index), (round_id, attempt_no), официальный game_id для зачётной попытки, (attempt_id, osu_user_id), (duel_id, sequence), operation_id и ключи начисления рейтинга. Ограничение активного пользователя реализуется отдельной таблицей participant_lease или частичным индексом, а не проверкой только в приложении.
+Mandatory constraints: a unique active user in a queue or duel; a unique active room_binding per room; unique (pool_id, slot) and (pool_id, beatmap_id); one slot assignment per beatmap_id; unique (duel_id, turn_index), (round_id, attempt_no), the official game_id for a counted attempt, (attempt_id, osu_user_id), (duel_id, sequence), operation_id and the rating credit keys. The active user constraint is a separate participant_lease table or a partial index, not a check in the application only.
 
-История матчей, пулов, подтверждённых результатов, правил и рейтинговых переходов хранится постоянно в пределах жизненного цикла аккаунта и принятой политики удаления данных. Технический сырой IRC-журнал хранится 30 дней, ошибки и административный аудит 180 дней, минимальные подтверждения игровых результатов сохраняются с историей. Это проектные сроки, не публичное обещание хранения персональных данных без возможности удаления.
+The history of matches, pools, confirmed results, rules and rating transitions is kept for the account's lifetime and within the accepted data deletion policy. The raw technical IRC log is kept 30 days, errors and the administrative audit 180 days, and minimal confirmations of game results stay with the history. These are design periods, not a public promise to keep personal data without the possibility of deletion.
 
-## 15 Состояния и переходы
+## 15 States and transitions
 
-| Состояние дуэли | Входное событие и действие | Следующее состояние |
+| Duel state | Entering event and action | Next state |
 |---|---|---|
-| INVITED | Создан прямой вызов | ACCEPTED, DECLINED, EXPIRED |
-| MATCH_OFFERED | Найдена пара очереди | ACCEPTED либо возврат принявшего в очередь |
-| ACCEPTED | Оба подтвердили участие | GENERATING_POOL |
-| GENERATING_POOL | Зафиксированы входы генератора | WAITING_ROOM, RANGE_OFFERED, CANCELLED |
-| RANGE_OFFERED | Необходим другой диапазон | GENERATING_POOL при двух согласиях, иначе CANCELLED |
-| WAITING_ROOM | Пул готов и скрыт | ROOM_SETUP либо CANCELLED |
-| ROOM_SETUP | Создание или проверка внешней комнаты | WAITING_PLAYERS либо RECOVERING |
-| WAITING_PLAYERS | Ожидание входа и присутствия | PREPARING либо CANCELLED |
-| PREPARING | Синхронно раскрыт пул | DRAFTING через 120 секунд |
-| DRAFTING | Последовательные четыре блокировки | SELECTING |
-| SELECTING | Законный выбор следующей карты | ROUND_SETUP |
-| ROUND_SETUP | Настройка и сверка комнаты | WAITING_READY, PAUSED либо CANCELLED |
-| WAITING_READY | Оба готовы, присутствие подтверждено | STARTING либо PAUSED |
-| STARTING | Отсчёт и команда запуска | PLAYING либо PAUSED |
-| PLAYING | Карта идёт | VERIFYING, ABORTING либо RECOVERING |
-| ABORTING | Прерывание отправлено | PAUSED после подтверждения остановки |
-| VERIFYING | Сверка официального результата | SELECTING, ROUND_SETUP, FINALIZING либо CANCELLED |
-| PAUSED | Есть причина остановки и точка возврата | ROUND_SETUP, предыдущее безопасное состояние либо терминальный исход |
-| RECOVERING | Потеря инфраструктуры | Восстановленное безопасное состояние либо CANCELLED |
-| FINALIZING | Сохранён естественный или технический исход | COMPLETED |
-| COMPLETED | Основная серия неизменяема | Не меняется; дополнительный TB отдельной сущностью |
-| CANCELLED | Техническая отмена без зачёта | Не меняется |
-| DECLINED, EXPIRED | Вызов не состоялся | Не меняется |
+| INVITED | A direct challenge is created | ACCEPTED, DECLINED, EXPIRED |
+| MATCH_OFFERED | A queue pair is found | ACCEPTED or the accepter returns to the queue |
+| ACCEPTED | Both confirmed | GENERATING_POOL |
+| GENERATING_POOL | The generator's inputs are fixed | WAITING_ROOM, RANGE_OFFERED, CANCELLED |
+| RANGE_OFFERED | Another range is needed | GENERATING_POOL with two consents, otherwise CANCELLED |
+| WAITING_ROOM | The pool is ready and hidden | ROOM_SETUP or CANCELLED |
+| ROOM_SETUP | Creating or checking the external room | WAITING_PLAYERS or RECOVERING |
+| WAITING_PLAYERS | Waiting for entry and presence | PREPARING or CANCELLED |
+| PREPARING | The pool is revealed synchronously | DRAFTING after 120 seconds |
+| DRAFTING | Four bans in turn | SELECTING |
+| SELECTING | A legal pick of the next map | ROUND_SETUP |
+| ROUND_SETUP | Setting up and checking the room | WAITING_READY, PAUSED or CANCELLED |
+| WAITING_READY | Both ready, presence confirmed | STARTING or PAUSED |
+| STARTING | Countdown and the start command | PLAYING or PAUSED |
+| PLAYING | The map is running | VERIFYING, ABORTING or RECOVERING |
+| ABORTING | The abort was sent | PAUSED once the stop is confirmed |
+| VERIFYING | Checking the official result | SELECTING, ROUND_SETUP, FINALIZING or CANCELLED |
+| PAUSED | A reason to stop and a return point exist | ROUND_SETUP, the previous safe state or a terminal outcome |
+| RECOVERING | Infrastructure lost | The restored safe state or CANCELLED |
+| FINALIZING | A natural or technical outcome is saved | COMPLETED |
+| COMPLETED | The main series is fixed | Does not change; the extra TB is a separate entity |
+| CANCELLED | Technical cancellation, not counted | Does not change |
+| DECLINED, EXPIRED | The challenge did not happen | Does not change |
 
-Состояния ROUND_SETUP и SELECTING повторяются по ходу серии. При 2:2 SELECTING автоматически назначает TB. После ничьей VERIFYING возвращает ROUND_SETUP для той же карты с увеличением attempt_no. После ошибки условий попытка становится INVALID; round и счёт серии не изменяются.
+ROUND_SETUP and SELECTING repeat as the series goes on. At 2:2 SELECTING picks TB automatically. After a tie VERIFYING returns to ROUND_SETUP for the same map with attempt_no incremented. After a broken condition the attempt becomes INVALID; the round and the series score do not change.
 
-У дополнительного TB собственные состояния OFFERED, SETUP, PLAYING, VERIFYING, COMPLETED, CANCELLED. Он ссылается на завершённую серию, но не переводит её обратно в PLAYING. Освобождение комнаты связано с окончанием дочерней игры или истечением предложения.
+The extra TB has its own states OFFERED, SETUP, PLAYING, VERIFYING, COMPLETED, CANCELLED. It refers to the finished series but does not move it back to PLAYING. Releasing the room is tied to the end of the child game or the offer expiring.
 
-Каждая пауза хранит причину, предыдущее состояние, дедлайн и контекст попытки. Восстановление не возвращает STARTING автоматически: сначала проверяется, не началась ли игра на сервере osu!. Действие из неподходящего состояния отклоняется с кодом INVALID_STATE и текущим снимком.
+Every pause keeps its reason, the previous state, a deadline and the attempt's context. Recovery never returns to STARTING automatically: first it checks whether the game already began on the osu! server. An action from an unsuitable state is refused with the INVALID_STATE code and the current snapshot.
 
-## 16 Комнаты и интеграция Bancho
+## 16 Rooms and the Bancho integration
 
-### 16 1 Создаваемые ботом комнаты
+### 16 1 Rooms created by the bot
 
-BanchoGateway реализует IRC-клиент, переподключение, PING/PONG, ограничение частоты исходящих сообщений, подписку на комнаты и разбор событий. Официальная документация указывает irc.ppy.sh и отдельный IRC-пароль [S9]. Развёртывание использует согласованный с osu! аккаунт: отдельный bot account нельзя просто зарегистрировать обычным вторым аккаунтом, он оформляется по процедуре osu! [S12]. Отправка запроса на создание аккаунта не является частью автоматического выполнения этого документа.
+BanchoGateway implements the IRC client, reconnecting, PING/PONG, limiting the rate of outgoing messages, subscribing to rooms and parsing events. The official documentation names irc.ppy.sh and a separate IRC password [S9]. The design assumed an account agreed with osu!: a separate bot account cannot simply be registered as an ordinary second account and goes through osu!'s procedure [S12]. A separate account turned out not to be allowed, so the bot runs Bancho under the owner's own account (see section 26).
 
-Лимит создаваемых комнат настраивается, начальное значение 4. Создание использует атомарное резервирование в PostgreSQL. При таймауте команды резерв остаётся неопределённым, пока сверка не докажет наличие либо отсутствие созданной комнаты. Уникальное имя содержит короткий идентификатор дуэли для восстановления. Нельзя повторно отправлять !mp make только потому, что приложение не получило ответ.
+The limit on created rooms is configurable, starting at 4. Creation uses an atomic reservation in PostgreSQL. When a command times out, the reservation stays uncertain until reconciliation proves whether the room was created. A unique name holds a short duel id for recovery. !mp make must never be sent again just because the app got no answer.
 
-Настройка комнаты включает название, пароль, head-to-head, ScoreV2, osu!standard, карту, модификаторы, участников и отсутствие лишних играющих пользователей. Команды управления документированы osu! [S7]. Фактические числовые значения и ответы адаптера проверяются интеграционными тестами. Размер и lock используются после проверки их поведения; право наблюдателя не должно делать его третьим участником раунда.
+Room setup covers the name, password, head-to-head, ScoreV2, osu!standard, the map, mods, players and no extra playing users. The management commands are documented by osu! [S7]. Actual values and the adapter's answers are checked by integration tests. Size and lock are used after their behaviour is checked; a spectator's right must not make them a third participant in a round.
 
-Перед стартом бот сверяет !mp settings и известное состояние Bancho, участников по osu_user_id, текущую карту и моды. Для Freemod проверяется эффективный набор каждого игрока, а не только общий флаг комнаты. Строка от обычного пользователя, похожая на сообщение BanchoBot, не является событием управления. Nick/source проверяется в контексте протокола; переименования участников сопоставляются с их неизменяемыми идентификаторами.
+Before the start the bot checks !mp settings and Bancho's known state, the players by osu_user_id, the current map and mods. For Freemod each player's effective set is checked, not only the room's general flag. A line from an ordinary user that looks like a BanchoBot message is not a control event. The nick/source is checked in the protocol's context; renamed players are matched by their fixed ids.
 
-IRC-события используются для оперативной реакции, а API для окончательной проверки. Событие «игрок закончил» не равно «оба результата подтверждены». Завершение раунда не назначает победителя до проверки официальной игры.
+IRC events are used for quick reactions and the API for the final check. "The player finished" does not mean "both results are confirmed". The end of a round names no winner until the official game is checked.
 
-### 16 2 Очередь комнат
+### 16 2 The room queue
 
-Очередь комнат отдельна от поиска соперника. В ней стоят уже принявшие матч пары со скрытым готовым пулом. Место определяется FIFO по моменту принятия обоими; неисправные или неподтверждённые пары временно пропускаются с объяснением. Освободившаяся комната резервируется следующей доступной паре транзакционно.
+The room queue is separate from the opponent search. It holds pairs that already accepted a match, with a ready hidden pool. The place is FIFO by the moment both accepted; broken or unconfirmed pairs are skipped for a while with an explanation. A freed room is reserved for the next available pair in a transaction.
 
-Оценка ожидания строится из оставшихся игр текущих серий, длительности их карт с модами и медианного времени действий. Показывается диапазон P50–P90 по последним завершённым сериям, а при недостатке истории текст «пока недостаточно данных для оценки». Нельзя обещать точное время, поскольку общей предельной длительности BO5 нет.
+The wait estimate is built from the remaining games of current series, their maps' lengths with mods and the median time of actions. A P50–P90 range over recent finished series is shown, and with too little history the text "not enough data for an estimate yet". An exact time must not be promised, since a BO5 has no overall time limit.
 
-Событие ROOM_READY создаёт одно уведомление в Dossier и одно в Telegram для каждого участника с существующей подтверждённой привязкой чата. Уведомление содержит ссылку и срок входа. Недоступный Telegram не блокирует матч; приложение показывает статус доставки. Повторы отправки не создают новые игровые события. Бот не пишет пользователям, не связавшим свой Telegram с сервисом.
+The ROOM_READY event creates one notice in Dossier and one in Telegram for each participant with an existing confirmed chat link. The notice holds the link and the entry deadline. Telegram being unavailable does not block the match; the app shows the delivery status. Repeated sends create no new game events. The bot never writes to users who did not link their Telegram to the service.
 
-Если оба не вошли за 10 минут, серия отменяется, комната закрывается. Комната считается освобождённой только после подтверждения закрытия либо достоверной сверки отсутствия. Неопределённая закрываемая комната учитывается в лимите; пользовательская очередь получает сообщение о технической задержке.
+If neither enters within 10 minutes, the series is cancelled and the room closed. A room counts as freed only after its closing is confirmed or its absence is reliably reconciled. An uncertain closing room counts towards the limit; the user queue gets a message about a technical delay.
 
-### 16 3 Комната игроков с правами судьи
+### 16 3 A players' room with referee rights
 
-При занятом лимите пара может предоставить ссылку на свою официальную комнату. Оба участника подтверждают привязку в Dossier. Сервер принимает только допустимые osu! ссылки, извлекает идентификатор и сам обращается к фиксированному API; произвольный URL не загружается. Комната не должна быть связана с другой активной дуэлью.
+When the limit is taken, a pair may provide a link to their own official room. Both participants confirm the binding in Dossier. The server accepts only valid osu! links, extracts the id and calls the fixed API itself; an arbitrary URL is never loaded. The room must not be bound to another active duel.
 
-Создатель комнаты добавляет бота судьёй. Бот входит в канал комнаты, проверяет право чтения, изменения настроек, запуска, прерывания и закрытия. Перед допуском выполняется безопасная проверка настроек с подтверждением ответа. Возможность abort проверяется в отдельном интеграционном испытании, а при привязке подтверждается сохраняющаяся роль. Без проверенного набора возможностей матч остаётся в ROOM_SETUP и не становится рейтинговым.
+The room's creator adds the bot as referee. The bot joins the room's channel and checks the rights to read, change settings, start, abort and close. Before admitting the room a safe settings check with a confirmed answer runs. The ability to abort is checked in a separate integration test, and the binding confirms the role still holds. Without a checked set of capabilities the match stays in ROOM_SETUP and does not become rated.
 
-После проверки внешняя комната ведётся по тем же правилам, включая немедленный abort по обнаруженному отключению, обязательное присутствие Dossier и сверку API. Режим «только читаем результат» в первую версию не входит. Если создатель меняет настройки, бот восстанавливает их до запуска; если права судьи отозваны, серия останавливается и после срока восстановления отменяется без рейтинга.
+After the check an external room runs under the same rules, including the immediate abort on a detected disconnect, mandatory Dossier presence and the API check. A "read the result only" mode is not part of the first version. If the creator changes settings, the bot restores them before the start; if referee rights are revoked, the series stops and is cancelled without rating after the recovery deadline.
 
-Внешняя комната не расходует счётчик комнат, созданных ботом, но расходует общий ресурс IRC, API и рабочих задач. Проектный предел одновременно управляемых комнат любого происхождения равен 8: до четырёх созданных ботом и свободные места для внешних. Этот предел включается только после нагрузочной проверки; до неё managed_room_limit равен 4 и интерфейс не обещает обход занятой общей мощности. Поэтому запасной путь решает ограничение создания, но не обещает бесконечной параллельности. Отдельные лимиты created_room_limit и managed_room_limit видны в эксплуатации.
+An external room does not use the counter of rooms created by the bot but does use the shared IRC, API and worker resources. The design limit on rooms managed at once of any origin is 8: up to four created by the bot and free places for external ones. This limit is enabled only after a load test; until then managed_room_limit is 4 and the interface does not promise a way around a busy shared capacity. So the fallback solves the creation limit but does not promise endless parallelism. The separate created_room_limit and managed_room_limit are visible in operation.
 
-Участники при привязке соглашаются, что бот меняет игровые настройки и закрывает эту комнату после серии либо технического таймаута. Если закрыть внешнюю комнату технически невозможно, сервис снимает собственную привязку после проверки отсутствия активной игры и сообщает создателю необходимость закрытия вручную; лимит созданных ботом комнат от этого не меняется.
+When binding, the participants agree that the bot changes game settings and closes the room after the series or a technical timeout. If closing an external room is technically impossible, the service drops its own binding after checking that no game is active and tells the creator to close it by hand; the bot's created room limit does not change because of it.
 
-## 17 Проверка результатов и границы доверия
+## 17 Checking results and trust boundaries
 
-### 17 1 Источники
+### 17 1 Sources
 
-Основное доказательство счёта: игра в истории конкретного официального матча через GET /matches/{id}. История событий имеет пагинацию; используется последовательность event_id и отдельное повторное чтение незавершённого game_id [S8]. Последний cursor не означает, что уже прочитанная игра не могла обновиться.
+The main evidence of a score is the game in the history of the specific official match through GET /matches/{id}. The event history is paginated; the event_id sequence and a separate re-read of an unfinished game_id are used [S8]. The last cursor does not mean that a game already read could not have been updated.
 
-Общие лучшие или последние скоры, результаты карты вне матча, скриншоты, .osr и scores.db не заменяют результат multiplayer. Равенство карты, времени и суммы очков недостаточно, чтобы приписать внешнюю попытку дуэли. Локальные данные не могут подтверждать победу даже при согласии обоих игроков.
+General best or recent scores, map results outside the match, screenshots, .osr and scores.db do not replace the multiplayer result. Equal map, time and score are not enough to attribute an outside attempt to a duel. Local data cannot confirm a win even with both players' consent.
 
-### 17 2 Связывание попытки
+### 17 2 Binding an attempt
 
-Перед запуском сохраняются match_id, слот, beatmap_id, ревизия, два osu_user_id, эффективные моды, номер раунда и попытки, версия правил, время ожидания старта и исходный последний event_id. После старта попытка получает game_id из официальной истории и оперативных событий. Один game_id не может принадлежать двум попыткам или дуэлям.
+Before the start the match_id, slot, beatmap_id, revision, both osu_user_ids, the effective mods, the round and attempt numbers, the rules version, the expected start time and the last event_id are saved. After the start the attempt gets its game_id from the official history and the live events. One game_id cannot belong to two attempts or duels.
 
-Verifier проверяет соответствие комнаты, game_id, карты, режима osu!standard, head-to-head, ScoreV2, времени старта после выдачи команды и состава из двух ожидаемых игроков. Затем проверяет окончание игры, наличие двух результатов, эффективные моды каждого и отсутствие известных событий abort или нарушения условий.
+The verifier checks the room, the game_id, the map, osu!standard, head-to-head, ScoreV2, a start time after the command was sent and a line-up of the two expected players. Then it checks that the game ended, that both results exist, each player's effective mods and that no known abort or broken condition happened.
 
-Хеш ревизии не предполагается доступным во всех ответах API. До запуска сравниваются доступные контрольные сведения карты; серверная копия .osu и каталог сохраняют хеш. Если API не подтверждает поле, verifier не помечает его «проверено API». Ограничение конкретного источника документируется в отчёте интеграционных испытаний. Критически недоказуемое условие отключает рейтинговый допуск соответствующего пути.
+A revision hash is not assumed to be available in every API answer. Before the start the available control data of the map is compared; the server's copy of the .osu and the catalogue keep the hash. If the API does not confirm a field, the verifier does not mark it "checked by the API". A specific source's limit is documented in the integration test report. A critical condition that cannot be proved disables rated admission for that path.
 
-API может показывать игру с неполными результатами. Такие данные имеют состояние PENDING_EVIDENCE. Ноль очков не равен отсутствующему результату. Наличие двух нулевых завершённых результатов обрабатывается как ничья, если остальные условия доказаны. Игрок, вышедший до окончания, не получает искусственный нулевой результат вместо прерванной попытки.
+The API may show a game with incomplete results. Such data is in the PENDING_EVIDENCE state. A score of zero is not a missing result. Two finished zero results count as a tie if the other conditions are proved. A player who left before the end does not get an artificial zero instead of an interrupted attempt.
 
-### 17 3 Порядок событий и задержки
+### 17 3 Order of events and delays
 
-Для событий хранятся время источника, время получения и последовательность. Если официальный завершённый результат предшествует подтверждённому выходу участника, раунд сохраняется и пауза применяется перед следующим. Если отключение подтверждено во время игры, попытка считается прерванной даже при поздно доставленных частичных очках. При противоречивом порядке verifier не угадывает победителя: повторно запрашивает историю и удерживает VERIFYING.
+Events keep the source time, the receiving time and their sequence. If an official finished result precedes a confirmed exit of a participant, the round stands and the pause applies before the next one. If a disconnect is confirmed during play, the attempt counts as interrupted even with late partial scores. With a contradictory order the verifier does not guess a winner: it asks for the history again and holds VERIFYING.
 
-Получение одного и того же результата многократно не меняет счёт серии. Два разных payload одного официального события сохраняются как версии и сравниваются. При расхождении уже финализированных данных не выполняется автоматическое тихое изменение рейтинга.
+Receiving the same result many times does not change the series score. Two different payloads of one official event are kept as versions and compared. When already finalised data differs, rating is never changed automatically and quietly.
 
-Запросы API объединяются для каждой комнаты. Исходный бюджет первой версии: до 30 запросов в минуту на весь модуль дуэлей, с приоритетом завершённых раундов и общим ограничителем вместе с существующей синхронизацией. После события окончания выполняется запрос; при неполных данных повтор через 5, 15, 30 секунд и затем раз в 60 секунд до общего срока 10 минут. Эти интервалы являются проектным бюджетом, не заявленным лимитом osu!. Ответ 429 учитывает Retry-After, остальные временные ошибки используют backoff и jitter. Постоянный опрос профилей игроков не выполняется.
+API requests are combined per room. The first version's budget: up to 30 requests a minute for the whole duel module, with finished rounds first and one limiter shared with the existing sync. After the end event a request is made; with incomplete data it repeats after 5, 15, 30 seconds and then every 60 seconds up to a total of 10 minutes. These intervals are a design budget, not a stated osu! limit. A 429 answer respects Retry-After; other temporary errors use backoff and jitter. Players' profiles are not polled constantly.
 
-### 17 4 Ручная фиксация при техническом сбое
+### 17 4 Manual finalisation after a technical failure
 
-Только владелец или назначенный технический администратор может выполнить manual_finalize. Операция требует конкретных match_id и game_id, доступного официального доказательства, указания причины и журнала действия. Она повторяет те же проверки участника, карты и результата, но позволяет человеку связать правильно сыгранную игру с зависшей попыткой.
+Only the owner or an assigned technical administrator can run manual_finalize. The operation needs a specific match_id and game_id, available official evidence, a stated reason and an action log. It repeats the same checks of players, map and result but lets a person tie a correctly played game to a stuck attempt.
 
-Если официального результата получить нельзя, администратор может отменить серию, но не вводить произвольный счёт для рейтинга. Согласие игроков и локальный реплей не снимают это ограничение. Администратор баланса по умолчанию не получает право ручной фиксации игровых результатов.
+If no official result can be had, an administrator can cancel the series but cannot enter an arbitrary score for rating. Players' consent and a local replay do not lift this limit. A balance administrator does not get the right of manual finalisation by default.
 
-## 18 Восстановление и очистка ресурсов
+## 18 Recovery and cleaning up resources
 
-При запуске процесса сначала блокируется создание новых комнат, затем загружаются активные дуэли, leases, команды с неопределённым исходом и сроки. Координатор восстанавливает IRC-подключение, присоединяется к известным комнатам, запрашивает состояние и историю API. Только после сверки включаются новые выделения ресурсов.
+When the process starts it first blocks creating new rooms, then loads active duels, leases, commands with an uncertain outcome and deadlines. The coordinator restores the IRC connection, joins known rooms and asks for their state and API history. Only after reconciliation are new resource allocations enabled.
 
-Дедлайн восстановления равен моменту начала известной неисправности плюс 10 минут. Если процесс исчез без события, используется время последнего сохранённого heartbeat сервиса плюс 10 минут. Перезапуски не продлевают срок. Уже истёкшие сроки переводят соответствующие дуэли в техническую отмену после сохранения диагностического состояния.
+The recovery deadline is the start of a known fault plus 10 minutes. If the process vanished without an event, the time of the service's last saved heartbeat plus 10 minutes is used. Restarts do not extend the deadline. Deadlines already passed move the matching duels to technical cancellation after the diagnostic state is saved.
 
-Сценарии восстановления:
+Recovery scenarios:
 
-- Комната существует, активной игры нет: проверить участников, карту, моды и присутствие, затем вернуться к безопасной подготовке нужного раунда.
-- Игра завершилась во время сбоя: получить полный официальный результат и проверить привязку. Зачесть только доказанную корректную попытку, затем продолжить серию.
-- Игра всё ещё идёт: при восстановлении контроля прервать её и назначить повтор; сервер не может доказать соблюдение присутствия Dossier на всём неизвестном интервале.
-- Комната закрыта: если состояние и оба участника восстановлены в пределах срока, создать замену с тем же пулом и игровым счётом, связав новый match_id. При отсутствии ресурсов дождаться только оставшегося срока восстановления.
-- Команда создания могла пройти: найти комнату по сохранённому ответу/идентификатору и уникальному имени; пока исход неизвестен, не создавать дубликат и не освобождать резерв.
-- В базе уже сохранён итог: не возвращать серию в игру. Доставить недоставленные уведомления, выполнить недостающую очистку и дождаться единственного применения рейтинга.
+- The room exists with no active game: check players, map, mods and presence, then return to safely preparing the needed round.
+- The game ended during the failure: fetch the full official result and check the binding. Count only a proven correct attempt, then continue the series.
+- The game is still running: on regaining control abort it and schedule a repeat; the server cannot prove Dossier's presence over the whole unknown interval.
+- The room is closed: if the state and both players are restored within the deadline, create a replacement with the same pool and game score, binding the new match_id. Without resources, wait only for the rest of the recovery deadline.
+- A create command may have gone through: find the room by the saved answer/id and the unique name; while the outcome is unknown, do not create a duplicate or free the reservation.
+- The database already holds the result: do not return the series to play. Deliver undelivered notices, finish the missing cleanup and wait for the single application of rating.
 
-Система хранит причины отмены и попытки очистки. Зависшая комната определяется отсутствием ожидаемого перехода после дедлайна текущей фазы, а не общей длительностью серии. Для PLAYING предельный момент технической проверки равен старту плюс фактическая длительность карты с модами плюс 120 секунд. Если игра по официальным данным ещё продолжается, выполняется сверка, а не безусловное присуждение результата.
+The system keeps the reasons for cancellations and cleanup attempts. A stuck room is found by a missing expected transition after the current phase's deadline, not by the series' overall length. For PLAYING the latest moment for a technical check is the start plus the map's real length with mods plus 120 seconds. If the official data says the game is still going, a reconciliation runs rather than an unconditional result.
 
-Закрытие комнаты через !mp close выполняется из задания очистки с повторной сверкой. Если IRC недоступен, запись остаётся CLOSING_UNKNOWN и учитывается в лимите. Эксплуатационный экран показывает такие комнаты и возраст ожидания. Закрытая комната не удаляет историю серии.
+Closing a room with !mp close runs from a cleanup job with another reconciliation. If IRC is unavailable, the record stays CLOSING_UNKNOWN and counts towards the limit. The operations screen shows such rooms and how long they wait. A closed room does not delete the series' history.
 
-## 19 Контракты Dossier и сервера
+## 19 Contracts between Dossier and the server
 
-Маршруты ниже являются проектным интерфейсом нового модуля. Они не утверждают, что соответствующие обработчики уже существуют. Все изменяющие запросы используют авторизацию Dossier, idempotency key и expected_version. Идентичность участника берётся из сессии, не из произвольного user_id в теле.
+The routes below were the new module's design interface. In the code they live under `/render/duels/` (see section 26). Every changing request uses Dossier's authorisation, an idempotency key and expected_version. The participant's identity comes from the session, not from an arbitrary user_id in the body.
 
-| Операция | Назначение и ключевые входы |
+| Operation | Purpose and key inputs |
 |---|---|
-| POST /duels/invitations | opponent_id; создать прямой вызов |
-| POST /duels/{id}/accept | Принять вызов или предложение пары |
-| POST /duels/{id}/decline | Отклонить до начала |
-| POST /duels/queue | Войти в рейтинговую очередь |
-| DELETE /duels/queue | Выйти из поиска |
-| GET /duels/{id} | Снимок состояния, версия, сроки, счёт и разрешённые действия |
-| POST /duels/{id}/pool-ack | Подтвердить доставку определённого manifest_hash |
+| POST /duels/invitations | opponent_id; create a direct challenge |
+| POST /duels/{id}/accept | Accept a challenge or a pair offer |
+| POST /duels/{id}/decline | Decline before the start |
+| POST /duels/queue | Enter the rated queue |
+| DELETE /duels/queue | Leave the search |
+| GET /duels/{id} | A snapshot of state, version, deadlines, score and allowed actions |
+| POST /duels/{id}/pool-ack | Confirm delivery of a specific manifest_hash |
 | POST /duels/{id}/draft-actions | turn_index, action, slot |
-| POST /duels/{id}/ready | round_id, выбранные моды TB, manifest_hash |
-| POST /duels/{id}/external-room | Ссылка официальной комнаты, подтверждение участников |
-| POST /duels/{id}/range-accept | Версия предложенного диапазона |
-| POST /duels/{id}/surrender | Явное подтверждение сдачи |
-| POST /duels/{id}/bonus-tb | Согласие на дополнительный TB |
-| POST /duels/{id}/feedback | Оценка пула, слотов и сложности |
-| GET /duels/history | Пагинированная публичная история |
-| GET /duels/profile/me | Собственное портфолио и неопределённость |
-| POST /admin/duels/{id}/finalize | Официальные доказательства и причина технической фиксации |
-| POST /admin/maps/{id}/review | APPROVE, REJECT или QUARANTINE и причина |
+| POST /duels/{id}/ready | round_id, chosen TB mods, manifest_hash |
+| POST /duels/{id}/external-room | An official room link, participants' confirmation |
+| POST /duels/{id}/range-accept | The offered range's version |
+| POST /duels/{id}/surrender | An explicit confirmation of giving up |
+| POST /duels/{id}/bonus-tb | Consent to an extra TB |
+| POST /duels/{id}/feedback | Rating the pool, slots and difficulty |
+| GET /duels/history | Paginated public history |
+| GET /duels/profile/me | One's own portfolio and uncertainty |
+| POST /admin/duels/{id}/finalize | Official evidence and the reason for a technical finalisation |
+| POST /admin/maps/{id}/review | APPROVE, REJECT or QUARANTINE and a reason |
 
-Поток обновлений WebSocket передаёт event_id, duel_id, state_version, type, payload и server_time. При разрыве клиент запрашивает события после cursor либо полный снимок. Пропущенные события не восстанавливаются по догадке интерфейса. Heartbeat подтверждается сервером, и пользователь видит потерю связи раньше, чем пытается выполнить действие.
+The WebSocket update stream carries event_id, duel_id, state_version, type, payload and server_time. After a break the client asks for the events after its cursor or a full snapshot. Missed events are never rebuilt by the interface's guess. The heartbeat is confirmed by the server, and the user sees a lost connection before trying an action.
 
-Стандартные ошибки: INVALID_STATE, VERSION_CONFLICT, NOT_PARTICIPANT, ALREADY_BUSY, NOT_YOUR_TURN, SLOT_UNAVAILABLE, POOL_UNAVAILABLE, MAP_REVISION_CHANGED, ROOM_CAPACITY_WAIT, ROOM_CONTROL_REQUIRED, EVIDENCE_PENDING, INCOMPATIBLE_CLIENT, SERVICE_RECOVERING. Ответ содержит объяснение на русском, повторяемость действия и актуальное состояние. Ошибка не раскрывает портфолио соперника или секреты интеграции.
+Standard errors: INVALID_STATE, VERSION_CONFLICT, NOT_PARTICIPANT, ALREADY_BUSY, NOT_YOUR_TURN, SLOT_UNAVAILABLE, POOL_UNAVAILABLE, MAP_REVISION_CHANGED, ROOM_CAPACITY_WAIT, ROOM_CONTROL_REQUIRED, EVIDENCE_PENDING, INCOMPATIBLE_CLIENT, SERVICE_RECOVERING. An answer holds an explanation in the user's language, whether the action can be repeated, and the current state. An error never reveals the opponent's portfolio or integration secrets.
 
-Интерфейс содержит путь вызова и очереди, экран ожидания ресурсов, пул с объяснениями, блокировки, текущий раунд, таймеры, восстановление, итог и отзыв. Отображение результата до официальной проверки маркируется «ожидает подтверждения». Кнопки недоступных действий скрываются либо блокируются с причиной; сервер повторно проверяет всё независимо от интерфейса.
+The interface covers the challenge and queue paths, the screen waiting for resources, the pool with explanations, bans, the current round, timers, recovery, the result and feedback. A result shown before the official check is marked "waiting for confirmation". Buttons of unavailable actions are hidden or disabled with a reason; the server checks everything again on its own.
 
-## 20 Отзывы и администрация баланса
+## 20 Feedback and balance administration
 
-Игрок может оценить весь пул и отдельный слот во время или после матча. Оценки разделены: соответствует ли карта назначению; слишком легко, подходит или слишком сложно; ощущалась ли несправедливость знакомства; есть ли техническая проблема. Комментарий необязателен. Одна актуальная оценка от участника на слот заменяет предыдущую, сохраняя историю правок. Публичная оценка не раскрывает скрытые признаки игрока.
+A player can rate the whole pool and a single slot during or after the match. The ratings are separate: whether the map fits its purpose; too easy, right or too hard; whether familiarity felt unfair; whether there was a technical problem. A comment is optional. One current rating per participant per slot replaces the previous one, keeping the edit history. A public rating does not reveal a player's hidden features.
 
-Отзыв проигравшего не получает автоматически меньший вес, отзыв победителя не становится истиной. Для системы важны повторяемость на независимых парах, подтверждённая игра и отделение сложности от соответствия слоту. Отзыв на заблокированную или несыгранную карту учитывается как мнение по предпросмотру с меньшим весом, а не как результат игры.
+The loser's feedback does not automatically weigh less, and the winner's does not become truth. What matters is repetition across independent pairs, a confirmed play and separating difficulty from fitting the slot. Feedback on a banned or unplayed map counts as a preview opinion with a smaller weight, not as a play result.
 
-Для оперативного ранжирования используется сглаженная доля отрицательных отзывов: q_bad = (2 + сумма весов отрицательных) / (4 + сумма весов всех). Вес отзыва по сыгранной карте 1, по предпросмотру 0.25; вклад одного пользователя по карте ограничен 1 за 30 дней. Отзыв добавляет к цене кандидата до 0.5 × max(0, q_bad - 0.5), но не меняет закреплённый слот и обязательные фильтры. Таким образом, обратная связь влияет на следующие генерации без мгновенного переобучения на одном сообщении.
+For quick ranking a smoothed share of negative feedback is used: q_bad = (2 + sum of negative weights) / (4 + sum of all weights). Feedback on a played map weighs 1, on a preview 0.25; one user's contribution per map is capped at 1 per 30 days. Feedback adds up to 0.5 × max(0, q_bad − 0.5) to a candidate's cost but does not change the fixed slot or the mandatory filters. So feedback affects the next generations without instant retraining on a single message.
 
-Неуверенное назначение автоматически создаёт задачу balance_review при раскрытии пула. Карта также направляется на проверку при трёх независимых отрицательных отзывах по соответствию слоту и q_bad не ниже 0.60. Если после пяти сыгранных независимых оценок q_bad достигает 0.75, карта временно исключается до проверки. Порог не заменяет решение администратора.
+An uncertain assignment automatically creates a balance_review task when the pool is revealed. A map also goes to review after three independent negative ratings of slot fit with q_bad at least 0.60. If after five independent played ratings q_bad reaches 0.75, the map is excluded until reviewed. The threshold does not replace an administrator's decision.
 
-Администратор видит доказательства анализа и отзывы, затем подтверждает, отклоняет или помещает карту в карантин. Назначение другого слота запрещено согласно разделу 8. Решение администратора добавляется в эталонную разметку с причиной. Удаление назначения или обход блокировки через новую версию модели недопустимы.
+The administrator sees the analysis evidence and the feedback, then confirms, rejects or quarantines the map. Moving it to another slot follows section 8. The administrator's decision joins the reference labelling with its reason. Deleting an assignment or getting around a block through a new model version is not allowed.
 
-Переобучение запускается по расписанию не чаще раза в сутки при наличии хотя бы 50 новых независимых проверенных меток; иначе сохраняется текущая модель. Негативные отзывы без подтверждённой метки используются как сигнал отбора для проверки, но не как автоматическая истина. Новая модель проходит ту же отложенную выборку, затем теневой расчёт без влияния на игры. Публикацию версии выполняет владелец или назначенный администратор модели; откат возвращает прежнюю версию для новых пулов, не меняя раскрытые.
+Retraining runs on a schedule at most once a day when there are at least 50 new independent checked labels; otherwise the current model stays. Negative feedback without a confirmed label is a signal for picking what to review, not automatic truth. A new model goes through the same held-out sample, then a shadow computation without affecting games. The owner or an assigned model administrator publishes a version; a rollback returns the previous version for new pools without changing revealed ones.
 
-Роли: PLAYER, BALANCE_REVIEWER, TECHNICAL_OPERATOR, MODEL_PUBLISHER, OWNER. Владелец назначает конкретных людей. BALANCE_REVIEWER не изменяет рейтинг, TECHNICAL_OPERATOR не переименовывает слоты, MODEL_PUBLISHER не получает доступ к токенам. Все решения сохраняют actor_id, основание, время и предыдущую версию.
+Roles: PLAYER, BALANCE_REVIEWER, TECHNICAL_OPERATOR, MODEL_PUBLISHER, OWNER. The owner assigns specific people. BALANCE_REVIEWER does not change rating, TECHNICAL_OPERATOR does not rename slots, MODEL_PUBLISHER gets no access to tokens. Every decision keeps actor_id, the grounds, the time and the previous version.
 
-## 21 Наблюдаемость и эксплуатационные ограничения
+## 21 Observability and operating limits
 
-Измеряются длительность поиска, ожидание комнаты, время генерации, причины отсутствия пула, число карт по слоту и уровню, доля неуверенных назначений, повторы, отзывы, нарушения условий, время проверки результата, восстановления, закрытия и задержка рейтингового периода.
+Measured: search time, the wait for a room, generation time, reasons for a missing pool, maps per slot and level, the share of uncertain assignments, repeats, feedback, broken conditions, result check time, recoveries, closing and the rating period's delay.
 
-Для анализатора контролируются precision и recall каждого слота, матрица ошибок, доля OTHER, качество по диапазонам SR, ошибка калибровки уверенности и доля выхода за обучающее распределение. Общая accuracy не заменяет результат самого слабого слота. Для генератора контролируются концентрация карт, мапперов, разность знакомства и распределение выигрышей по праву первого выбора.
+For the analyser: precision and recall per slot, the confusion matrix, the OTHER share, quality per SR range, confidence calibration error and the out-of-distribution share. Overall accuracy does not replace the weakest slot's result. For the generator: concentration of maps and mappers, the familiarity difference and how wins split by first pick.
 
-Для рейтинга контролируются предсказательная ошибка, распределение RD, результаты новых игроков и повторные пары. Glicko-2 не считается валидированным только потому, что библиотека проходит числовой пример. Оценивается также полезность выбранного часового периода на реальной частоте игр.
+For rating: prediction error, the RD distribution, new players' results and repeated pairs. Glicko-2 is not considered validated just because a library passes the worked example. The usefulness of the hourly period at the real frequency of games is evaluated too.
 
-Начальные технические цели: p95 генерации из готового каталога до 10 секунд; p95 внутренней обработки игрового события до 500 миллисекунд; отправка abort после обработанного события отключения до 1 секунды при доступном IRC; отсутствие двойного начисления в любом тесте восстановления. Это цели сервиса, не гарантии скорости Bancho или API.
+Initial technical goals: p95 generation from a ready catalogue under 10 seconds; p95 internal processing of a game event under 500 milliseconds; sending an abort after a processed disconnect event within 1 second while IRC is available; no double credit in any recovery test. These are service goals, not guarantees of Bancho's or the API's speed.
 
-CPU и память анализа карт ограничиваются отдельно. Одновременно анализируется одна карта на малом VPS до нагрузочного измерения; число работников повышается только если не ухудшается реакция координатора. Жёсткий лимит управляемых комнат не вычисляется из числа ядер автоматически. Приёмка запасного пути включает восемь одновременно управляемых комнат, четыре из которых созданы игроками, и проверку IRC-бюджета, API-бюджета, памяти и восстановительных сценариев. Если VPS не выдерживает нагрузку, функция внешних комнат сохраняется, но доступные места ограничиваются измеренной мощностью.
+Map analysis has its own CPU and memory limits. One map at a time is analysed on a small VPS until load is measured; workers are added only if the coordinator's responsiveness does not suffer. The hard limit on managed rooms is never computed automatically from the core count. Accepting the fallback includes eight rooms managed at once, four of them created by players, and checking the IRC budget, the API budget, memory and recovery scenarios. If the VPS cannot carry the load, external rooms stay but the available places are limited to the measured capacity.
 
-Наблюдение администратора допускается через Dossier и разрешённые средства osu!, без добавления третьего играющего участника. В первую версию не включаются формы жалоб на читы и разбор споров, но ошибки сервиса и задачи баланса остаются доступными.
+An administrator may watch through Dossier and osu!'s allowed means, without adding a third playing participant. The first version has no forms for cheating reports or disputes, but service errors and balance tasks stay available.
 
-## 22 Порядок реализации
+## 22 Order of implementation
 
-Этап 1: создать миграции PostgreSQL, новые сущности и транзакционные переходы, изолировать старые SQLite-таблицы. Реализовать журнал, outbox, идемпотентность, сроки и единый снимок состояния. Проверить конкурирующие принятия и блокировки без подключения osu!.
+Stage 1: create PostgreSQL migrations, new entities and transactional transitions, isolate the old SQLite tables. Implement the log, outbox, idempotency, deadlines and one state snapshot. Check competing accepts and locks without connecting to osu!.
 
-Этап 2: реализовать BanchoGateway и RoomCoordinator. На контролируемых тестовых играх доказать создание, вход, настройки ScoreV2 и NF, Freemod, начало, abort, закрытие, потерю прав и восстановление. Отдельно проверить комнату, созданную игроком, с правами судьи. Пока эти проверки не пройдены, рейтинговая очередь выключена.
+Stage 2: implement BanchoGateway and RoomCoordinator. On controlled test games prove creation, entry, ScoreV2 and NF settings, Freemod, the start, abort, closing, losing rights and recovery. Separately check a player-created room with referee rights. Until these checks pass, the rated queue stays off.
 
-Этап 3: подключить чтение истории матчей, пагинацию, привязку game_id, проверку модов и окончательную фиксацию результатов. Проверить отсутствие счёта от локального файла. Настроить бюджет совместно с существующей синхронизацией 1984.
+Stage 3: connect reading match history, pagination, binding game_id, checking mods and the final recording of results. Check that no score comes from a local file. Set the budget together with 1984's existing sync.
 
-Этап 4: импортировать OWC-корпус и подготовить ручную разметку Ranked-кандидатов. Реализовать серверный анализ, объяснения, неизменяемые слоты, карантин и начальный генератор. Для первого замкнутого испытания допустим небольшой вручную подтверждённый каталог; это не заменяет требование автоматического анализа к итоговой версии.
+Stage 4: import the OWC corpus and prepare hand labelling of Ranked candidates. Implement server analysis, explanations, fixed slots, quarantine and the initial generator. A small hand-confirmed catalogue is acceptable for the first closed test; it does not replace the final version's requirement of automatic analysis.
 
-Этап 5: собрать интерфейс полного прямого вызова, таймеры, очередь комнаты, Telegram-уведомление, восстановление и дополнительный TB. Провести тесты BO5 с заранее известным пулом, затем с генератором.
+Stage 5: build the interface of a full direct challenge, timers, the room queue, the Telegram notice, recovery and the extra TB. Run BO5 tests with a known pool, then with the generator.
 
-Этап 6: реализовать портфолио, автоматический cold start, очередь соперников, пять калибровочных серий и рейтинговый период. До включения рейтинга пройти числовые и транзакционные тесты.
+Stage 6: implement the portfolio, the automatic cold start, the opponent queue, five calibration series and the rating period. Pass numeric and transactional tests before rating is turned on.
 
-Этап 7: подключить отзывы, кабинет баланса, ограниченное влияние отзывов на ранжирование, обучение, теневой расчёт и публикацию модели. Измерить покрытие уровней сложности и качество слотов. Недостаточно поддержанный диапазон отображается явно.
+Stage 7: connect feedback, the balance desk, feedback's limited effect on ranking, training, the shadow computation and model publishing. Measure the coverage of difficulty levels and slot quality. A poorly supported range is shown explicitly.
 
-Этап 8: провести приёмку владельцем, нагрузочный прогон с четырьмя комнатами, отключения сети и рестарты во всех фазах. Зафиксировать конфигурацию релиза, версии модели и каталога, инструкцию восстановления и порядок отката. Эти этапы являются порядком разработки одной первой версии, а не переносом согласованных функций в неопределённое будущее.
+Stage 8: run the owner's acceptance, a load run with four rooms, network disconnects and restarts in every phase. Record the release configuration, the model and catalogue versions, the recovery instructions and the rollback procedure. These stages are the development order of one first version, not a move of agreed features into an indefinite future.
 
-## 23 Критерии готовности
+## 23 Acceptance criteria
 
-### 23 1 Правила и интерфейс
+### 23 1 Rules and interface
 
-R01: прямой вызов до калибровки завершается, сохраняется в истории и не изменяет рейтинг или её счётчик. R02: пять естественно завершённых рейтинговых BO5 переводят игрока из калибровки после применения периода. R03: два параллельных принятия не создают две активные дуэли одного пользователя.
+R01: a direct challenge before calibration finishes, is kept in history and changes neither rating nor its counter. R02: five naturally finished rated BO5s take a player out of calibration once the period is applied. R03: two parallel accepts do not create two active duels for one user.
 
-R04: пул содержит ровно девять заданных слотов и девять различных beatmap_id. R05: четыре блокировки в порядке A/B/A/B оставляют четыре карты; выбор B/A/B/A воспроизводится после рестарта. R06: TB нельзя заблокировать, он обязателен при 2:2, а дополнительный TB не меняет исход серии. R07: оба получают один manifest и 120 секунд подготовки; скрытая очередь не раскрывает карты одному раньше другого.
+R04: a pool holds exactly the nine given slots and nine different beatmap_ids. R05: four bans in the order A/B/A/B leave four maps; the picks B/A/B/A replay after a restart. R06: TB cannot be banned, it is mandatory at 2:2, and the extra TB does not change the series' outcome. R07: both get one manifest and 120 seconds of preparation; the hidden queue never reveals maps to one earlier than the other.
 
-R08: запрещённый мод, отсутствие NF, неверная карта или третий играющий участник предотвращают старт; если нарушение всё же произошло, очко не присуждается. R09: интерфейс показывает причину остановки, остаток времени и доступные действия. R10: очередь комнат сообщает место, а оценка ожидания не отображается как точная гарантия.
+R08: a forbidden mod, a missing NF, a wrong map or a third playing participant prevent the start; if a violation still happened, no point is given. R09: the interface shows the reason for a stop, the time left and the available actions. R10: the room queue gives the place, and the wait estimate is not shown as an exact guarantee.
 
-### 23 2 Карты и классификация
+### 23 2 Maps and classification
 
-M01: импорт OWC 2021–2025 воспроизводим по manifest, удаляет повторные обучающие наблюдения и сохраняет конфликтные метки. M02: не-Ranked пример не попадает в игровой каталог через обучение. M03: назначенная NM1 карта не может стать DT1 через API, новую модель или новую ревизию файла. Перенести её может только проверяющий решением «Перенести», и это решение попадает в журнал. Новая опубликованная модель пересматривает лишь неуверенные автоматические назначения.
+M01: the OWC 2021–2025 import is reproducible from its manifest, removes repeated training observations and keeps conflicting labels. M02: a non-Ranked example never enters the game catalogue through training. M03: a map assigned NM1 cannot become DT1 through the API, a new model or a new file revision. Only a reviewer can move it, with a *Move* decision, and that decision goes into the log. A newly published model reconsiders only uncertain automatic assignments.
 
-M04: для каждого слота есть не менее 30 независимых вручную размеченных проверочных карт и отдельные негативные примеры близких слотов. После разбиения по наборам карт ни одна тестовая карта не встречается в обучении. M05: точность положительных допусков не ниже 0.90 по каждому слоту на проверочной выборке; macro-F1 не ниже 0.80. Вместе с показателями публикуются объём выборки и доверительный интервал. Малое число примеров не маскируется округлением процентов.
+M04: every slot has at least 30 independent hand-labelled check maps and separate negative examples of nearby slots. After splitting by map sets no test map appears in training. M05: the precision of positive admissions is at least 0.90 for every slot on the check sample; macro-F1 at least 0.80. The sample size and a confidence interval are published with the numbers. A small number of examples is never hidden by rounding percentages.
 
-M06: для уверенных автоматических назначений измеренная доля ошибок не выше 0.10; если порог не достигнут, соответствующий автоматический допуск выключается, а ручные подтверждённые карты остаются доступны. M07: каждая включённая карта имеет объяснение с вычисленными показателями, версиями и корректной меткой уверенности. M08: аномальные файлы, отсутствующие признаки и выход за распределение не приводят к принудительному заполнению слота.
+M06: for confident automatic assignments the measured error share is at most 0.10; if the threshold is not reached, that automatic admission is turned off and hand-confirmed maps stay available. M07: every included map has an explanation with computed values, versions and a correct confidence mark. M08: abnormal files, missing features and out-of-distribution cases never lead to forcibly filling a slot.
 
-M09: запуск по диапазону сложности требует минимум пяти разных допущенных кандидатов на каждый слот в пределах рабочего коридора и полного пула без нарушения жёстких условий. Один и тот же диапазон проверяется на реальных модах. Уровни, где условия не достигнуты, остаются доступными для запроса, но система честно возвращает отсутствие пула; обещание поддержки всех уровней без каталога не допускается.
+M09: launching for a difficulty range needs at least five different admitted candidates per slot within the working corridor and a full pool without breaking hard conditions. The same range is checked with real mods. Levels where the conditions are not met stay available to ask for, but the system honestly returns that there is no pool; promising support for every level without a catalogue is not allowed.
 
-M10: 1000 генераций на фиксированной матрице пар не создают запрещённых карт, повторов внутри пула и неправильных слотов. Перестановка игроков не меняет цену пула. Доля успешной генерации по поддержанным диапазонам не ниже 95 процентов с учётом разрешённого снятия фильтра истории. Провал качества требует исправления каталога или алгоритма, а не скрытого снятия ограничений.
+M10: 1000 generations on a fixed matrix of pairs create no forbidden maps, repeats within a pool or wrong slots. Swapping the players does not change the pool's cost. The share of successful generation across supported ranges is at least 95 percent, counting the allowed lifting of the history filter. A quality failure needs a fix of the catalogue or the algorithm, not a hidden lifting of limits.
 
-### 23 3 Результаты и восстановление
+### 23 3 Results and recovery
 
-V01: только официальная игра нужного match_id/game_id может изменить счёт. Поддельный реплей, переименованный .osr, локальный scores.db и совпадающий внешний скор не проходят проверку. V02: отсутствие результата не превращается в ноль. V03: пагинация не пропускает ни один нужный раунд, незавершённое событие повторно проверяется после обновления.
+V01: only the official game of the right match_id/game_id can change the score. A forged replay, a renamed .osr, a local scores.db and a matching outside score fail the check. V02: a missing result never turns into zero. V03: pagination never skips a needed round; an unfinished event is checked again after an update.
 
-V04: десятикратная доставка одного события не увеличивает счёт и рейтинг. V05: отключение во время раунда инициирует abort после обнаружения; если abort не подтверждён, новая попытка не запускается. V06: завершение перед выходом и выход до завершения дают разные правильные исходы на записанных последовательностях событий.
+V04: delivering one event ten times increases neither score nor rating. V05: a disconnect during a round triggers an abort after detection; if the abort is not confirmed, no new attempt starts. V06: finishing before leaving and leaving before finishing give different correct outcomes on recorded event sequences.
 
-V07: рестарт в GENERATING_POOL, ROOM_SETUP, STARTING, PLAYING, VERIFYING, FINALIZING и закрытии комнаты приводит к заранее определённому состоянию без дубликатов комнат или рейтинга. V08: серия после истечения 10 минут восстановления отменяется без обновления портфолио, статистики и калибровки. V09: повторный рестарт не продлевает этот дедлайн.
+V07: a restart in GENERATING_POOL, ROOM_SETUP, STARTING, PLAYING, VERIFYING, FINALIZING and while closing a room leads to a predefined state without duplicate rooms or rating. V08: a series is cancelled after the 10 minute recovery expires without updating the portfolio, statistics or calibration. V09: another restart does not extend this deadline.
 
-V10: четыре одновременных резерва создаются, пятый ждёт; таймаут !mp make не освобождает неопределённый слот. V11: внешняя комната без прав судьи не допускается, после подтверждения управления допускается на общих условиях. V12: отзыв прав останавливает управление и не позволяет зачесть непроверенную игру.
+V10: four simultaneous reservations are created, the fifth waits; a !mp make timeout does not free an uncertain slot. V11: an external room without referee rights is not admitted; after control is confirmed it is admitted on the common terms. V12: revoking rights stops control and does not let an unchecked game count.
 
-### 23 4 Рейтинг и обратная связь
+### 23 4 Rating and feedback
 
-G01: числовой пример Glicko-2 проходит с отклонением r и RD менее 0.02. G02: порядок серий внутри периода не влияет на результат. G03: повторный запуск периода не меняет уже записанные значения. G04: обе стороны серии используют один и тот же снимок периода. G05: прямые вызовы, отмены и бонусный TB не создают rating_result.
+G01: the Glicko-2 worked example passes with r and RD off by less than 0.02. G02: the order of series within a period does not affect the result. G03: running a period again does not change values already written. G04: both sides of a series use the same period snapshot. G05: direct challenges, cancellations and the bonus TB create no rating_result.
 
-F01: отзыв доступен только участнику соответствующей серии и не может бесконечно умножаться. F02: отзыв о сложности не превращается в отрицательную метку слота. F03: ручное отклонение немедленно исключает карту из новых пулов, не меняя уже раскрытые. F04: новая модель без проверок и публикации не меняет реальные дуэли. F05: откат модели сохраняет воспроизводимость прошлых пулов.
+F01: feedback is available only to a participant of that series and cannot multiply endlessly. F02: feedback about difficulty never becomes a negative slot label. F03: a person's rejection immediately excludes the map from new pools without changing revealed ones. F04: a new model without checks and publishing does not change real duels. F05: rolling a model back keeps past pools reproducible.
 
-Приёмку выполняет владелец по протоколу, содержащему версии приложения, сервера, базы, модели и правила. В документе приёмки записываются реальные результаты тестов и обнаруженные ограничения. До выполнения этих критериев система является разрабатываемой, а не доказанно готовой к рейтинговой эксплуатации.
+The owner runs the acceptance by a protocol that records the versions of the app, server, database, model and rules. The acceptance document records the real test results and the limits found. Until these criteria are met the system is under development, not proven ready for rated operation.
 
-## 24 Реестр параметров первой версии
+## 24 Parameters of the first version
 
-| Параметр | Начальное значение | Где применяется |
+| Parameter | Initial value | Where it applies |
 |---|---|---|
-| series_wins_required | 3 | Исход BO5 |
-| pool_size | 9 | Генератор |
-| bans_per_player | 2 | Блокировки |
-| preparation_seconds | 120 | Ознакомление |
-| draft_action_seconds | 30 | Блокировка и выбор |
-| ready_seconds | 90 | Подготовка раунда |
-| room_join_seconds | 600 | Вход в комнату |
-| reconnect_seconds | 120 | Возврат игрока |
-| recovery_seconds | 600 | Инфраструктура |
-| evidence_wait_seconds | 600 | Проверка API |
-| app_heartbeat_seconds | 5 | Присутствие Dossier |
-| app_absence_seconds | 20 | Обнаружение потери приложения |
-| created_room_limit | 4 | Созданные ботом комнаты |
-| managed_room_limit | 8 после проверки, до неё 4 | Общая управляемая нагрузка |
-| calibration_series | 5 | Рейтинговая калибровка |
-| rating_period_seconds | 3600 | Общий период UTC |
-| initial_rating / rd / sigma | 1500 / 350 / 0.06 | Новый рейтинг |
-| glicko_tau | 0.5 | Изменчивость |
-| confident_probability / margin | 0.80 / 0.20 | Допуск классификации |
-| uncertain_probability / margin | 0.60 / 0.10 | Допуск с предупреждением |
-| uncertain_maps_per_pool | 2 | Ограничение риска классификации |
-| hd2_max_base_ar | 8.5 | Назначение HD2 |
-| hr2_min_effective_cs | 6.0 | Назначение HR2 |
-| initial_sr_window | 0.4 | Коридор кандидатов |
-| expanded_sr_window | 0.7 | Ступень нехватки |
-| recent_map_days | 7 | Исходный фильтр повторов |
-| max_disconnect_recoveries | 2 | Повторы после потери игрока |
-| max_tie_replays | 2 | Ничьи на одной карте |
-| api_duels_requests_per_minute | 30 | Бюджет модуля до общих ограничений |
+| series_wins_required | 3 | The BO5 outcome |
+| pool_size | 9 | The generator |
+| bans_per_player | 2 | Bans |
+| preparation_seconds | 120 | Familiarisation |
+| draft_action_seconds | 30 | A ban or a pick |
+| ready_seconds | 90 | Preparing a round |
+| room_join_seconds | 600 | Entering the room |
+| reconnect_seconds | 120 | A player's return |
+| recovery_seconds | 600 | Infrastructure |
+| evidence_wait_seconds | 600 | The API check |
+| bonus_tb_seconds | 60 | Consent to an extra TB |
+| app_heartbeat_seconds | 5 | Dossier's presence |
+| app_absence_seconds | 20 | Detecting a lost app |
+| created_room_limit | 4 | Rooms created by the bot |
+| managed_room_limit | 8 after a load test, 4 until then | Total managed load |
+| calibration_series | 5 | Rating calibration |
+| rating_period_seconds | 3600 | The common UTC period |
+| initial_rating / rd / sigma | 1500 / 350 / 0.06 | A new rating |
+| glicko_tau | 0.5 | Volatility |
+| confident_probability / margin | 0.80 / 0.20 | Classification admission |
+| uncertain_probability / margin | 0.60 / 0.10 | Admission with a warning |
+| uncertain_maps_per_pool | 2 | Limiting classification risk |
+| hd2_max_base_ar | 8.5 | Assigning HD2 |
+| hr2_min_effective_cs | 6.0 | Assigning HR2 |
+| initial_sr_window | 0.4 | The candidate corridor |
+| expanded_sr_window | 0.7 | The shortage stage |
+| recent_map_days | 7 | The initial repeat filter |
+| max_disconnect_recoveries | 2 | Repeats after losing a player |
+| max_tie_replays | 2 | Ties on one map |
+| api_duels_requests_per_minute | 30 | The module's budget within the shared limits |
 
-Изменение параметров создаёт новую rules_version. Активная серия продолжает использовать старый снимок, если изменение не вызвано немедленной необходимостью технической остановки. Нельзя менять фильтры, таймеры или условия рейтинга одной стороне во время матча. Версия анализатора, версия рейтинга и версия правил различаются и сохраняются отдельно.
+The live values are in `PARAMETERS` in the bot's `services/duels/rules.py`. Changing a parameter creates a new rules_version. An active series keeps using the old snapshot unless the change is caused by an immediate need for a technical stop. Filters, timers or rating conditions must never change for one side during a match. The analyser version, the rating version and the rules version are different and kept separately.
 
-## 25 Источники и основания
+## 25 Sources and grounds
 
-Источники проверены 23 октября 2026 года. Турнирные страницы используются для происхождения пулов и примеров правил; они не доказывают качество ещё не обученного анализатора. Числовые пороги и архитектура Dossier определены этим проектом. Непосредственное чтение репозиториев Dossier и 1984 при подготовке документа не выполнялось; сведения о текущем коде предоставлены владельцем после его проверки.
+The sources were checked on 23 October 2026. Tournament pages are used for where pools come from and for examples of rules; they do not prove the quality of an analyser not yet trained. Dossier's numeric thresholds and architecture are defined by this project. The Dossier and 1984 repositories were not read directly while preparing the document; information about the code at the time was provided by the owner after checking it.
 
-- S1. [OWC 2021 и опубликованные пулы](https://osu.ppy.sh/wiki/en/Tournaments/OWC/2021).
-- S2. [OWC 2022 и опубликованные пулы](https://osu.ppy.sh/wiki/en/Tournaments/OWC/2022).
-- S3. [OWC 2023 и опубликованные пулы](https://osu.ppy.sh/wiki/en/Tournaments/OWC/2023).
-- S4. [OWC 2024 и опубликованные пулы](https://osu.ppy.sh/wiki/en/Tournaments/OWC/2024).
-- S5. [OWC 2025 и опубликованные пулы](https://osu.ppy.sh/wiki/en/Tournaments/OWC/2025).
-- S6. [Правила и описание слотов организатора Non-Gimmick Tournament](https://osu.ppy.sh/community/forums/topics/1765322). Первичный источник соглашений конкретного турнира, не официальный универсальный стандарт.
-- S7. [Официальные команды управления турнирными комнатами](https://osu.ppy.sh/wiki/en/osu!_tournament_client/osu!tourney/Tournament_management_commands).
-- S8. [Официальная документация osu! API v2](https://osu.ppy.sh/docs/index.html#get-match). История match относится к stable multiplayer; пути rooms для другой модели multiplayer не подменяют её автоматически.
-- S9. [Официальная документация IRC](https://osu.ppy.sh/wiki/en/Community/Internet_Relay_Chat).
-- S10. [Mark E Glickman — алгоритм и числовой пример Glicko-2](https://glicko.net/glicko/glicko2.pdf).
-- S11. [rosu-pp — исходный проект расчёта сложности и производительности](https://github.com/MaxOhn/rosu-pp). Кандидат для реализации с обязательной фиксацией версии и проверкой stable.
-- S12. [Правила получения bot account](https://osu.ppy.sh/wiki/en/Bot_account).
-- S13. [Правила Sedi's Scuffed Amateur Tourney](https://osu.ppy.sh/community/forums/topics/1512165). Первичное описание организатором навыковых слотов.
-- S14. [Правила 6 Digit United States Cup 3](https://osu.ppy.sh/community/forums/topics/2151355). Пример альтернативного назначения DT2 и DT3.
+- S1. [OWC 2021 and its published pools](https://osu.ppy.sh/wiki/en/Tournaments/OWC/2021).
+- S2. [OWC 2022 and its published pools](https://osu.ppy.sh/wiki/en/Tournaments/OWC/2022).
+- S3. [OWC 2023 and its published pools](https://osu.ppy.sh/wiki/en/Tournaments/OWC/2023).
+- S4. [OWC 2024 and its published pools](https://osu.ppy.sh/wiki/en/Tournaments/OWC/2024).
+- S5. [OWC 2025 and its published pools](https://osu.ppy.sh/wiki/en/Tournaments/OWC/2025).
+- S6. [The Non-Gimmick Tournament organiser's rules and slot descriptions](https://osu.ppy.sh/community/forums/topics/1765322). A primary source for one tournament's conventions, not an official universal standard.
+- S7. [Official tournament room management commands](https://osu.ppy.sh/wiki/en/osu!_tournament_client/osu!tourney/Tournament_management_commands).
+- S8. [Official osu! API v2 documentation](https://osu.ppy.sh/docs/index.html#get-match). Match history belongs to stable multiplayer; the rooms paths of the other multiplayer model do not stand in for it automatically.
+- S9. [Official IRC documentation](https://osu.ppy.sh/wiki/en/Community/Internet_Relay_Chat).
+- S10. [Mark E Glickman: the Glicko-2 algorithm and worked example](https://glicko.net/glicko/glicko2.pdf).
+- S11. [rosu-pp, the original difficulty and performance computation project](https://github.com/MaxOhn/rosu-pp). A candidate for implementation with a mandatory pinned version and a check against stable.
+- S12. [Rules for getting a bot account](https://osu.ppy.sh/wiki/en/Bot_account).
+- S13. [Sedi's Scuffed Amateur Tourney rules](https://osu.ppy.sh/community/forums/topics/1512165). The organiser's primary description of skill slots.
+- S14. [6 Digit United States Cup 3 rules](https://osu.ppy.sh/community/forums/topics/2151355). An example of assigning DT2 and DT3 differently.
 
-OWC-корпус ещё требуется загрузить, разобрать и разметить по контракту Dossier. В этом документе нет утверждения, что карты пяти турниров уже были проанализированы по .osu или что модель достигла целевых метрик. Результат подготовки: полная спецификация реализации и проверки, а не готовый обученный генератор.
+When written, the OWC corpus still had to be downloaded, parsed and labelled by Dossier's contract. The document did not claim that the five tournaments' maps had been analysed from .osu or that the model had reached the target metrics. Its result was a full specification of implementation and checks, not a trained generator.
 
-## 26 Состояние кода на 29 октября 2026 года
+## 26 State of the code on 7 November 2026
 
-Документ принят владельцем как есть. Ниже отмечено, чем текущий код Dossier и 1984 отличается от того, что документ предполагает; это список работ, а не поправки к правилам.
+The owner accepted the document as it is. Below is how the current code of Dossier and 1984 differs from what the document assumes; it is a work list, not an amendment to the rules.
 
-Сделано:
+Done:
 
-- База: PostgreSQL через SQLAlchemy 2 async и asyncpg на сервере. Старые таблицы прежних дуэлей остались только в SQLite-файле `botdata.db`.
-- Bancho: IRC-клиент `services/duels/bancho.py` открывает и настраивает комнаты командами `!mp`, принимает чужую комнату по ссылке и прерывает раунд.
-- Результаты: `services/duels/verifier.py` читает `GET /matches/{id}`, сверяет карту, моды и игроков и сохраняет доказательства.
-- Обновления: WebSocket в боте (`services/duels/live.py`) и в приложении (`native/src/duels.rs`), heartbeat приложения раз в 5 секунд.
-- Звёзды с модами берутся из `beatmaps/{id}/attributes` API osu!, файлы `.osu` только с зеркал.
-- Каталог и Kamerton: импорт OWC 2021–2025, очередь проверяющих, дополнительный слот, обучение с проверкой по отложенным годам. Kamerton сам допускает карты только в слотах, где проверено не меньше 10 его уверенных ответов и верны не меньше 90% (M06); в остальных слотах играют только карты, подтверждённые людьми.
-- Генератор не собирает пул, если в рабочем коридоре какого-либо слота меньше пяти разных допущенных карт (M09).
-- Пул собирается по схеме 7+2: семь карт из собранного каталога и две, найденные Kamerton среди новых ranked. Если найденные не встают в коридор, генератор берёт одну, затем ни одной.
-- Раунд, конец которого сервер не услышал (рестарт, обрыв IRC), через длину карты и 10 минут уходит на проверку по API; не подтверждённая за 10 минут остановка карты отменяет серию без рейтинга (V08). Дедлайны хранятся в базе с абсолютным временем, поэтому рестарт их не продлевает (V09).
+- Database: PostgreSQL through SQLAlchemy 2 async and asyncpg on the server (the bot moved to PostgreSQL on 8 October 2026).
+- Bancho: the IRC client `services/duels/bancho.py` opens and sets up rooms with `!mp` commands, takes someone else's room by link and aborts a round. osu! does not allow a separate account, so the bot runs Bancho under the owner's account, NaumRedlo.
+- Results: `services/duels/verifier.py` reads `GET /matches/{id}`, checks the map, mods and players and keeps the evidence.
+- Updates: a WebSocket in the bot (`services/duels/live.py`) and in the app (`native/src/duels.rs`), the app's heartbeat every 5 seconds.
+- Routes: the section 19 operations live under `/render/duels/` in `services/duels/http.py`. Outcome reasons are stored in lowercase (`unresolved_tie`, `control_failure`, `pool_unavailable` and others).
+- Stars with mods come from the osu! API's `beatmaps/{id}/attributes`, and `.osu` files only from mirrors.
+- Catalogue and Kamerton: the OWC 2021–2025 import, the reviewers' queue, the extra slot, training checked on held-out years. Kamerton admits maps on its own only in slots where at least 10 of its confident answers were checked and at least 90% were right (M06); in the other slots only maps confirmed by people are played.
+- The generator does not build a pool if any slot's working corridor has fewer than five different admitted maps (M09).
+- A pool is built as 7+2: seven maps from the collected catalogue and two that Kamerton found among new ranked maps. If the found maps do not fit the corridor, the generator takes one, then none.
+- A round whose end the server did not hear (a restart, a broken IRC connection) goes to an API check after the map's length and 10 minutes; a map stop not confirmed within 10 minutes cancels the series without rating (V08). Deadlines are stored in the database with absolute times, so a restart does not extend them (V09).
+- A ban or a pick is one click (since 6 November 2026), and a meeting screen comes before every duel.
 
-Не сделано:
+Not done:
 
-- Bot account по процедуре osu! не оформлен; реальная серия на сервере ещё не сыграна.
-- Нет отчёта M04: по многим слотам меньше 30 вручную проверенных карт, и доверительные интервалы точности пока не публикуются (M05).
-- Нет теста на 1000 генераций по матрице реальных пар (M10) и проверки рестарта в каждом состоянии (V07); есть тест на 1000 пулов по синтетическому каталогу.
-- Дуэли идут только на stable, Dossier обязателен на всю серию; Glicko-2 и калибровка включены.
+- No real series has been played on the server yet.
+- No M04 report: many slots have fewer than 30 hand-checked maps, and accuracy confidence intervals are not published yet (M05).
+- No test of 1000 generations over a matrix of real pairs (M10) and no restart check in every state (V07); there is a test of 1000 pools over a synthetic catalogue.
+- Duels run only on stable, and Dossier is required for the whole series; Glicko-2 and calibration are on.
 
-## 27 Witness в дуэлях
+## 27 Witness in duels
 
-Решение владельца от 23 октября 2026 года заменяет фразы «Witness не подключается» и «чтение памяти Witness» в разделах 2, 13 и 10: Witness участвует в дуэлях. Поддержка osu! оценила чтение памяти игры как нежелательное; владелец принял этот риск для своих игроков, Witness по-прежнему работает только при включённом переключателе.
+The owner's decision of 23 October 2026 replaces the phrases "Witness is not connected" and "reading memory with Witness" in sections 2, 13 and 10: Witness takes part in duels. osu! support considered reading the game's memory undesirable; the owner accepted this risk for his players, and Witness still works only with its switch on.
 
-- Назначение: проверка хода раунда в реальном времени и наблюдение за игрой через сервер и движок Dossier. Witness передаёт серверу состояние игры участника: карту, моды, время в карте, счёт, комбо, попадания и признаки выхода из карты или закрытия игры.
-- Окончательный счёт раунда по-прежнему берётся только из официального матча (раздел 17). Данные Witness не назначают победителя и не меняют рейтинг.
-- Расхождение между Witness и официальным результатом (другая карта, другие моды, заметно иной счёт) записывается в журнал серии с обоими значениями и отмечается для технического оператора; автоматических наказаний нет.
-- Отключение: прекращение данных Witness во время раунда при живом heartbeat Dossier, выход из карты или закрытие игры по Witness являются достоверными событиями для abort из раздела 6 наравне с событиями Bancho.
-- Наблюдение: сервер ретранслирует живые кадры Witness участникам и наблюдателям серии; движок Dossier восстанавливает по ним картину раунда. Кадры не хранятся дольше журнала IRC (30 дней).
-- Трансляция: при включённом Witness приложение участника отправляет на сервер кадры его игры (положение курсора, нажатия, время), которые Witness читает из записи текущей игры. Сервер раздаёт их зрителям, а движок Dossier у зрителя рисует игровое поле по той же карте с зеркала и тем же модам с задержкой в несколько секунд для буфера. Попадания на экране зрителя считает движок; официальным остаётся результат матча.
-- Игрок с выключенным Witness может играть дуэль: проверка результата идёт по официальному матчу, а живое наблюдение и раннее обнаружение отключения для него недоступны, о чём сообщается сопернику до принятия.
+- Purpose: checking a round's progress in real time and watching the game through the server and Dossier's engine. Witness passes the server the participant's game state: the map, mods, the time in the map, score, combo, hits and signs of leaving the map or closing the game.
+- A round's final score still comes only from the official match (section 17). Witness data names no winner and does not change rating.
+- A difference between Witness and the official result (another map, other mods, a noticeably different score) is written to the series' log with both values and flagged for the technical operator; there are no automatic penalties.
+- Disconnects: Witness data stopping during a round while Dossier's heartbeat is alive, leaving the map or closing the game according to Witness are reliable events for the abort of section 6, on a par with Bancho's events.
+- Watching: the server relays live Witness frames to the series' participants and spectators; Dossier's engine rebuilds the round from them. Frames are kept no longer than the IRC log (30 days).
+- Streaming: with Witness on, the participant's app sends the server frames of their game (cursor position, presses, time) that Witness reads from the current play's record. The server hands them to spectators, and Dossier's engine at the spectator's draws the field from the same map off a mirror with the same mods, a few seconds behind for a buffer. Hits on the spectator's screen are counted by the engine; the match result stays official.
+- A player with Witness off can still play a duel: the result is checked through the official match, but live watching and early disconnect detection are unavailable for them, which the opponent is told before accepting.

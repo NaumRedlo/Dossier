@@ -49,9 +49,10 @@ impl Scene<'_> {
             y += step * GAUGE_GRAPH;
         }
         let top = y + (drawn - 1.0) * step;
+        let rank_room = rows.iter().map(|row| font.width(&format!("{}", row.place + 1), size * BOARD_RANK_SIZE)).fold(0.0, f32::max);
         for row in &rows {
             let baseline = top - row.slot * step + size * 1.15;
-            self.draw_board_row(pixmap, font, row, left, baseline, width, card_height, size, time_ms);
+            self.draw_board_row(pixmap, font, row, left, baseline, width, card_height, size, rank_room, time_ms);
         }
     }
 
@@ -132,6 +133,7 @@ impl Scene<'_> {
         width: f32,
         card_height: f32,
         size: f32,
+        rank_room: f32,
         time_ms: f64,
     ) {
         let presence = row.presence;
@@ -257,7 +259,6 @@ impl Scene<'_> {
             );
         }
 
-        let rank_column = card_height * BOARD_RANK_COLUMN;
         let rank_colour = match row.place {
             0..=2 => self.skin.podium[row.place],
             _ => lighten(colour, BOARD_RANK_LIFT),
@@ -266,7 +267,7 @@ impl Scene<'_> {
             pixmap,
             Label {
                 text: &format!("{}", row.place + 1),
-                x: left + width - card_height * 0.18,
+                x: left + width - card_height * BOARD_RANK_INSET,
                 y: baseline + size * 0.46,
                 size: size * BOARD_RANK_SIZE,
                 colour: with_alpha(rank_colour, 0.95 * presence),
@@ -275,7 +276,7 @@ impl Scene<'_> {
         );
 
         let text_x = face_x + face + card_height * 0.2;
-        let text_room = left + width - rank_column - text_x;
+        let text_room = left + width - card_height * BOARD_RANK_INSET - rank_room - size * BOARD_NAME_GAP - text_x;
         let wanted = name_size(&row.entry.name, font, size).max(size * NAME_LEAST);
         let wide = font.width(&row.entry.name, wanted);
         let fitted = if wide > text_room && wide > 0.0 { (wanted * text_room / wide).max(size * NAME_LEAST) } else { wanted };

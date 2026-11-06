@@ -113,7 +113,8 @@ const BOARD_DARK_KNEE: f32 = 0.86;
 
 const BOARD_FACE: f32 = 0.72;
 
-const BOARD_RANK_COLUMN: f32 = 0.5;
+const BOARD_RANK_INSET: f32 = 0.18;
+const BOARD_NAME_GAP: f32 = 0.55;
 const BOARD_RANK_SIZE: f32 = 1.2;
 
 const BOARD_RANK_LIFT: f32 = 0.35;

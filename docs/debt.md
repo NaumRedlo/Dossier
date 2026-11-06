@@ -1,137 +1,114 @@
-# Реестр долга и находки аудита
+# Debt register and audit findings
 
-Ведётся с 6 ноября 2026 года. Сюда записывается всё, что сознательно оставлено
-недоделанным, и всё, что нашёл аудит. У каждой записи есть цена, то есть что
-будет, если её не гасить, и выпуск, к которому её нужно погасить. Запись
-закрывается коммитом, который её гасит, и тогда удаляется из этого файла.
+Kept since 6 November 2026. Everything left unfinished on purpose and everything
+the audit found is written here. Every entry has a price, what happens if it is
+not paid off, and the release by which it should be. An entry is closed by the
+commit that pays it off and is then removed from this file.
 
-Серьёзность: **высокая**: можно навредить игрокам или их данным,
-**средняя**: ломается работа или проверка, **низкая**: неудобство
-или будущая цена.
+Severity: **high**: players or their data can be harmed; **medium**: work or
+checks break; **low**: an inconvenience or a future cost.
 
-## Безопасность
+## Security
 
-### Б1. Правило рендера только для своих ещё не выложено (высокая)
+### S1. Rendering only for one's own chats is not deployed yet (high)
 
-7 ноября в боте сделано: доверия и списков больше нет. Привязанное
-устройство берёт только задания своего владельца и задания бесед, где
-владелец состоит (членство проверяется у Telegram при каждом запросе
-задания, с кэшем на 2 минуты). Для чужой беседы не рендерит никто, кроме
-общего токена работника. У аккаунтов без Telegram своё задание сверяется
-по игроку osu!.
+Done in the bot on 7 November: there is no trust and no lists any more. A paired
+device takes only its owner's jobs and the jobs of chats its owner is in
+(membership is asked from Telegram on every job request and kept for 2 minutes).
+Nobody renders for someone else's chat except the shared worker token. For
+accounts without Telegram, one's own job is matched by osu! player.
 
-Осталось:
+Left:
 
-- выложить бот и перезапустить службу `1984`;
-- сверять длительность видео с длиной реплея перед публикацией в беседу.
+- deploy the bot and restart the `1984` service;
+- compare the video's length with the replay's before posting it to a chat.
 
-Погасить: до 0.97.9 выкладка, сверка длительности в 0.98.2.
+Pay off: deployment before 0.98.0 ships, the length check in 0.98.2.
 
-### Б3. Проверка зависимостей не идёт в CI (низкая)
+### S6. Updates are checked only against a hash from the same release (low)
 
-Уязвимости от 6 ноября закрыты 7 ноября: TLS обновлён в пределах 0.23,
-`zip` переведён на 9, обновлятор и архивы карт распаковываются своей
-функцией `unzip.rs` без `extract`. Новую уязвимость сейчас заметит только
-тот, кто сам запустит `cargo deny check advisories`.
+The updater checks the archive against `SHA256SUMS` from the same release. That
+protects from a broken download, not from a hijacked GitHub account.
 
-Без исправления остаются неподдерживаемые `paste`, `pin-utils`, `rustybuzz`,
-`ttf-parser`, `zbus_names`, `zvariant`. Их тянут iced и wgpu, заменить их
-можно только обновлением iced (К3).
+Fix: sign `SHA256SUMS` with a key whose public half is built into the app (for
+example minisign). The key is kept outside GitHub.
 
-Решение: `cargo deny check advisories` в CI на каждый пуш, неподдерживаемые
-крейты iced записаны в исключения с причиной.
+Pay off: 0.100.0.
 
-Погасить: 0.98.0.
+### S8. The device token is stored in plain text (low)
 
-### Б6. Обновление проверяется только хешем из того же релиза (низкая)
+`settings.json` with mode 0600 on macOS and Linux, with the profile's default
+rights on Windows. A copy of the profile folder carries the token away.
 
-Обновлятор сверяет архив с `SHA256SUMS`, который лежит в том же релизе.
-От битой загрузки это защищает, от взлома аккаунта GitHub нет.
+Fix: the system keychain (Keychain, Credential Manager, Secret Service).
+Price: one more dependency and a settings migration.
 
-Решение: подписывать `SHA256SUMS` ключом, открытая часть которого зашита
-в приложение (например, minisign). Ключ хранится вне GitHub.
+Pay off: not before 0.100.0, by the owner's decision.
 
-Погасить: 0.100.0.
+### Accepted risk: Witness reading game memory
 
-### Б8. Токен устройства хранится открытым текстом (низкая)
+osu! support did not approve reading memory. The owner accepted this risk on
+23 October 2026; Witness is turned on only by a switch. It is written here so
+the question is not reopened.
 
-`settings.json` с правами 0600 на macOS и Linux, на Windows с правами
-профиля по умолчанию. Копия папки профиля уносит токен.
+## Process
 
-Решение: связка ключей системы (Keychain, Credential Manager, Secret Service).
-Цена: ещё одна зависимость и миграция настроек.
+### P2. A shipped version was rebuilt under the same number (medium)
 
-Погасить: не раньше 0.100.0, по решению владельца.
+On 6 November 0.97.8 was rebuilt with a fix. Whoever has the old 0.97.8 is not
+offered the new one by the auto update.
 
-### Принятый риск: чтение памяти игры Witness
+Rule: any fix after a release gets a new number.
 
-Поддержка osu! не одобрила чтение памяти. Владелец принял этот риск
-23 октября 2026 года, Witness включается только переключателем. Здесь
-это записано, чтобы не открывать вопрос заново.
+### P4. The gallery cannot see parts of the screen (medium)
 
-## Процесс
+Feed cards in the gallery have no covers, so the GPU frames did not catch the
+covers going missing on 5 November. The subscription sheet goldens are out of
+date and were never refreshed.
 
-### П1. CI не проверяет рабочую ветку (высокая)
+Fix: scenes with covers in the feed, a review of outdated goldens (new PNGs are
+looked at first; tests never update them).
 
-`ci.yml` запускается на пуш в `global` и на pull request, а работа идёт
-в `continuum`, которая на 6 ноября опережает `global` на 128 коммитов.
-Релиз собирается с тега и тестов не запускает. Тесты идут только локально.
+Pay off: 0.98.0.
 
-Решение: CI на каждый пуш в `continuum`, тег релиза ставится только
-на коммит с зелёным CI.
+### P5. Cache regressions were found by people, not tests (medium)
 
-Погасить: 0.98.0.
+Limiting the caches on 5 November broke avatars and covers, and testers found it.
 
-### П2. Вышедшую версию пересобирали под тем же номером (средняя)
+Fix: tests for the frame cache (`film.rs`, a picture twice in one frame) and for
+the Community picture cache, and a long session memory measurement before
+choosing limits.
 
-6 ноября 0.97.8 пересобрали с исправлением. У кого старая 0.97.8, тем
-автообновление новую не предложит.
+Pay off: 0.98.0.
 
-Правило: любое исправление после выхода получает новый номер.
+## Code
 
-### П4. Галерея не видит части экрана (средняя)
+### C1. Big screen files (low, growing)
 
-Карточки ленты в галерее без обложек, поэтому кадры GPU не поймали пропажу
-обложек 5 ноября. Эталоны листа подписки устарели и не обновлялись.
+`main_screen.rs` 7896 lines, `ui.rs` 6364, `desk_screen.rs` 4100,
+`gallery.rs` 2715, `pools_screen.rs` 2100. Every change in them touches other
+screens, and parallel changes collide.
 
-Решение: сцены с обложками в ленте, пересмотр устаревших эталонов
-(новые PNG сначала просматриваются, тесты их не обновляют).
+Fix: move screens into modules only together with work on them and only without
+changing behaviour, in a separate commit with tests and the gallery run. No big
+one-off move: it risks everything at once.
 
-Погасить: 0.98.0.
+### C2. Light edges on pictures (medium)
 
-### П5. Регрессии кэшей нашли люди, а не тесты (средняя)
+Came up on 31 October, 1 and 6 November. The cause was the same each time: in a
+stack the veil and the picture under it share an edge, and iced takes the stack's
+height from its first layer.
 
-Ограничение кэшей 5 ноября сломало аватарки и обложки, это нашли тестеры.
+Fix: one `ui` wrapper for "a picture under a veil" that shortens the lower
+layers, and every such stack replaced by it.
 
-Решение: тесты на кэш кадров (`film.rs`, картинка дважды за кадр) и на кэш
-картинок Сообщества, замер памяти за долгую сессию перед выбором пределов.
+Pay off: 0.98.0.
 
-Погасить: 0.98.0.
+### C3. Unmaintained iced dependencies (low)
 
-## Код
-
-### К1. Большие файлы экранов (низкая, растёт)
-
-`main_screen.rs` 7896 строк, `ui.rs` 6364, `desk_screen.rs` 4100,
-`gallery.rs` 2715, `pools_screen.rs` 2100. Каждая правка в них задевает
-чужие экраны, а параллельные правки сталкиваются.
-
-Решение: выносить экраны в модули только вместе с работой над ними и только
-без изменения поведения, отдельным коммитом с прогоном тестов и галереи.
-Большой разовый перенос не делаем: он рискует всем сразу.
-
-### К2. Светлые края у картинок (средняя)
-
-Всплывали 31 октября, 1 и 6 ноября. Причина каждый раз одна: в стопке
-у затемнения и картинки под ним общий край, а iced берёт высоту стопки
-по первому слою.
-
-Решение: одна обёртка в `ui` для «картинка под затемнением», которая
-укорачивает нижние слои, и замена ею всех таких стопок.
-
-Погасить: 0.98.0.
-
-### К3. Неподдерживаемые зависимости iced (низкая)
-
-См. Б3. Ждём новую версию iced, своя копия `iced_wgpu` лежит в
-`native/vendor` и при обновлении должна быть сверена заново.
+`paste`, `pin-utils`, `rustybuzz`, `ttf-parser`, `zbus_names` and `zvariant` are
+pulled in by iced and wgpu and can only be replaced by an iced update. The CI
+advisories job reports unmaintained crates only among direct dependencies
+(`unmaintained = "workspace"` in `deny.toml`), so these do not fail it, while any
+vulnerability does. We wait for a new iced; our copy of `iced_wgpu` in
+`native/vendor` has to be compared again on that update.

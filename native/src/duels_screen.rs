@@ -64,8 +64,7 @@ pub const REVEAL: f32 = 1.9;
 pub const TURN: f32 = 1.0;
 pub const ROUND: f32 = 2.4;
 pub const RESULT: f32 = 3.3;
-pub const HOLD: f32 = 2.5;
-pub const LET_GO: f32 = 0.55;
+pub const SEND: f32 = 0.35;
 
 #[derive(Debug, Clone, Default)]
 pub struct Moments {
@@ -76,9 +75,8 @@ pub struct Moments {
     pub met_at: Option<std::time::Instant>,
     pub turns: usize,
     pub turn_at: Option<std::time::Instant>,
-    pub hold: Option<(String, std::time::Instant)>,
-    pub let_go: Option<(String, f32, std::time::Instant)>,
     pub sent: Option<String>,
+    pub sent_at: Option<std::time::Instant>,
 }
 
 pub fn since(at: Option<std::time::Instant>) -> f32 {
@@ -128,8 +126,7 @@ pub enum Message {
     Profile(i64),
     Tempo(i64, Option<f32>),
     PreviewEnded,
-    Grip(String),
-    Release,
+    Choose(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -247,15 +244,7 @@ impl State {
             || (moments.phase == Some(Phase::Ready) && moments.from == Some(Phase::Draft) && phase_time < ROUND)
             || (moments.phase == Some(Phase::Result) && moments.from.is_some_and(|from| from != Phase::Result) && phase_time < RESULT)
             || since(moments.turn_at) < TURN
-            || moments.hold.is_some()
-            || moments.let_go.as_ref().is_some_and(|(_, _, at)| at.elapsed().as_secs_f32() < LET_GO)
-    }
-
-    fn let_go(&mut self) {
-        if let Some((slot, at)) = self.moments.hold.take() {
-            let share = (at.elapsed().as_secs_f32() / HOLD).min(1.0);
-            self.moments.let_go = Some((slot, share, std::time::Instant::now()));
-        }
+            || (moments.sent.is_some() && since(moments.sent_at) < SEND)
     }
 
     fn step(&mut self, message: Message, now: i64) -> Vec<Effect> {
@@ -446,9 +435,12 @@ impl State {
                 }
                 effects
             }
-            Message::Frame if self.moments.hold.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs_f32() >= HOLD) => {
-                let Some((slot, _)) = self.moments.hold.take() else { return Vec::new() };
+            Message::Choose(slot) => {
+                if self.moments.sent.is_some() || self.acting {
+                    return Vec::new();
+                }
                 self.moments.sent = Some(slot.clone());
+                self.moments.sent_at = Some(std::time::Instant::now());
                 self.step(Message::Act("draft-actions", serde_json::json!({ "slot": slot })), now)
             }
             Message::Frame => {
@@ -510,19 +502,7 @@ impl State {
                 }
                 effects
             }
-            Message::Grip(slot) => {
-                if self.moments.hold.is_none() && self.moments.sent.is_none() && !self.acting {
-                    self.moments.hold = Some((slot, std::time::Instant::now()));
-                    self.moments.let_go = None;
-                }
-                Vec::new()
-            }
-            Message::Release => {
-                self.let_go();
-                Vec::new()
-            }
             Message::Hover(None) => {
-                self.let_go();
                 self.hovered = None;
                 self.rested = None;
                 if self.hearing.take().is_some() {
@@ -836,9 +816,8 @@ pub(crate) fn slab_faded() -> impl Fn(&iced::Theme) -> container::Style + 'stati
     let k = ui::fade();
     move |theme| {
         let mut style = theme::slab(theme);
-        if let Some(iced::Background::Color(fill)) = style.background {
-            style.background = Some(iced::Background::Color(Color { a: fill.a * k, ..fill }));
-        }
+        let fill = theme::workspace::SURFACE;
+        style.background = Some(iced::Background::Color(Color { a: fill.a * k, ..fill }));
         style.border.color.a *= k;
         style
     }

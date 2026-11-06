@@ -571,7 +571,12 @@ pub fn plan_name(plan: &Plan) -> String {
 }
 
 fn unix_of(value: &Option<String>) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(value.as_deref()?).ok().map(|date| date.timestamp())
+    let said = value.as_deref()?.trim();
+    if let Ok(date) = chrono::DateTime::parse_from_rfc3339(said) {
+        return Some(date.timestamp());
+    }
+    let bare = said.trim_end_matches('Z').split('+').next().unwrap_or_default();
+    chrono::NaiveDateTime::parse_from_str(bare, "%Y-%m-%dT%H:%M:%S%.f").ok().map(|date| date.and_utc().timestamp())
 }
 
 pub fn until(held: &Subscription, words: &Words, now: i64) -> String {
@@ -766,7 +771,12 @@ pub fn sheet<'a>(state: &'a State, words: &'a Words, signed_in: bool, now: i64) 
         Some(held) if held.access && !state.changing && !state.waiting() => {
             let active = held.state == "active";
             body = body.push(head(state, held, words));
-            body = body.push(told(words.with(if active { "billing-paid-renews" } else { "billing-ends-cancelled" }, &[("date", until(held, words, now))])));
+            let date = until(held, words, now);
+            body = body.push(told(match (active, date.is_empty()) {
+                (true, true) => words.t("billing-renews-plain"),
+                (false, true) => words.t("billing-ends-plain"),
+                (active, false) => words.with(if active { "billing-paid-renews" } else { "billing-ends-cancelled" }, &[("date", date)]),
+            }));
             if let Some(span) = span(held, words, now) {
                 body = body.push(span);
             }
@@ -902,6 +912,16 @@ mod tests {
         state.update(Message::Open, Instant::now());
         state.update(Message::Plans(Ok(catalogue())), Instant::now());
         state
+    }
+
+    #[test]
+    fn a_paid_date_is_read_with_or_without_its_zone() {
+        let at = Some(1_796_119_200);
+        assert_eq!(unix_of(&Some("2026-12-01T10:00:00Z".into())), at);
+        assert_eq!(unix_of(&Some("2026-12-01T10:00:00.250000Z".into())), at);
+        assert_eq!(unix_of(&Some("2026-12-01T10:00:00".into())), at);
+        assert_eq!(unix_of(&Some("2026-12-01T10:00:00+00:00Z".into())), at);
+        assert_eq!(unix_of(&Some("soon".into())), None);
     }
 
     #[test]

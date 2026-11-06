@@ -1449,21 +1449,56 @@ impl<Message> canvas::Program<Message> for Bar {
 
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
-        let width = bounds.width * self.fraction.clamp(0.0, 1.0);
-        if width > 0.5 {
-            let r = theme::CONTROL_RADIUS;
-            let right = (width - (bounds.width - r)).clamp(0.0, r);
-            let face = Path::rounded_rectangle(
-                Point::ORIGIN,
-                Size::new(width, bounds.height),
-                iced::border::Radius { top_left: r, top_right: right, bottom_right: right, bottom_left: r },
-            );
-            frame.fill(&face, Color { a: 0.16 * self.alpha, ..ACCENT });
-            let line = bottom_slice(bounds.size(), 1.0, r - 1.0, 2.0, width);
-            frame.fill(&line, Color { a: ACCENT.a * self.alpha, ..ACCENT });
-        }
+        let bar = EdgeBar { fraction: self.fraction, colour: ACCENT, radius: theme::CONTROL_RADIUS, edge: 1.0, thick: 2.0, tint: 0.16, alpha: self.alpha };
+        bar.paint(&mut frame, bounds.size());
         vec![frame.into_geometry()]
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EdgeBar {
+    pub fraction: f32,
+    pub colour: Color,
+    pub radius: f32,
+    pub edge: f32,
+    pub thick: f32,
+    pub tint: f32,
+    pub alpha: f32,
+}
+
+impl EdgeBar {
+    pub fn paint(&self, frame: &mut Frame, size: Size) {
+        let width = size.width * self.fraction.clamp(0.0, 1.0);
+        if width <= 0.5 {
+            return;
+        }
+        let r = self.radius;
+        if self.tint > 0.0 {
+            let right = (width - (size.width - r)).clamp(0.0, r);
+            let face = Path::rounded_rectangle(
+                Point::ORIGIN,
+                Size::new(width, size.height),
+                iced::border::Radius { top_left: r, top_right: right, bottom_right: right, bottom_left: r },
+            );
+            frame.fill(&face, Color { a: self.tint * self.alpha, ..self.colour });
+        }
+        let line = bottom_slice(size, self.edge, (r - self.edge).max(0.0), self.thick, width);
+        frame.fill(&line, Color { a: self.colour.a * self.alpha, ..self.colour });
+    }
+}
+
+impl<Message> canvas::Program<Message> for EdgeBar {
+    type State = ();
+
+    fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        self.paint(&mut frame, bounds.size());
+        vec![frame.into_geometry()]
+    }
+}
+
+pub fn edge_bar<'a, Message: 'a>(bar: EdgeBar) -> Element<'a, Message> {
+    Canvas::new(bar).width(Length::Fill).height(Length::Fill).into()
 }
 
 pub fn progress<'a, Message: Clone + 'a>(words: String, fraction: f32, on: Option<Message>) -> Element<'a, Message> {
@@ -2126,7 +2161,7 @@ fn bottom_slice(size: Size, edge: f32, radius: f32, thick: f32, until: f32) -> P
         let dy = (y - centre_y).max(0.0).min(radius);
         edge + radius - (radius * radius - dy * dy).max(0.0).sqrt()
     };
-    let right_at = |y: f32| (w - left_at(y)).min(until);
+    let right_at = |y: f32| (w - left_at(y)).min(until).max(left_at(y));
     let steps = 6;
     Path::new(|b| {
         b.move_to(Point::new(left_at(top), top));

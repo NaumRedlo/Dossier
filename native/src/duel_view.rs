@@ -128,8 +128,8 @@ fn picture<'a>(state: &State, entry: &Entry, high: f32, wide: f32) -> Element<'a
 
 fn faded_picture<'a>(state: &State, entry: &Entry, high: f32, wide: f32, opacity: f32) -> Element<'a, Message> {
     match entry.beatmapset_id.and_then(|set| state.covers.get(&set)) {
-        Some(handle) => ui::framed(handle, wide, high, 14.0).opacity(opacity * ui::fade()).into(),
-        None => container(Space::new().width(Length::Fill).height(high)).style(plate(ROW, 14.0)).into(),
+        Some(handle) => container(ui::framed(handle, wide, high - 2.0, 13.0).opacity(opacity * ui::fade())).padding(1).into(),
+        None => container(container(Space::new().width(Length::Fill).height(high - 2.0)).style(plate(ROW, 13.0))).padding(1).into(),
     }
 }
 
@@ -162,12 +162,11 @@ struct Motion {
     fill_colour: Color,
     shade: f32,
     glare: f32,
-    grip: bool,
 }
 
 impl Default for Motion {
     fn default() -> Self {
-        Motion { fill: 0.0, fill_colour: Color::TRANSPARENT, shade: 1.0, glare: 0.0, grip: false }
+        Motion { fill: 0.0, fill_colour: Color::TRANSPARENT, shade: 1.0, glare: 0.0 }
     }
 }
 
@@ -213,8 +212,7 @@ fn moving_card<'a>(state: &State, entry: &Entry, frame: Option<(Color, bool)>, d
         layers.push(portions(motion.shade, shade(), true));
     }
     if motion.fill > 0.0 {
-        let bar = container(Space::new().width(Length::Fill).height(5)).style(plate(motion.fill_colour, 2.5));
-        layers.push(column![Space::new().height(Length::Fill), container(portions(motion.fill, bar.into(), false)).height(5).padding(Padding { left: 12.0, right: 12.0, ..Padding::ZERO })].padding(Padding { bottom: 7.0, ..Padding::ZERO }).into());
+        layers.push(ui::edge_bar(ui::EdgeBar { fraction: motion.fill, colour: motion.fill_colour, radius: 14.0, edge: 0.0, thick: EDGE_THICK, tint: 0.14, alpha: ui::fade() }));
     }
     let layered = iced::widget::Stack::with_children(layers).width(Length::Fill).height(CARD_HIGH);
     let (edge_colour, glows) = frame.unwrap_or((Color::TRANSPARENT, false));
@@ -232,10 +230,7 @@ fn moving_card<'a>(state: &State, entry: &Entry, frame: Option<(Color, bool)>, d
     if !lively {
         return pressable;
     }
-    let mut watched = mouse_area(pressable).on_enter(Message::Hover(Some(entry.beatmap_id))).on_exit(Message::Hover(None));
-    if motion.grip {
-        watched = watched.on_press(Message::Grip(entry.slot.clone())).on_release(Message::Release).interaction(iced::mouse::Interaction::Pointer);
-    }
+    let watched = mouse_area(pressable).on_enter(Message::Hover(Some(entry.beatmap_id))).on_exit(Message::Hover(None));
     iced::widget::float(watched).scale(1.0 + 0.03 * lift + 0.02 * beat).into()
 }
 
@@ -274,11 +269,8 @@ fn status<'a>(heading: String, right: Vec<Element<'a, Message>>, lit: Option<Col
     for part in right {
         line = line.push(part);
     }
-    let mut body = column![line].spacing(10);
-    if let Some(fraction) = progress {
-        body = body.push(track(fraction, lit.unwrap_or(theme::ACCENT)));
-    }
-    container(body)
+    let lined = lit.is_some();
+    let card = container(line)
         .padding(Padding { top: 14.0, right: 18.0, bottom: 14.0, left: 18.0 })
         .width(640)
         .style({
@@ -291,9 +283,14 @@ fn status<'a>(heading: String, right: Vec<Element<'a, Message>>, lit: Option<Col
                 }
                 style
             }
-        })
-        .into()
+        });
+    match progress {
+        Some(fraction) => stack![card, ui::edge_bar(ui::EdgeBar { fraction, colour: lit.unwrap_or(theme::ACCENT), radius: 16.0, edge: if lined { 1.5 } else { 0.0 }, thick: EDGE_THICK, tint: 0.0, alpha: ui::fade() })].width(640).into(),
+        None => card.into(),
+    }
 }
+
+pub(crate) const EDGE_THICK: f32 = 3.0;
 
 fn centred<'a>(inside: Element<'a, Message>) -> Element<'a, Message> {
     container(inside).center_x(Length::Fill).into()
@@ -312,15 +309,6 @@ pub(crate) fn sign_tile<'a, M: 'a>(icon: Icon, colour: Color) -> Element<'a, M> 
     }).into()
 }
 
-pub(crate) fn track<'a, M: 'a>(share: f32, colour: Color) -> Element<'a, M> {
-    let filled = (share.clamp(0.0, 1.0) * 1000.0).round() as u16;
-    let bar = row![
-        container(Space::new()).width(Length::FillPortion(filled.max(1))).height(6).style(plate(colour, 3.0)),
-        Space::new().width(Length::FillPortion((1000 - filled).max(1))),
-    ];
-    container(bar).width(Length::Fill).style(plate(Color::from_rgba(1.0, 1.0, 1.0, 0.08), 3.0)).into()
-}
-
 fn deadline_total(duel: &Duel) -> Option<i64> {
     duel.deadlines.iter().find_map(|deadline| match deadline.kind.as_str() {
         "room_join" => Some(600),
@@ -333,13 +321,12 @@ fn room_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> Element<'a,
     let heading = if waiting { w.t("duels-room-waiting-players") } else { w.t("duels-room-opening") };
     let mut lines = column![row![sign_tile(Icon::Clock, WAIT), strong(heading, 20.0, INK)].spacing(14).align_y(Alignment::Center)].spacing(14);
     let left = seconds_left(duel, now);
+    let mut room_share = None;
     match (left, deadline_total(duel)) {
         (Some(left), Some(total)) => {
             let spent = (total - left).clamp(0, total);
-            lines = lines.push(column![
-                row![words(w.t("duels-room-waiting"), 13.0, MUTED), Space::new().width(Length::Fill), strong(w.with("duels-room-of", &[("spent", clock(spent)), ("total", clock(total))]), 13.0, INK)].align_y(Alignment::Center),
-                track(spent as f32 / total.max(1) as f32, CLOCK),
-            ].spacing(8));
+            lines = lines.push(row![words(w.t("duels-room-waiting"), 13.0, MUTED), Space::new().width(Length::Fill), strong(w.with("duels-room-of", &[("spent", clock(spent)), ("total", clock(total))]), 13.0, INK)].align_y(Alignment::Center));
+            room_share = Some(spent as f32 / total.max(1) as f32);
         }
         (Some(left), None) => {
             lines = lines.push(row![words(w.t("duels-room-left"), 13.0, MUTED), Space::new().width(Length::Fill), bold(clock(left), 16.0, CLOCK)].align_y(Alignment::Center));
@@ -362,7 +349,11 @@ fn room_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> Element<'a,
         buttons = buttons.push(outlined(strong(w.t("duels-cancel-duel"), theme::BODY, INK), (!state.acting).then(|| Message::Act("surrender", serde_json::json!({})))));
     }
     lines = lines.push(buttons);
-    centred(container(lines).padding(22).width(660).style(slab_faded()).into())
+    let card = container(lines).padding(22).width(660).style(slab_faded());
+    match room_share {
+        Some(fraction) => centred(stack![card, ui::edge_bar(ui::EdgeBar { fraction, colour: CLOCK, radius: 16.0, edge: 0.0, thick: EDGE_THICK, tint: 0.0, alpha: ui::fade() })].width(660).into()),
+        None => centred(card.into()),
+    }
 }
 
 fn entries(duel: &Duel) -> Vec<Entry> {
@@ -453,25 +444,15 @@ fn draft_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> (Element<'
         let frame = match (entry.slot.as_str(), mark) {
             ("TB", _) => None,
             (_, Some(colour)) => Some((colour, !banned)),
-            _ if free && acting.is_some() => Some((Color { a: 0.45, ..actor_colour }, false)),
+            _ if free && acting.is_some() => Some((ui::mix(actor_colour, theme::GROUND, 0.45), false)),
             _ => None,
         };
         let moments = &state.moments;
         let latest = duel.draft.last().filter(|turn| turn.slot == entry.slot && duel.draft.len() == moments.turns);
         let fresh = latest.map(|turn| (crate::duels_screen::since(moments.turn_at), Some(turn.by) != Some(state.player)));
-        let mut motion = Motion { grip: free && my_turn, fill_colour: actor_colour, ..Motion::default() };
-        if let Some((slot, at)) = &moments.hold {
-            if *slot == entry.slot {
-                motion.fill = (at.elapsed().as_secs_f32() / crate::duels_screen::HOLD).min(1.0);
-            }
-        }
-        if let Some((slot, share, at)) = &moments.let_go {
-            if *slot == entry.slot && motion.fill == 0.0 {
-                motion.fill = share * (1.0 - ease(at.elapsed().as_secs_f32() / crate::duels_screen::LET_GO));
-            }
-        }
+        let mut motion = Motion { fill_colour: actor_colour, ..Motion::default() };
         if moments.sent.as_deref() == Some(entry.slot.as_str()) {
-            motion.fill = 1.0;
+            motion.fill = ease(crate::duels_screen::since(moments.sent_at) / crate::duels_screen::SEND).max(0.08);
         }
         if let Some((t, theirs)) = fresh {
             let start = if theirs { 0.5 } else { 0.0 };
@@ -482,8 +463,9 @@ fn draft_view<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> (Element<'
             let k = ease((t - start) / 0.45);
             motion.shade = k;
         }
-        let frame = if motion.fill > 0.0 { Some((motion.fill_colour, true)) } else { frame };
-        moving_card(state, entry, frame, banned || entry.slot == "TB", free, None, motion)
+        let choosable = free && my_turn && moments.sent.is_none() && !state.acting;
+        let press = choosable.then(|| Message::Choose(entry.slot.clone()));
+        moving_card(state, entry, frame, banned || entry.slot == "TB", free, press, motion)
     }).collect();
     let body = column![strip, chips, grid(cells)].spacing(12).into();
     (body, acting.map(|(_, side)| (side_colour(side), side == "A")))

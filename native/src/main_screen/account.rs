@@ -139,7 +139,12 @@ impl Main {
                 if let Some((_, fraction)) = left {
                     lines = lines.push(billing::bar(fraction, if held.state == "active" { theme::NOTICE_SUCCESS } else { theme::NOTICE_INFO }));
                 }
-                let told = w.with(if held.state == "active" { "billing-paid-until" } else { "billing-ends" }, &[("date", billing::until(held, w, self.now_unix))]);
+                let date = billing::until(held, w, self.now_unix);
+                let told = match (held.state == "active", date.is_empty()) {
+                    (true, true) => w.t("billing-renews-plain"),
+                    (false, true) => w.t("billing-ends-plain"),
+                    (active, false) => w.with(if active { "billing-paid-until" } else { "billing-ends" }, &[("date", date)]),
+                };
                 lines = lines.push(row![container(text(told).font(theme::SANS).size(14.0).color(ui::faded(INK))).width(Length::Fill), billing::outlined(w.t("billing-manage"), Some(open))].spacing(10).align_y(iced::Center));
             }
             _ => {

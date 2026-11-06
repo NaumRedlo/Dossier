@@ -1375,7 +1375,7 @@ fn motion_states(community: &dyn Fn(crate::community_screen::Section, Option<usi
     frames![states;
         ("motion-meet".to_owned(), staged("WAITING_PLAYERS", Moments { phase: Some(Phase::Room), phase_at: ago(seconds), met_at: ago(seconds), ..Moments::default() })),
         ("motion-reveal".to_owned(), staged("PREPARING", Moments { phase: Some(Phase::Reveal), from: Some(Phase::Room), phase_at: ago(seconds), ..Moments::default() })),
-        ("motion-hold".to_owned(), staged("DRAFTING", Moments { phase: Some(Phase::Draft), turns: 3, hold: Some(("NM1".to_owned(), ago(seconds).unwrap_or_else(std::time::Instant::now))), ..Moments::default() })),
+        ("motion-choose".to_owned(), staged("DRAFTING", Moments { phase: Some(Phase::Draft), turns: 3, sent: Some("NM1".to_owned()), sent_at: ago(seconds), ..Moments::default() })),
         ("motion-turn".to_owned(), staged("DRAFTING", Moments { phase: Some(Phase::Draft), turns: 3, turn_at: ago(seconds), ..Moments::default() })),
         ("motion-round".to_owned(), staged("WAITING_READY", Moments { phase: Some(Phase::Ready), from: Some(Phase::Draft), phase_at: ago(seconds), ..Moments::default() })),
         ("motion-result".to_owned(), staged("COMPLETED", Moments { phase: Some(Phase::Result), from: Some(Phase::Playing), phase_at: ago(seconds), ..Moments::default() })),

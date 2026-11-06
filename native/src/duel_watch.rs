@@ -254,7 +254,6 @@ impl<M> canvas::Program<M> for Field {
         };
         let cursor_at = |(x, y): (f32, f32)| Point::new(left + x.clamp(-64.0, FIELD.width + 64.0) * scale, top + y.clamp(-48.0, FIELD.height + 48.0) * scale);
         frame.fill(&Path::rounded_rectangle(Point::ORIGIN, bounds.size(), 16.0.into()), seen(Color::from_rgba(0.024, 0.012, 0.02, 0.72)));
-        frame.stroke(&Path::rounded_rectangle(Point::new(0.5, 0.5), Size::new(bounds.width - 1.0, bounds.height - 1.0), 16.0.into()), Stroke::default().with_width(1.0).with_color(seen(Color::from_rgba(1.0, 1.0, 1.0, 0.08))));
         self.draw_objects(&mut frame, &at, scale, &seen);
         let count = self.trail.len();
         for (index, pair) in self.trail.windows(2).enumerate() {
@@ -303,11 +302,8 @@ impl<M> canvas::Program<M> for Field {
             });
         }
         if let Some(progress) = self.progress {
-            let (high, inset) = (5.0, 14.0);
-            let wide = bounds.width - inset * 2.0;
-            let top = bounds.height - high - 8.0;
-            frame.fill(&Path::rounded_rectangle(Point::new(inset, top), Size::new(wide, high), (high / 2.0).into()), seen(Color::from_rgba(1.0, 1.0, 1.0, 0.08)));
-            frame.fill(&Path::rounded_rectangle(Point::new(inset, top), Size::new((wide * progress.clamp(0.0, 1.0)).max(high), high), (high / 2.0).into()), seen(self.colour));
+            let bar = ui::EdgeBar { fraction: progress, colour: self.colour, radius: 16.0, edge: 0.0, thick: crate::duel_view::EDGE_THICK, tint: 0.0, alpha: self.alpha };
+            bar.paint(&mut frame, bounds.size());
         }
         vec![frame.into_geometry()]
     }

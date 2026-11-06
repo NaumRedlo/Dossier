@@ -382,7 +382,10 @@ impl State {
 
     pub fn rank_of(&self, plan: &Plan) -> usize {
         let offer = offer_of(plan);
-        self.tiers().iter().position(|(tier, _)| tier == offer).unwrap_or(0)
+        self.tiers().iter().position(|(tier, _)| tier == offer).or_else(|| {
+            let badge = self.badge()?;
+            std::iter::once(&badge.tier).chain(&badge.owned).find(|tier| tier.offer == offer).and_then(|tier| tier.rank)
+        }).unwrap_or(0)
     }
 
     pub fn stage(&self) -> u8 {
@@ -390,8 +393,7 @@ impl State {
     }
 
     pub fn tint_of(&self, plan: &Plan) -> Color {
-        let offer = offer_of(plan);
-        tint_at(self.tiers().iter().position(|(tier, _)| tier == offer).unwrap_or(0))
+        tint_at(self.rank_of(plan))
     }
 
     pub fn periods(&self) -> Vec<String> {
@@ -742,7 +744,7 @@ fn head<'a>(state: &State, held: &'a Subscription, words: &'a Words) -> Element<
     let (said, ink, fill) = badge(held, words);
     let mut line = row![crate::badge::mark(Some(state.rank_of(&held.plan)), state.stage(), 26.0), text(plan_name(&held.plan)).font(theme::SANS_SEMI).size(26.0).color(ui::faded(INK)), pill(said, ink, fill), ui::grow()].spacing(12).align_y(iced::Center);
     if held.access {
-        line = line.push(text(price(&held.plan, words)).font(theme::MONO_BOLD).size(16.0).color(ui::faded(INK))).push(text(period(&held.plan, words)).font(theme::SANS).size(14.0).color(ui::faded(MUTED)));
+        line = line.push(text(price(&held.plan, words)).font(theme::SANS_SEMI).size(17.0).color(ui::faded(INK))).push(text(period(&held.plan, words)).font(theme::SANS).size(14.0).color(ui::faded(MUTED)));
     }
     line.into()
 }
@@ -912,6 +914,20 @@ mod tests {
         state.update(Message::Open, Instant::now());
         state.update(Message::Plans(Ok(catalogue())), Instant::now());
         state
+    }
+
+    #[test]
+    fn a_held_plan_missing_from_the_catalogue_takes_its_rank_from_the_badge() {
+        let mut state = State::new(String::new(), "RUB");
+        let mut top = held("active", true, None);
+        top.plan = plan("e", "PERIOD_YEAR", "RUB", "19900.0");
+        let tier = crate::bot::BadgeTier { offer: "e".into(), name: "E".into(), rank: Some(4) };
+        top.badge = Some(crate::bot::Badge { tier: tier.clone(), title: tier.clone(), owned: vec![tier], ..crate::bot::Badge::default() });
+        state.held = Some(Some(top.clone()));
+        assert_eq!(state.rank_of(&top.plan), 4);
+        assert_eq!(state.tint_of(&top.plan), tint_at(4));
+        state.held = Some(Some(held("active", true, None)));
+        assert_eq!(state.rank_of(&plan("e", "MONTHLY", "RUB", "1.0")), 0);
     }
 
     #[test]

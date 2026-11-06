@@ -826,6 +826,13 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         let level = |offer: &str, name: &str, rank: usize| crate::bot::BadgeTier { offer: offer.into(), name: name.into(), rank: Some(rank) };
         worn.badge = Some(crate::bot::Badge { tier: level("b", "Делегат", 1), title: level("b", "Делегат", 1), owned: vec![level("a", "Сторонник", 0), level("b", "Делегат", 1)], stage: 4, served_days: 800, show_badge: true, show_title: true, active: true });
     }
+    let mut menu_top = menu_account.clone();
+    if let Some(Some(worn)) = menu_top.billing.held.as_mut() {
+        worn.plan = tier("e", "Член Президиума", "PERIOD_YEAR", "RUB", "19900.0");
+        worn.paid_until = None;
+        let level = |offer: &str, name: &str, rank: usize| crate::bot::BadgeTier { offer: offer.into(), name: name.into(), rank: Some(rank) };
+        worn.badge = Some(crate::bot::Badge { tier: level("e", "Член Президиума", 4), title: level("e", "Член Президиума", 4), owned: vec![level("e", "Член Президиума", 4)], stage: 2, served_days: 40, show_badge: true, show_title: true, active: true });
+    }
     let mut menu_quiet = menu_account.clone();
     menu_quiet.billing.held = Some(None);
     let mut menu_waiting = menu_account.clone();
@@ -857,6 +864,8 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         coming.plan = tier("c", "Комиссар", "MONTHLY", "RUB", "490.0");
         old.change = Some(Box::new(coming));
     }
+    let mut billing_top = billing_plans.clone();
+    billing_top.billing.held = menu_top.billing.held.clone();
     let mut billing_cancelled = billing_plans.clone();
     billing_cancelled.billing.held = Some(Some(held("cancelled", true, Some(UNTIL), None)));
     let mut billing_failed = billing_plans.clone();
@@ -1066,6 +1075,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-notifications".to_owned(), notifications),
         ("main-menu-guest".to_owned(), menu_guest),
         ("main-menu-account".to_owned(), menu_account),
+        ("main-menu-top".to_owned(), menu_top),
         ("main-menu-quiet".to_owned(), menu_quiet),
         ("main-menu-waiting".to_owned(), menu_waiting),
         ("main-menu-feed".to_owned(), menu_feed),
@@ -1073,6 +1083,7 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
         ("main-billing-failed".to_owned(), billing_failed),
         ("main-billing-waiting".to_owned(), billing_waiting),
         ("main-billing-active".to_owned(), billing_active),
+        ("main-billing-top".to_owned(), billing_top),
         ("main-billing-change".to_owned(), billing_change),
         ("main-billing-changing".to_owned(), billing_changing),
         ("main-billing-cancelled".to_owned(), billing_cancelled),

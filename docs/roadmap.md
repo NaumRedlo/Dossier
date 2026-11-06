@@ -1,411 +1,387 @@
-# Дорога до Dossier 0.100.0
+# The road to Dossier 0.100.0
 
-Составлена 6 ноября 2026 года. Найденные проблемы и принятые компромиссы
-лежат в `docs/debt.md`, номера вида Б1 и П1 ссылаются туда. Критерии M и V
-ссылаются на раздел 23 `docs/duels.md`.
+Drawn up on 6 November 2026. Problems found and compromises taken live in
+`docs/debt.md`; labels like S1 and P1 point there. Criteria M and V point to
+section 23 of `docs/duels.md`.
 
-## Как устроен каждый выпуск
+## How every release is built
 
-Переделка существующего опаснее нового: каждое изменение старого поведения
-задевает тех, кто к нему привык, и данные, которые уже лежат на дисках.
-Поэтому у каждого выпуска пять частей:
+Reworking what exists is more dangerous than adding something new: every change
+to old behaviour touches the people used to it and the data already on their
+disks. So every release has five parts:
 
-1. **Тема.** Одна на выпуск. Всё, что не относится к теме, кроме исправлений,
-   ждёт своего выпуска.
-2. **Задачи по приоритету:**
-   - **обязательно**: без этого выпуск не выходит;
-   - **желательно**: делается, если обязательное готово, иначе уходит
-     в следующий выпуск первым пунктом;
-   - **если успеем**: переносится без сожаления.
-3. **Меняется в существующем.** Каждое изменение старого поведения отдельной
-   строкой: что увидит игрок, что станет с его настройками и файлами,
-   как откатить.
-4. **Совместимость с ботом.** Сервер выкладывается первым и принимает
-   и новую, и предыдущую версию приложения. Новые поля необязательные.
-   Функция, которой нужен новый сервер, выключена, пока сервер её
-   не объявил.
-5. **Долг.** Что выпуск гасит из `docs/debt.md` и что берёт нового.
-   Новый долг записывается в том же коммите, где появился.
+1. **A theme.** One per release. Everything outside the theme, except fixes,
+   waits for its own release.
+2. **Tasks by priority:**
+   - **must**: the release does not ship without it;
+   - **should**: done once the musts are ready, otherwise it moves to the next
+     release as its first item;
+   - **if time allows**: moved on without regret.
+3. **What changes in existing behaviour.** Every change to old behaviour on its
+   own line: what the player sees, what happens to their settings and files, how
+   to roll it back.
+4. **Bot compatibility.** The server is deployed first and accepts both the new
+   and the previous app version. New fields are optional. A feature that needs
+   the new server stays off until the server announces it.
+5. **Debt.** What the release pays off from `docs/debt.md` and what new debt it
+   takes. New debt is written down in the same commit where it appears.
 
-Проверки перед каждым выпуском:
+Checks before every release:
 
-- CI зелёный на коммите тега (с 0.98.0, см. П1);
-- `cargo deny check advisories` без новых уязвимостей;
-- кадры галереи через `wgpu` в 980 и 1920, по-русски и по-английски,
-  просмотрены глазами;
-- для правок памяти, кэшей и сети: долгая сессия у тестера;
-- для правок Witness и оверлея: проверка на Windows у тестеров
-  по `docs/windows-check.md`.
+- CI is green on the tagged commit; the release build waits for it and refuses
+  otherwise;
+- the CI advisories job (`cargo deny check advisories`) finds no new
+  vulnerabilities;
+- gallery frames through `wgpu` at 980 and 1920, in Russian and English, looked
+  at by eye;
+- for memory, cache and network changes: a long session at a tester's;
+- for Witness and overlay changes: a Windows check by testers following
+  `docs/windows-check.md`.
 
-Правила между выпусками:
+Rules between releases:
 
-- Номер выпуска не используется дважды. Исправление после выхода получает
-  следующий номер (П2).
-- Заметки к выпуску в `docs/releases/` пишутся по ходу работы.
-- Большие файлы экранов делятся только вместе с работой над экраном
-  и без изменения поведения, отдельным коммитом (К1).
-- Ничего не отбирается у игроков: ни титулы, ни значки, ни сохранённые
-  настройки. Если правило меняется, уже полученное остаётся.
+- A release number is never used twice. A fix after a release gets the next
+  number (P2).
+- Release notes in `docs/releases/` are written as work goes.
+- Big screen files are split only together with work on that screen and without
+  changing behaviour, in a separate commit (C1).
+- Nothing is taken away from players: not titles, not badges, not saved
+  settings. If a rule changes, what was already earned stays.
 
-## Порядок выпусков
+## Order of releases
 
-| Выпуск | Тема | Зачем сейчас |
+| Release | Theme | Why now |
 |---|---|---|
-| 0.97.9 | Исправления и дыры | Готовые исправления и уязвимости, которые закрываются без переделки |
-| 0.98.0 | Фундамент | Без CI и проверенного ffmpeg каждый следующий выпуск опасен |
-| 0.98.1 | Управление библиотекой | Самые частые жалобы на каждый день: удаление, клавиши, меню |
-| 0.98.2 | Рендер через бота | Ферма уже работает у всех бесед, ускорение видно сразу |
-| 0.98.3 | Оверлей | Witness в работе у тестеров, а вид плашек не доведён |
-| 0.99.0 | Профиль и титулы | Дёшево, на готовых данных, видно всем |
-| 0.99.1 | Первая настоящая дуэль | Закрытый тест на сервере |
-| 0.99.2 | Взаимодействия в Сообществе | Люди уже видят друг друга, пора дать им действия |
-| 0.99.3 | Баланс и Kamerton | Каталог, которому можно доверять, и профиль навыков на нём |
-| 0.99.4 | Разбор игры и видео | Опирается на график сложности и движок двух игроков |
-| 0.100.0 | Дуэли для всех | Рейтинговые дуэли и черта под фундаментом |
-
-## 0.97.9. Исправления и дыры
-
-Уже сделано, ждёт выпуска: аватарки в Сообществе больше не пропадают,
-обложки в ленте реплеев не теряются, нет светлой линии под шапкой листа
-счёта, ник в таблице лидеров видео не заезжает под номер места.
-Б3 и Б5 сделаны 7 ноября: TLS обновлён, `zip` 9, обновление и архивы карт
-распаковываются своей функцией с пределами, ссылки внутри архива
-отвергаются. Архив 0.97.8 с GitHub распаковывается и ставится новым кодом.
-Б4 сделан 7 ноября: ссылки открываются одной функцией `links.rs`, которая
-пропускает `https`, `http`, `mailto` и `osu`; тест не даёт открыть ссылку
-в обход неё.
-Б7 и П3 сделаны 7 ноября: сборка подписывает `Dossier.app` целиком
-и проверяет подпись (подпись проверена на архиве 0.97.8 после упаковки
-и распаковки обновлятором), у задач CI есть пределы времени, установка
-пакетов повторяется до трёх раз. Заметки выпуска: `docs/releases/v0.97.9.md`.
-Б1 сделан в боте 7 ноября: устройство рендерит только свои реплеи и реплеи
-бесед, где состоит его владелец. Ждёт выкладки.
-
-Обязательно:
-
-- Б1 на сервере: устройство рендерит только для своих бесед;
-- Б3: обновить `rustls`, `rustls-webpki`, `webpki-roots`; распаковка
-  обновления без `zip.extract`;
-- Б4: одна проверенная функция открытия ссылок;
-- Б7: подпись `Dossier.app` целиком.
-
-Желательно:
-
-- Б5: пределы распаковки архивов карт;
-- П3: пределы времени у шагов сборки.
-
-Меняется в существующем:
-
-- Распаковка обновления. Самое опасное место выпуска: если она ошибётся,
-  обновиться не сможет никто. Проверить обновление с 0.97.8 на 0.97.9
-  на копии до публикации. Откат: архив 0.97.8 лежит в его релизе.
-- Проверка ссылок пропускает `https`, `http`, `mailto` и `osu`
-  (кнопка «Открыть в osu!» открывает `osu://b/…`). Тест проходит по всем
-  местам, где открываются ссылки.
-- Пределы архивов карт ставятся с запасом на наборы с видео, отказ
-  объясняется словами.
-- На macOS вместо «повреждено» появится запрос в «Конфиденциальности
-  и безопасности». Обновление из приложения его не вызывает.
-
-Совместимость с ботом: Б1 выкладывается раньше выпуска. Беседа, где
-нет ни одного участника с работником, ждёт рендера до общего предела
-в 15 минут. Вместе с Б1 уходит на сервер всё, что уже лежит в `continuum`
-бота.
-
-Долг: гасит Б1, Б3 (TLS и обновлятор), Б4, Б7, при успехе Б5 и П3.
-
-## 0.98.0. Фундамент
-
-Новых функций нет.
-
-Обязательно:
+| 0.98.0 | Fixes, holes and foundation | Ready fixes, vulnerabilities, CI and a checked ffmpeg; without them every next release is risky |
+| 0.98.1 | Library control | The most frequent everyday complaints: deleting, keys, menus |
+| 0.98.2 | Renders through the bot | The farm already works for every chat, and speed-ups show at once |
+| 0.98.3 | Overlay | Witness is in use by testers, and the plates' look is unfinished |
+| 0.99.0 | Profile and titles | Cheap, on data we have, visible to everyone |
+| 0.99.1 | The first real duel | A closed test on the server |
+| 0.99.2 | Community interactions | People already see each other; time to give them actions |
+| 0.99.3 | Balance desk and Kamerton | A catalogue that can be trusted, and a skill profile on it |
+| 0.99.4 | Play breakdown and video | Rests on the difficulty graph and the two-player engine |
+| 0.100.0 | Duels for everyone | Rated duels and a line under the foundation |
+
+0.97.9 was planned as a release of its own; on 7 November 2026 the owner
+decided to ship its work together with the foundation as 0.98.0. The number
+0.97.9 is never released.
+
+## 0.98.0. Fixes, holes and foundation
+
+No new features.
+
+Done:
+
+- avatars in Community no longer go missing, covers in the replay feed are not
+  lost, no light line under the score sheet's head, a name in the video
+  leaderboard no longer runs under the rank number;
+- TLS crates updated, `zip` 9; updates and map archives unpack through one
+  bounded function in `unzip.rs` that refuses links and paths outside the
+  folder. The 0.97.8 archive from GitHub unpacks and installs with this code;
+- links open through one function, `links.rs`, which passes `https`, `http`,
+  `mailto` and `osu`; a test keeps every other `open::that` call to local places;
+- the release build signs the whole `Dossier.app` and checks the signature (it
+  survives packing and the updater's unpacking);
+- CI jobs have time limits, package installs are retried up to three times;
+- CI runs on every push to `continuum`, with an advisories job, and a release
+  builds only a commit whose CI passed;
+- ffmpeg 9.0.2 is downloaded only from pinned version links and refused when its
+  SHA-256 differs; Windows has two sources with one hash;
+- in the bot: a device renders only its owner's replays and those of chats its
+  owner is in (S1, waiting for deployment).
+
+Must, still open:
+
+- S1 deployed on the server.
+
+Should:
+
+- P4, P5: gallery scenes with covers in the feed, cache tests, a review of the
+  outdated subscription goldens;
+- C2: one wrapper for a picture under a veil.
+
+If time allows: a long session memory measurement and cache limits based on it.
+
+What changes in existing behaviour:
+
+- Unpacking updates. The most dangerous place of the release: if it is wrong,
+  nobody can update. Check updating from 0.97.8 to 0.98.0 on a copy before
+  publishing. Rollback: the 0.97.8 archive stays in its release.
+- Links: only `https`, `http`, `mailto` and `osu` open (*Open in osu! through
+  osu!direct* opens `osu://b/…`).
+- Map archive limits leave room for sets with video; a refusal is explained in
+  words.
+- On macOS a downloaded copy is no longer called damaged; instead the first
+  launch asks in System Settings, Privacy & Security. Updating from inside the
+  app does not ask.
+- Downloading ffmpeg. An ffmpeg already downloaded stays. A new player gets it
+  from a pinned source; evermeet.cx is no longer used because it stopped
+  serving files.
+- The C2 wrapper moves the bottom of picture headers by 1–2 pixels. Compare
+  frames before and after for every such header.
 
-- П1: CI на каждый пуш в `continuum` и `cargo deny` в CI, тег только
-  на зелёный коммит;
-- Б2: ffmpeg только закреплённых версий с SHA-256, два источника
-  с одним хешем.
-
-Желательно:
+Bot compatibility: S1 is deployed before the release. A chat where no member has
+a worker waits for a render up to the common 15 minute limit. Everything already
+in the bot's `continuum` goes to the server with it.
+
+Debt: pays off S1 (deployment), and if done P4, P5 and C2. The iced update (C3)
+is not taken: our copy of `iced_wgpu` makes it a separate piece of work.
 
-- П4, П5: сцены галереи с обложками в ленте, тесты кэшей, пересмотр
-  устаревших эталонов подписки;
-- К2: одна обёртка для картинки под затемнением.
+## 0.98.1. Library control
 
-Если успеем: замер памяти за долгую сессию и пределы кэшей по нему.
+Must:
 
-Меняется в существующем:
+- **Deleting replays to the trash**, one at a time and in batches. A batch is
+  selected with Shift and Cmd (Ctrl on Windows and Linux) on cards or as a whole
+  group. Before deleting, the number of files and their size are shown.
+- **Keys in the replay list:** Enter renders the selected replay, Delete and
+  Cmd+Backspace delete, Cmd+A selects the group, Esc clears the selection.
 
-- Загрузка ffmpeg. Уже скачанный ffmpeg остаётся. Новому игроку он придёт
-  из закреплённого источника.
-- Обёртка К2 сдвигает низ шапок с картинками на 1–2 пикселя. Сравнить
-  кадры до и после по каждой такой шапке.
+Should:
 
-Совместимость с ботом: изменений на сервере нет.
+- **A card menu on right click:** render, open the folder, show the map in osu!,
+  delete.
+- **A key list:** `?` opens the list of chords for the current screen.
+- **Sections on Cmd+1…4:** Replays, Videos, Community, Settings.
 
-Долг: гасит Б2, П1, при успехе П4, П5, К2. Обновление iced (Б3, К3)
-не берём: своя копия `iced_wgpu` делает его отдельной работой.
+If time allows: **first launch** as one screen of steps: find osu!, download
+ffmpeg, link the bot, decide about Witness.
 
-## 0.98.1. Управление библиотекой
+What changes in existing behaviour:
 
-Обязательно:
+- Replays from stable's folder (`Data/r`) are tied to local scores. A deleted
+  replay disappears from viewing in the game itself. The confirmation says so.
+- Files inside lazer's storage are never touched. Only exported replays and
+  replays from folders the player added can be deleted.
+- Deleting goes only to the trash, never for good. A file held by a running game
+  (on Windows) is not deleted. The dialog says which files stayed and why.
+- Enter and Delete are wired today as pool keys (`Message::PoolHot`) and work
+  only in *Pools*. They have to become the screen's shared keys, otherwise every
+  next chord must be checked in every section. The pool key tests must pass
+  unchanged.
+- Batch selection changes what a click with Shift and Cmd does on a card. A
+  plain click works as before.
 
-- **Удаление реплеев в корзину**, по одному и пачкой. Пачка выделяется
-  Shift и Cmd (Ctrl на Windows и Linux) по карточкам или целой группой.
-  Перед удалением показывается число файлов и их размер.
-- **Клавиши в списке реплеев:** Enter запускает рендер выбранного, Delete
-  и Cmd+Backspace удаляют, Cmd+A выделяет группу, Esc снимает выделение.
+Bot compatibility: a deleted replay that already went into the bot's history
+stays there. The app asks the server to delete nothing.
 
-Желательно:
+Debt: a context menu widget of our own, since iced has none. Write it down under
+C if it ends up serving only the replay list.
 
-- **Меню карточки по правой кнопке:** рендер, открыть папку, показать карту
-  в osu!, удалить.
-- **Подсказка клавиш:** по `?` открывается список сочетаний для текущего
-  экрана.
-- **Разделы по Cmd+1…4:** Реплеи, Видео, Сообщество, Настройки.
+## 0.98.2. Renders through the bot
 
-Если успеем: **первый запуск** одним экраном по шагам: найти osu!,
-скачать ffmpeg, привязать бота, решить про Witness.
+Must:
 
-Меняется в существующем:
+- switches in `sts`: the PP counter, the difficulty graph, the leaderboard;
+- faster preparation: the worker keeps the map sets a chat plays most often and
+  starts fetching a map while the job waits in the queue. Goal: under 10 seconds
+  from `.osr` to drawing for a map the worker already has;
+- compare the video's length with the replay's before posting it (S1).
 
-- Реплеи из папки stable (`Data/r`) связаны с локальными скорами. Удалённый
-  реплей пропадёт из просмотра в самой игре. Об этом говорится в окне
-  подтверждения.
-- Внутри хранилища lazer файлы не трогаются никогда. Удалять можно только
-  экспортированные реплеи и реплеи из папок, которые игрок добавил сам.
-- Удаление только в корзину, не безвозвратно. Файл, который держит
-  запущенная игра (на Windows), не удаляется. Окно говорит, какие файлы
-  остались и почему.
-- Клавиши Enter и Delete сейчас называются «клавишами пулов», хотя
-  и срабатывают только в разделе «Пулы». Их нужно сделать общими клавишами
-  экрана, иначе любое следующее сочетание придётся проверять во всех
-  разделах. Тесты пулов на клавиши должны пройти без изменений.
-- Выделение пачкой меняет щелчок по карточке с Shift и Cmd. Обычный
-  щелчок работает как раньше.
+Should:
 
-Совместимость с ботом: удалённый реплей, который уже ушёл в историю
-бота, там остаётся. Приложение не просит сервер ничего удалять.
+- mirrors by quality: count refusals and stale archives, ask the best one first;
+- the bot's message shows the render's stage.
 
-Долг: свой виджет контекстного меню, у iced его нет. Записать в К,
-если он окажется только для списка реплеев.
+If time allows: the video's Telegram cover taken from the play's most intense
+moment.
 
-## 0.98.2. Рендер через бота
+What changes in existing behaviour:
 
-Обязательно:
+- The worker's set cache takes a tester's disk space. A limit in the settings,
+  modest by default.
+- The mirror order floats. Checking the difficulty by md5 (since 6 November)
+  guards against an old map version from another mirror.
 
-- переключатели в `sts`: счётчик PP, график сложности, таблица лидеров;
-- подготовка быстрее: работник держит наборы карт, которые беседа играет
-  чаще, и начинает загрузку карты, пока задание ждёт в очереди. Цель:
-  меньше 10 секунд от `.osr` до начала рисования для карты, которая уже
-  лежит у работника.
+Bot compatibility: the switches are stored on the server and reach the worker in
+the job. An older worker ignores the new fields.
 
-Желательно:
+## 0.98.3. Overlay
 
-- зеркала по качеству: счёт отказов и устаревших архивов, первым
-  спрашивается лучшее;
-- сообщение бота показывает шаг рендера.
+Starting point, the `dossier-hud` sample frames of 6 November: text about 11 px
+at 720p, almost no gaps between words (*Witness подключился* runs together), and
+plates in different corners with no shared grid.
 
-Если успеем: обложка видео в Telegram из самого напряжённого момента игры.
+Must:
 
-Меняется в существующем:
+- **A canvas mockup before code.** Plate variants over game frames; the app then
+  repeats the chosen one exactly.
+- **Legibility:** text size from the game window's height, checked on 1080 and
+  1440 frames; fix the gaps between words in the overlay's font.
 
-- Кэш наборов у работника занимает диск тестера. Предел в настройках,
-  по умолчанию скромный.
-- Порядок зеркал плавающий. Сверка сложности по md5 (с 6 ноября) страхует
-  от старой версии карты с другого зеркала.
+Should:
 
-Совместимость с ботом: переключатели хранятся на сервере и приходят
-работнику в задании. Старый работник новые поля игнорирует.
+- one grid of places for the plates: notices, PP and UR, the chat leaderboard,
+  sending with Tab;
+- plates appear and leave in place, as in the app.
 
-## 0.98.3. Оверлей
+If time allows: an overlay preview in the app next to the size and plate settings.
 
-Отправная точка, образцовые кадры `dossier-hud` 6 ноября: текст около
-11 px при 720p, между словами почти нет зазоров («Witness подключился»
-сливается), плашки стоят в разных углах без общей сетки.
+What changes in existing behaviour:
 
-Обязательно:
+- The saved size (70–130%) and plate choice carry over as they are. The chords
+  Ctrl+Shift+H, = and − do not change.
+- The new look changes what testers got used to since 30 October. Before the
+  release, show the frames to the tester whose overlay works in full screen.
 
-- **Макет на холсте до кода.** Варианты плашек на кадрах игры, приложение
-  потом повторяет выбранный 1 в 1.
-- **Читаемость:** размер текста от высоты окна игры, проверка на кадре 1080
-  и 1440; исправить зазоры между словами в шрифте оверлея.
+Bot compatibility: no server changes.
 
-Желательно:
+## 0.99.0. Profile and titles
 
-- одна сетка мест для плашек: уведомления, PP и UR, таблица беседы,
-  отправка по Tab;
-- плашки появляются и уходят на месте, как в приложении.
+Must:
 
-Если успеем: показать в приложении предпросмотр оверлея рядом с настройками
-размера и плашек.
+- **Rebalance titles by the share of holders.** First count on a copy of the
+  database what share of players holds each title, then adjust rarity. Check with
+  `scripts/recheck_titles.py` without `--apply`.
+- **The share of holders** next to the rarity: "held by 4% of players".
+- **Closest titles:** the three nearest ones, with what is left to the goal.
 
-Меняется в существующем:
+Should:
 
-- Сохранённые размер (70–130%) и выбор плашек переносятся как есть.
-  Сочетания Ctrl+Shift+H, = и − не меняются.
-- Новый вид меняет то, к чему тестеры привыкли с 30 октября. Перед выпуском
-  показать кадры тестеру, у которого оверлей работает в полноэкранном
-  режиме.
+- a showcase of up to three titles on the card;
+- form over weeks: PP, accuracy, play count, a short trend mark;
+- a pinned play with its video on the profile card.
 
-Совместимость с ботом: изменений на сервере нет.
+If time allows:
 
-## 0.99.0. Профиль и титулы
+- the player's goals and how far they are;
+- head-to-head in comparison: shared maps and the score on them;
+- the bot's profile card looking the same as the app's.
 
-Обязательно:
+What changes in existing behaviour:
 
-- **Ребаланс титулов по доле владельцев.** Сначала посчитать на копии
-  базы, у какой доли игроков есть каждый титул, потом поправить редкость.
-  Проверка через `scripts/recheck_titles.py` без `--apply`.
-- **Доля владельцев** рядом с редкостью: «есть у 4% игроков».
-- **Ближайшие титулы:** три, до которых ближе всего, с остатком до цели.
+- The rebalance changes rarity colours on cards. No title is taken away. If a
+  condition becomes stricter, those who earned the title keep it.
+- A three-title showcase changes the profile card's height. Check the card in the
+  bot and in the app with long names.
 
-Желательно:
+Bot compatibility: the share of holders and the closest titles are computed on
+the server. An older app shows one title as before.
 
-- витрина до трёх титулов на карточке;
-- форма за недели: PP, точность, число игр, короткая метка тренда;
-- закреплённая игра с видео на карточке профиля.
+## 0.99.1. The first real duel
 
-Если успеем:
+Must:
 
-- цели игрока и сколько до них осталось;
-- очные встречи в сравнении: общие карты и счёт по ним;
-- карточка профиля в боте в одном виде с приложением.
+- the bot runs Bancho rooms under the NaumRedlo account;
+- `scripts.duel_probe` at levels 4.5, 5.5, 6.5 and 7.5, with `--human-only` and
+  without; write down the slots whose corridor has fewer than five maps;
+- a closed test for two: an ordinary duel, giving up mid-map, closing osu!,
+  restarting the bot during a map, a closed room. Every case ends with a result
+  or a cancellation without rating.
 
-Меняется в существующем:
+Should: watching through Witness, and differences from the official match in the
+duel's log.
 
-- Ребаланс меняет цвет редкости на карточках. Ни один титул не отбирается.
-  Если условие становится строже, у получивших титул он остаётся.
-- Витрина из трёх титулов меняет высоту карточки профиля. Проверить
-  карточку в боте и в приложении на длинных названиях.
+What changes in existing behaviour: nothing for players without duels. The
+section is closed to everyone except the test's participants.
 
-Совместимость с ботом: доля владельцев и ближайшие титулы считаются
-на сервере. Старое приложение показывает один титул, как раньше.
+## 0.99.2. Community interactions
 
-## 0.99.1. Первая настоящая дуэль
+Must:
 
-Обязательно:
+- **Following a player:** a notice under the bell about a record, a title or
+  starting to play. Only with the consent of the person followed.
+- **Chat titles:** shared weekly goals; every member gets the title.
 
-- комнаты Bancho ведёт бот под аккаунтом NaumRedlo;
-- `scripts.duel_probe` на уровнях 4,5, 5,5, 6,5 и 7,5, с `--human-only`
-  и без; записать слоты, где в коридоре меньше пяти карт;
-- закрытый тест вдвоём: обычная серия, сдача посреди карты, закрытие osu!,
-  рестарт бота во время карты, закрытая комната. Каждый случай кончается
-  результатом или отменой без рейтинга.
+Should:
 
-Желательно: наблюдение через Witness, расхождение с официальным матчем
-в журнале серии.
+- one reaction to a play in the feed, no comments;
+- actions with pools: rate, copy, suggest a map for someone else's pool;
+- the chat's best moments of the week: a reel of `dossier-exhibit` clips.
 
-Меняется в существующем: для игроков без дуэлей ничего. Раздел закрыт
-для всех, кроме участников теста.
+If time allows: watching a friend's play live through Witness, if the friend
+turned showing on.
 
-## 0.99.2. Взаимодействия в Сообществе
+What changes in existing behaviour:
 
-Обязательно:
+- A new consent switch for being followed, off by default. The feed and *People*
+  work as before.
+- The weekly reel loads the farm. It is built at night and only for chats where
+  it is on.
 
-- **Слежка за игроком:** уведомление в колокольчике о рекорде, титуле
-  или входе в игру. Только с согласия того, за кем следят.
-- **Титулы беседы:** коллективные цели за неделю, титул получает каждый
-  участник.
+Bot compatibility: everything is stored on the server. An older app simply does
+not show reactions and following.
 
-Желательно:
+## 0.99.3. Balance desk and Kamerton
 
-- одна реакция на игру в ленте, без комментариев;
-- действия с пулами: оценить, скопировать, предложить карту в чужой пул;
-- лучшие моменты недели беседы: ролик из отрывков `dossier-exhibit`.
+Must:
 
-Если успеем: смотреть игру друга вживую через Witness, если друг сам
-включил показ.
+- a review queue ordered by usefulness;
+- double labelling of 10% of maps;
+- the M04 and M05 report per slot.
 
-Меняется в существующем:
+Should:
 
-- Новый переключатель согласия на слежку, по умолчанию выключен. Лента
-  и «Люди» работают как раньше.
-- Ролик недели нагружает ферму. Собирается ночью и только для бесед,
-  где он включён.
+- **a skill profile from Kamerton**: a player's strong and weak skills from their
+  plays on labelled maps. Only in slots where auto admission is already open,
+  otherwise the profile would lie;
+- the analyser: rhythm, triplet patterns, sliders, the hardest stretch, mods,
+  similar maps.
 
-Совместимость с ботом: всё хранится на сервере. Старое приложение
-просто не показывает реакции и слежку.
+What changes in existing behaviour: changing `FEATURE_VERSION` retrains the model.
+Maps keep their old analysis until the new one measures them again, so duels are
+not cancelled during the recount. Afterwards the server needs `reanalyse`,
+`train` and publishing the model.
 
-## 0.99.3. Баланс и Kamerton
+Done when: every working slot has at least 30 checked maps and auto admission is
+open in at least six of nine slots.
 
-Обязательно:
+## 0.99.4. Play breakdown and video
 
-- очередь проверки по пользе;
-- двойная разметка 10% карт;
-- отчёт M04 и M05 по слотам.
+Must: **a breakdown in the score sheet**: where accuracy was lost and where the
+misses were, from the judge's events next to the difficulty graph.
 
-Желательно:
+Should: **a ghost**, two replays on one field: your own and someone else's record.
 
-- **профиль навыков по Kamerton**: сильные и слабые навыки игрока
-  по его играм на размеченных картах. Только по слотам, где автодопуск
-  уже открыт, иначе профиль будет врать;
-- анализатор: ритм, узоры троек нот, слайдеры, тяжёлый участок, моды,
-  похожие карты.
+What changes in existing behaviour: the score sheet gets taller. Check it at 980
+and 1920.
 
-Меняется в существующем: смена `FEATURE_VERSION` переобучает модель.
-Карты остаются на старом анализе, пока новый их не перемерил, поэтому
-дуэли во время пересчёта не отменяются. После неё на сервере нужны
-`reanalyse`, `train` и публикация модели.
+## 0.100.0. Duels for everyone
 
-Готово, когда: в каждом рабочем слоте не меньше 30 проверенных карт,
-автодопуск открыт хотя бы в шести слотах из девяти.
+Must:
 
-## 0.99.4. Разбор игры и видео
+- M10: 1000 generations on a copy of the catalogue, at least 95% successful pools;
+- V07: the restart test in every state of a duel;
+- Glicko-2 calibration on the first duels;
+- no high severity entries in `docs/debt.md`.
 
-Обязательно: **разбор в листе счёта**, где терялась точность и где были
-промахи, по событиям судьи рядом с графиком сложности.
+Should:
 
-Желательно: **призрак**, два реплея на одном поле: свой и чужой рекорд.
+- duel titles: the first win, a comeback from 0:2 to 3:2, a tiebreaker win, a win
+  over an opponent rated much higher;
+- S6: a signed `SHA256SUMS`.
 
-Меняется в существующем: лист счёта становится выше. Проверить его
-на 980 и 1920.
+What changes in existing behaviour: the *Duels* section opens to everyone. The
+first duels' rating is a calibration, which is explained before the first duel.
 
-## 0.100.0. Дуэли для всех
+Done when: under 5% technical cancellations over two weeks of open duels.
 
-Обязательно:
+## For the owner to decide
 
-- M10: 1000 генераций на копии каталога, успешных пулов не меньше 95%;
-- V07: тест рестарта в каждом состоянии серии;
-- калибровка Glicko-2 по первым сериям;
-- в `docs/debt.md` нет записей высокой серьёзности.
+- An Apple Developer ID at 99 dollars a year.
+- What the subscription gives besides the map background, the badge and the
+  title. Proposed, nothing accepted: profile themes, an avatar frame, an animated
+  banner, renders ahead of the queue, 1440p, more personal skins, videos without a
+  length limit. Only cosmetics and convenience, never an advantage in play or duels.
+- The device token in the system keychain (S8).
 
-Желательно:
+## After 0.100.0
 
-- титулы дуэлей: первая победа, камбэк с 0:2 до 3:2, победа на тай-брейке,
-  победа над соперником с рейтингом намного выше;
-- Б6: подписанный `SHA256SUMS`.
+Not to be started until the owner returns to the topic:
 
-Меняется в существующем: раздел «Дуэли» открывается всем. Рейтинг первых
-серий калибровочный, это объясняется до первой дуэли.
+- the settings redesign (canvas https://claude.ai/artifact/EPQRef8pas4pjGban5A6Bx):
+  panels of one height, thick value bars, experiments with the sound panel;
+- rebalancing the duel rating after the first month of open duels;
+- tournament pool archives on the server with their own categories;
+- the overlay through tosu for full screen OpenGL (`docs/tosu-counter.md`);
+- Kamerton learning from play results, a pretrained map encoder;
+- the iced update and splitting big screen files where ordinary work did not
+  touch them.
 
-Готово, когда: технических отмен меньше 5% за две недели открытых дуэлей.
+For the indefinite future (put aside by the owner on 7 November 2026):
 
-## Решить владельцу
-
-- Developer ID Apple за 99 долларов в год.
-- Что даёт подписка, кроме фона карты, значка и титула. Предложено,
-  ничего не принято: темы профиля, рамка аватарки, анимированный баннер,
-  рендер вне очереди, 1440p, больше личных скинов, видео без предела длины.
-  Только косметика и удобство, никакого преимущества в игре и дуэлях.
-- Токен устройства в связке ключей системы (Б8).
-
-## После 0.100.0
-
-Не начинать, пока владелец не вернётся к теме:
-
-- редизайн настроек (холст https://claude.ai/artifact/EPQRef8pas4pjGban5A6Bx):
-  панели одной высоты, толстые полосы значений, опыты с панелью звука;
-- ребаланс рейтинга дуэлей по первому месяцу открытых серий;
-- архивы турнирных пулов на сервере со своими категориями;
-- оверлей через tosu для полноэкранного OpenGL (`docs/tosu-counter.md`);
-- Kamerton учится по результатам игры, предобученный кодировщик карт;
-- обновление iced и деление больших файлов экранов там, где их не задела
-  обычная работа.
-
-На неопределённое будущее (владелец отложил 7 ноября 2026 года):
-
-- ранги дуэлей. Предложено: ранг по порогам рейтинга без подуровней,
-  запас 30 очков на понижение, без ранга до конца калибровки, без сброса
-  сезонов на старте. Названия на выбор: темпы (Ларго … Престо,
-  Престиссимо для первых 10 мест), спортивные разряды или «Лига 1…7».
-  Ничего не выбрано.
+- duel ranks. Proposed: a rank by rating thresholds without divisions, a 30 point
+  margin before falling, no rank until calibration ends, no season resets at the
+  start. Names to choose from: tempos (Largo … Presto, Prestissimo for the first
+  10 places), chess-style classes, or "League 1…7". Nothing chosen.

@@ -90,7 +90,7 @@ impl Main {
                 }
                 E::Browse(url) => {
                     if url.starts_with("https://") {
-                        let _ = open::that_detached(url);
+                        crate::links::open(&url);
                     }
                 }
                 E::Remember(email) => {

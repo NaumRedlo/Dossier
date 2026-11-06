@@ -356,7 +356,7 @@ impl Main {
                     }
                     Ok(_) => {}
                     Err(_) => {
-                        let _ = open::that_detached(&link);
+                        crate::links::open(&link);
                     }
                 }
                 Task::none()

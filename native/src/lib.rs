@@ -33,6 +33,7 @@ pub mod icon;
 pub mod inbox;
 pub mod instance;
 pub mod lanes;
+pub mod links;
 pub mod lang;
 pub mod library;
 pub mod live;

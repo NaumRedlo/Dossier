@@ -2007,7 +2007,7 @@ impl Main {
                 Effect::Inspect(_) if offline => Task::none(),
                 Effect::Inspect(beatmap) => ui::in_thread(move || K::Inspected(beatmap, crate::desk::inspect(&account, beatmap).map_err(|why| why.to_string()))).map(wrap),
                 Effect::Open(url) => {
-                    let _ = open::that(url);
+                    crate::links::open(&url);
                     Task::none()
                 }
                 Effect::ReadPaste(row, column) => iced::clipboard::read().map(move |text| wrap(K::SheetPasted(row, column, text.unwrap_or_default()))),
@@ -3784,7 +3784,7 @@ impl Main {
                     C::CompareRemove(id) => self.compare.retain(|chosen| *chosen != id),
                     C::CompareSearch(said) => self.compare_query = said,
                     C::Open(url) => {
-                        let _ = open::that_detached(url);
+                        crate::links::open(&url);
                     }
                     C::Refresh => return self.refresh_news(true),
                     C::ChannelDraft(said) => self.channel_draft = said,
@@ -3866,7 +3866,7 @@ impl Main {
                     }
                     C::PlayClip(src, link) => {
                         let Some(src) = src else {
-                            let _ = open::that_detached(link);
+                            crate::links::open(&link);
                             return Task::none();
                         };
                         if !self.clips_loading.insert(link.clone()) {
@@ -7086,7 +7086,7 @@ impl Main {
             P::Update => self.get_update(true),
             P::WhatsNew => {
                 let page = self.update.release().map(|release| release.page.clone()).filter(|page| !page.is_empty()).unwrap_or_else(|| crate::updates::PAGE.to_owned());
-                let _ = open::that_detached(page);
+                crate::links::open(&page);
                 Task::none()
             }
             P::QuietUpdates(on) => {

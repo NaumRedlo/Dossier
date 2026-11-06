@@ -419,7 +419,7 @@ impl Main {
                         }
                     }
                     Some(notices::Link::Page(page)) => {
-                        let _ = open::that_detached(page);
+                        crate::links::open(&page);
                         Task::none()
                     }
                     Some(notices::Link::RenderAgain(replay)) => {

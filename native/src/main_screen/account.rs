@@ -181,7 +181,7 @@ impl Main {
             }
             Message::OpenOsu => {
                 if let Pairing::Waiting { code, osu: true, .. } = &self.pairing {
-                    let _ = open::that_detached(bot::osu_link(&self.settings.server, code));
+                    crate::links::open(&bot::osu_link(&self.settings.server, code));
                 }
                 Task::none()
             }
@@ -250,7 +250,7 @@ impl Main {
             Message::Polled(_) => Task::none(),
             Message::OpenTelegram => {
                 if let Pairing::Waiting { link, .. } | Pairing::Linking { link, .. } = &self.pairing {
-                    let _ = open::that_detached(link);
+                    crate::links::open(link);
                 }
                 Task::none()
             }

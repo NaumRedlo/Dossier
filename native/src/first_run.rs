@@ -358,7 +358,7 @@ impl FirstRun {
             }
             Message::OpenOsu => {
                 if let Pairing::Waiting { code, osu: true, .. } = &self.pairing {
-                    let _ = open::that_detached(bot::osu_link(&self.settings.server, code));
+                    crate::links::open(&bot::osu_link(&self.settings.server, code));
                 }
                 Task::none()
             }
@@ -384,7 +384,7 @@ impl FirstRun {
             Message::Polled(_) => Task::none(),
             Message::OpenTelegram => {
                 if let Pairing::Waiting { link, .. } = &self.pairing {
-                    let _ = open::that_detached(link);
+                    crate::links::open(link);
                 }
                 Task::none()
             }
@@ -400,7 +400,7 @@ impl FirstRun {
             }
             Message::CheckAgain => self.start_checks(),
             Message::WhereToGet => {
-                let _ = open::that_detached(ffmpeg::HOME);
+                crate::links::open(ffmpeg::HOME);
                 Task::none()
             }
             Message::Download => {

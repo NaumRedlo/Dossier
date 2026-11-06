@@ -431,34 +431,34 @@ place is there, the person is not. After linking, the Telegram avatar,
 render, a map, a send, a worker job — it wears a ring of the accent,
 which goes out by itself (accepted 2026-09-21; a sign-in button in the
 corner was drawn and replaced by the circle). The circle and the avatar
-open the same menu, split into three tabs, *Аккаунт*, *Лента* and
-*Статистика*. Signed out, the head says *Вход не выполнен · видео
-остаются на этом компьютере* and the account tab says why to sign in
+open the same menu, split into three tabs, *Account*, *Feed* and
+*Statistics*. Signed out, the head says *Not signed in · videos
+stay on this computer* and the account tab says why to sign in
 and holds the sign-in button, nothing more. Signed in, the head is the
 name, the handle and the day of linking; the account tab keeps only the
 important words — where videos go, the worker's state, the build — and
-*Выйти* in the foot. The *Лента* tab is one timeline of the day, time ·
+*Sign out* in the foot. The *Feed* tab is one timeline of the day, time ·
 mark · words, running jobs on top with a progress line under each and
 no percentage (the line is the number), a failure in red with its own
-*Ещё раз*, *Всё прочитано* in the foot; it works signed out too, as the
-device's own story. *Статистика* is where the figures live, so the
+*Try again*, *All read* in the foot; it works signed out too, as the
+device's own story. *Statistics* is where the figures live, so the
 other tabs need not carry them: as a worker — jobs done and this month,
 gigabytes given, the mean job time, today and the queue; on this device
 — replays in the journal, renders and videos with their size, sent to
 Telegram. A finished render announces itself top-right, under the words:
-a card with a tick, *Отрендерено*, *Открыть* at the right and who — map
+a card with a tick, *Rendered*, *Open* at the right and who — map
 · length · size beneath, dropping 8 px and fading in over 240 ms,
 standing six seconds or while hovered, leaving upward in 200 ms; a
 second card stacks under the first, three at most; a failure's card has
-a cross and *Ещё раз* and stays until dealt with; every card also goes
-to the *Лента*. Signing in is a card, not a password: a code that lives five minutes and a QR,
-*Открыть Telegram* leads to t.me/‹bot›?start=‹code›, the bot answers
-*Привязано*, the application waits for that answer, and the avatar fades
+a cross and *Try again* and stays until dealt with; every card also goes
+to the *Feed*. Signing in is a card, not a password: a code that lives five minutes and a QR,
+*Open Telegram* leads to t.me/‹bot›?start=‹code›, the bot answers
+*Linked*, the application waits for that answer, and the avatar fades
 in where the hatching was. Errors: E — when the application cannot go
 on, the scene dims and one card, the first run's, says what, where and
 the ways out (chosen 2026-09-21; B stays for Render and Get the map,
 where the button already is the story).
-Rendered videos live in the application: a fourth word, *Видео*, opens
+Rendered videos live in the application: a fourth word, *Videos*, opens
 a list — frame, when, who · map, mods, length, size — newest on top
 (chosen 2026-09-21 over a grid and over a mirror of the main screen; a
 Telegram column was drawn and dropped as foreign to the list). A click
@@ -466,23 +466,23 @@ opens the player over almost the whole window, 40 px from the edges: the
 video 16:9, the scrubber and the time under it, then a caption block —
 the player's name large, the map under it, and a small mono line of
 mods · length · resolution · fps · size · when — with the buttons
-*В Telegram · В папке · Удалить* at the right; Esc or a click outside
+*To Telegram · In the folder · Delete* at the right; Esc or a click outside
 returns to the list. Space pauses, the arrows step five seconds, a
 double click fills the screen; while a frame is on the video's glass the
 glass has no outline of its own (`screen_bare`), because the picture is
 drawn into physical pixels and the outline's last row and column would
 show beside it as grey lines; while it plays, the scrubber and the time
 stay and the rest dims a little. Sending to Telegram happens only here,
-with the same one-word progress button (*Отправляю*, the fill following
+with the same one-word progress button (*Sending*, the fill following
 the bytes) and the ring on the avatar; done, the button returns and the
 top-right card says where it went. Deleting is the screen's one
 question, asked the way the first application asked it: no card, only a
-deeper scrim and a small centred stack — the video's frame, *Удалить видео?*,
+deeper scrim and a small centred stack — the video's frame, *Delete the video?*,
 who and the weight, the line about the bin, and the two answers side by side
 — rising and fading in over 220 ms. A render that finishes while its own replay is the one
 on the screen writes itself into the feed without the top-right card — the
 person is already looking at it. With no videos yet,
-one line and a *К реплеям* button under it. Drawn in
+one line and a *Back to replays* button under it. Drawn in
 `docs/mockups/main/store.py`; built 2026-09-22 as drawn, with these
 particulars: the store is `~/.dossier/Renders/videos.json`, renders
 already in the folder are adopted (name → player, song, version; ffmpeg's
@@ -500,55 +500,55 @@ refused past Telegram's size. The account tab shows the worker line as
 the bot has no endpoint for them yet.
 
 Videos travel between players (2026-10-01). Under the picture a quiet
-*Отправить игроку* stands before *Отправить в Telegram* and opens a sheet:
+*Send to a player* stands before *Send to Telegram* and opens a sheet:
 the players who would take a video, each a face, a name and one caption —
-*общая беседа* or *на сервере* — with a mark at the right; *Отправить* is
+*shared chat* or *on the server* — with a mark at the right; *Send* is
 lit once someone is marked. The video goes to Telegram once, to the person's
 own chat with the bot, and the bot remembers it by `file_id`
 (`POST /render/send` answers with its number, kept in `videos.json`); the
 replay and the look it was drawn with go along, and
 `POST /render/videos/{id}/share` names the receivers. The server keeps no
-video. Signed in, the list wears a switch, *Мои* and *Полученные*, the second
+video. Signed in, the list wears a switch, *Mine* and *Received*, the second
 with a count of the unseen; a received row reads frame, when, who played and
 the map, from whom, length, size, and an unseen one carries a dot. A row opens
 the same window as an own video, with the sender at the right of the title:
 the frame waits under a play mark, a press downloads the file through the bot
-(`/render/inbox/{id}/video`, the bar and the megabytes in the middle, *Остановить*
+(`/render/inbox/{id}/video`, the bar and the megabytes in the middle, *Stop*
 under them) into `~/.dossier/cache/received` and plays it. Under the picture:
-*Убрать*, *Нарисовать у себя* — the replay lands in the journal and is rendered
+*Remove*, *Render here* — the replay lands in the journal and is rendered
 with the sender's look, the map fetched first when it is missing — and
-*Получить в Telegram*. A new video says itself top-right and the card opens it.
+*Receive in Telegram*. A new video says itself top-right and the card opens it.
 Who may send is the person's choice on the bot tab of the settings, the tile
-*Видео от других*: from shared chats, from everyone, from nobody; the bot
+*Videos from others*: from shared chats, from everyone, from nobody; the bot
 checks it, and only players with Dossier paired are offered at all.
 
-The journal is mixed (2026-10-01). A pill on the bot tab, *Делиться своими
-реплеями* in the community tile, sends the person's own plays — the replays in
+The journal is mixed (2026-10-01). A pill on the bot tab, *Share my
+replays* in the community tile, sends the person's own plays — the replays in
 the journal whose player is their osu! name, newest first, three hundred at
 most — to the bot (`POST /render/replays`, each once, the ledger is
 `~/.dossier/shared.txt`); the line under it counts what the server holds, and
 switching it off takes them all away. The other half is a source: signed in,
-the sources tile gains *Реплеи игроков*, off until the person turns it on. On,
+the sources tile gains *Players' replays*, off until the person turns it on. On,
 the application keeps `~/.dossier/Shared` in step with the bot's list
 (`GET /render/replays`, the two hundred newest plays of the people of shared
-chats, or of every player when *Все игроки сервера* is on) — at start, every
+chats, or of every player when *All players on the server* is on) — at start, every
 ten minutes and when switched — and the journal reads that folder like any
 other: the files are named player, artist, title and difficulty so a map the
 person does not have still has its words, the map is fetched by the same
 button, and the render is the same render. Such replays never announce
 themselves as a new play and are never donated.
 
-Signing in does not need Telegram (2026-10-01). The sheet is *Войти*, and
-beside *Открыть Telegram* stands a quiet *Войти через osu!*: it opens
+Signing in does not need Telegram (2026-10-01). The sheet is *Sign in*, and
+beside *Open Telegram* stands a quiet *Sign in with osu!*: it opens
 `/render/pair/{code}/osu` in the browser, osu! asks for consent and sends the
 person back to the bot, and the application, still polling the same code, gets
 its token. The first run's bot step has the same second button. An account
 made this way is the osu! player and nothing else: the account tile says
-*аккаунт osu!* under the name and keeps *Привязать Telegram* beside *Выйти*; the
-tile of chats says that Telegram is needed to send videos; *Отправить в
-Telegram* and *Отправить игроку* open the linking sheet instead of sending, and
-a received video has no *Получить в Telegram*. The linking sheet is the sign-in
-sheet with other words — a code, the QR, *Открыть Telegram* — and closes itself
+*osu! account* under the name and keeps *Link Telegram* beside *Sign out*; the
+tile of chats says that Telegram is needed to send videos; *Send to
+Telegram* and *Send to a player* open the linking sheet instead of sending, and
+a received video has no *Receive in Telegram*. The linking sheet is the sign-in
+sheet with other words — a code, the QR, *Open Telegram* — and closes itself
 when the bot says the account has Telegram; registering the same osu! account
 in a group with the bot links it as well.
 
@@ -570,7 +570,7 @@ previous and next video, five seconds back and ahead, play or pause in the
 middle, the time as *at / length*; at the right a frame back and ahead (lit
 only while paused), the speed as ×0,5 to ×2, the sound with its own short
 slider, repeat and fill-the-window. The last row keeps only the three
-buttons, centred in their strip, *Отправить в Telegram* last so that the one
+buttons, centred in their strip, *Send to Telegram* last so that the one
 filled button ends on the picture's own edge, as the close cross does above; and it folds away when the window fills the screen; the size, the
 rate and the weight are the list's business, not the player's. Keys:
 space or K pauses, the arrows step five seconds, M mutes, L repeats, F fills,
@@ -610,16 +610,16 @@ and never heard).
 *What the bubble says* is in the journal's section above; the seven
 variants stay drawn for the record.
 
-*Сообщество.* A fifth word in the top row, after *Видео* (2026-09-22),
+*Community.* A fifth word in the top row, after *Videos* (2026-09-22),
 for the world of 1984 seen from inside Dossier — people, their renders
 and records, the bot's contests — so the application and the bot make one
 ecosystem rather than two doors to the same house.
 
 The first prototype (2026-09-23) holds one group — the Telegram chat the
 bot keeps its players by — under the same underlined words as Settings:
-*Профиль · Лента · Люди · Рейтинг · Титулы*, and a faint line under them
-naming the group, its size and when the bot last answered — or *образцы
-данных* while the figures are the sample staged in
+*Profile · Feed · People · Rankings · Titles*, and a faint line under them
+naming the group, its size and when the bot last answered — or *sample
+data* while the figures are the sample staged in
 `native/src/community.rs` in the shape of the bot's own tables.
 
 That faint line is gone (2026-10-01, asked for): the page begins with its
@@ -628,10 +628,10 @@ again when pressed.
 
 A result and a title open as sheets over whatever is on the screen
 (2026-10-01). A title opens where it was pressed — the feed, the profile's
-*Обладатели*, a dossier — and no longer carries the person to the catalogue
-of titles; its *Надеть* works in every tab. A top play in the feed opens its
+*Holders*, a dossier — and no longer carries the person to the catalogue
+of titles; its *Wear* works in every tab. A top play in the feed opens its
 result whatever its place, because the event carries the whole play, and a
-poster in the profile opens its result on a second press or by *Результат*
+poster in the profile opens its result on a second press or by *Result*
 under it. A sheet opened from a dossier lies over the dossier; a dossier
 opened from a sheet lies over the sheet. The result's board is as tall as
 its lines, three at the least and five at the most, the scale beside it the
@@ -647,15 +647,15 @@ where a tenth of white over the dark ground is still a third as bright, so
 the content's share is raised to 2.2 and is gone before the card under it
 is.
 
-The feed's days turn at the person's own midnight, not UTC's: *Сегодня*
-and *Вчера* are counted in calendar days of the local zone, the way the
+The feed's days turn at the person's own midnight, not UTC's: *Today*
+and *Yesterday* are counted in calendar days of the local zone, the way the
 times beside them are written.
 
 *Witness* (2026-10-01; the name is not translated) is a tile among the application's settings: what it
-does in two sentences, one line saying where it stands — *Клиент osu! не запущен*,
-*Клиент osu! загружается*, *Подключение к osu! установлено*, *Идёт игра: …* — how many results it
-has sent to the feed this session, and one switch, *Сохранять реплей каждой
-игры в журнале*, with the count of replays kept under it. Witness itself has
+does in two sentences, one line saying where it stands — *The osu! client is not running*,
+*The osu! client is loading*, *Connected to osu!*, *Playing: …* — how many results it
+has sent to the feed this session, and one switch, *Keep every play's
+replay in the journal*, with the count of replays kept under it. Witness itself has
 no switch: it runs whenever the application does, because what the
 application is to grow into — a play in the chat's feed the moment it ends,
 and more between the people of a chat after that — stands on it. Only
@@ -664,20 +664,20 @@ A play the server has from Witness and osu! has not confirmed yet says so in
 its sheet, in one faint line under the time. What it is and how it works is
 in `docs/witness.md`.
 
-- *Лента* is a chronicle (2026-09-24), chosen from three drawn concepts
+- *Feed* is a chronicle (2026-09-24), chosen from three drawn concepts
   over a board of panels and a daily digest: one stream of everything that
   happened — the group's plays, new top plays, titles and climbs, osu!'s
   news, the chosen Telegram channels' posts and the game's builds — newest
-  first under *Сегодня*, *Вчера* and the dates before. Pills filter it
-  (*Всё · Игры · Топ-плеи · Титулы · Рейтинг · Новости · Обновления*); a
+  first under *Today*, *Yesterday* and the dates before. Pills filter it
+  (*All · Plays · Top plays · Titles · Rating · News · Updates*); a
   card lights under the pointer, opens its details where it has any
   (a top play's hits and combo, a build's full list) and carries its own
   actions (the map, the reader, the browser, the rankings). What arrives
-  while the page is open waits behind a red *N новых событий* at the top
+  while the page is open waits behind a red *N new events* at the top
   rather than pushing the stream down under the reader. Beside it: the
   person's own card (level ring, pp, rank, accuracy with the week's gain,
-  the streak, *Мой профиль →*) with the filters and channels; *В центре
-  внимания*, turning every five seconds to the week's biggest gain, the
+  the streak, *My profile →*) with the filters and channels; *In the
+  spotlight*, turning every five seconds to the week's biggest gain, the
   best accuracy, the newest title, the longest streak and the person
   themselves; the friends in the game; and the week's table, turning every
   six seconds through its six boards with a thin line draining towards the
@@ -689,7 +689,7 @@ in `docs/witness.md`.
   columns grow with the window (a fifth and a little under a quarter of it)
   and the stream stops at 860, the three centred together, so a wide window
   no longer gives the stream a hall of empty cards. A card's actions and
-  *Подробнее* sit in its heading row rather than a row of their own; a
+  *Details* sit in its heading row rather than a row of their own; a
   failed play shows only its red F. The spotlight says who, why, one large
   figure and one small one beside it — no second pp, no best play; the
   week's table names its board above a single segmented line of six, and
@@ -698,15 +698,15 @@ in `docs/witness.md`.
   the pointer leaves, and nothing turns or grows again on leaving (it used
   to restart both, so the spotlight blinked and the bars regrew).
   Both side cards were redrawn once more (2026-09-24). The person's own
-  card lies over their cover like a card on *Люди* and is one press into
-  *Профиль*: the level ring, the name with the flag, the title, the
+  card lies over their cover like a card on *People* and is one press into
+  *Profile*: the level ring, the name with the flag, the title, the
   country's rank and the level, the place in the group large in its
   medal's colour; pp, world rank and accuracy as three small tiles, the
   week's gain under the pp and the accuracy; the streak as a chip that
-  takes the room left of *Мой профиль*, a plain framed button with no
+  takes the room left of *My profile*, a plain framed button with no
   arrow (the card itself no longer answers a press). The
   week's table is always the adaptive one, as the bot draws it, with no
-  switch: *Лидеры недели* and the week's days, the six boards turning as
+  switch: *Leaders of the week* and the week's days, the six boards turning as
   before, the first three on a small podium (second, first, third, the
   first raised and larger, each ringed and numbered in its medal's colour,
   its gain in green), then the fourth and fifth as rows with their move
@@ -715,7 +715,7 @@ in `docs/witness.md`.
   and lifts it 6 px. While the week is still gathering, or no one has
   gained on a board, it says so in a line.
   The headings over the two streams say what they count in words that fit
-  them — *Группа 16 событий*, *Новости 7 записей* — in the page's own
+  them — *Group 16 events*, *News 7 entries* — in the page's own
   face rather than the monospaced one, with no dot between.
   A line too long for its place no longer stops at a hard edge: it rests
   two seconds, glides to its end at 26 px a second (eased, at least 0.8 s),
@@ -729,7 +729,7 @@ in `docs/witness.md`.
   version; it asks for frames only while it moves.
   The catalogue moves as it changes (2026-09-24). Opening it or turning to
   another part starts that part's clock; choosing a stream, a filter, a
-  source, a board, a standing, *Беседа · Из игры* or a poster starts the
+  source, a board, a standing, *The chat · From the game* or a poster starts the
   clock of what they change. Whatever the clock governs comes in by fading
   from nothing while it rises 10–16 px into place over 340 ms (ease-out),
   one after another 40 ms apart, counting at most sixteen before the rest
@@ -746,16 +746,16 @@ in `docs/witness.md`.
   Panels over the page (another's dossier, the reader) darken what lies
   behind to 88 % rather than 70 %: blending is linear, and the page read
   through at 70 %. Another's dossier shows no level pill while the level is
-  unknown (it said *Ур. 0 · 0 %*), and the chosen figure's and the level's
+  unknown (it said *Lv. 0 · 0 %*), and the chosen figure's and the level's
   glows are as faint as the board's.
   The parts' words left the page for the top bar (2026-09-24): beside the
-  crest, the catalogue's *Профиль · Лента · Люди · Рейтинг · Титулы* and
-  Settings' *Приложение · Бот* stand at 17 (15.5 under 1200 wide, 14 under
-  1060, so they never run into *Реплеи · Видео · Сообщество · Настройки*),
+  crest, the catalogue's *Profile · Feed · People · Rankings · Titles* and
+  Settings' *Application · Bot* stand at 17 (15.5 under 1200 wide, 14 under
+  1060, so they never run into *Replays · Videos · Community · Settings*),
   fading with their sheet, and the red line under the chosen one slides
   to the next along the words' own widths in 260 ms; the page keeps only
   the line naming the group. Every switch slides its chosen half the same
-  way (*Всё · Группа · Новости*, *Общий · Адаптивный*, *Беседа · Из игры*,
+  way (*All · Group · News*, *General · Adaptive*, *The chat · From the game*,
   the week's six boards, 30 and 90 days), and the switches and chips grew
   (the halves 152 wide at 14.5, the boards' chips at 13.5). Hovering eases
   in and out instead of snapping: a card, a row, a tile or a chip keeps
@@ -777,8 +777,8 @@ in `docs/witness.md`.
   poster has a clock of its own, so what lies under another's dossier no
   longer comes in again behind it. The dossier's head: the level as a
   medallion on the ring's foot, a green dot on the ring when online, the
-  title alone on its line and under it *в сети* or *последний визит 3 ч
-  назад*; the country's row has the flag glyph in the icon's place and the
+  title alone on its line and under it *online* or *last seen 3 h
+  ago*; the country's row has the flag glyph in the icon's place and the
   country's flag before its name. A place in the group carries its move
   as a small arrow and number beside the board's name, so a two-figure
   place never pushes it out. A poster's place is a large numeral over a
@@ -805,9 +805,9 @@ in `docs/witness.md`.
   card-sized frame around the point. The panel's body and edge fade out
   over the last third of its closing and in over the first third of its
   opening, so no dark slab lingers and then vanishes. Going to the board
-  from another's dossier (a place in the group, *Сравнить*) folds the
+  from another's dossier (a place in the group, *Compare*) folds the
   dossier away and shows the board rather than leaving the panel over it.
-  The main words (*Реплеи · Видео · Сообщество · Настройки*) have the same
+  The main words (*Replays · Videos · Community · Settings*) have the same
   sliding red line as the parts' words, and the parts' words rise in with
   their sheet. The activity grid sits 2 px in from its edges, so the
   hovered day's larger square and outline are no longer cut at the corner;
@@ -831,34 +831,34 @@ in `docs/witness.md`.
   channel is fetched again after 90 s, osu! and the builds after 10
   minutes), and whatever arrives goes straight into the stream at its
   place, fading and rising in one after another, with a red wash and edge
-  that fade over four seconds; *N новых событий* is gone. The plays the
+  that fade over four seconds; *N new events* is gone. The plays the
   bot sends ahead still trickle in one at a time every six seconds, each
   arriving the same way.
   The middle was rebuilt the same night from the fifth of the concepts
   drawn on a canvas (two streams under the day's highlights). A segmented
-  *Всё · Группа · Новости*, *N новых событий* and a search by player, map,
-  title or words sit on one line; under them *Главное*, four cards over
+  *All · Group · News*, *N new events* and a search by player, map,
+  title or words sit on one line; under them *Highlights*, four cards over
   their covers or a wash of their colour — the newest top play, title,
   climb and piece of news — each opening its player, board or reader.
-  *Всё* sets the group's journal beside the news (three parts to two; one
+  *All* sets the group's journal beside the news (three parts to two; one
   above the other under 620). The journal has no frame, as the news has
-  none: its heading, its pills *Всё · Игры · Топ-плеи · Титулы · Рейтинг*
+  none: its heading, its pills *All · Plays · Top plays · Titles · Rating*
   with their counts and its rows lie on the page, level with the news
   (2026-09-24, from the journal drawn on the feed's canvas). It is a table
-  of rows of 40 under a head of *Время · Игрок · Карта · pp*: the time, the
+  of rows of 40 under a head of *Time · Player · Map · pp*: the time, the
   avatar and the name, the map's cover and its title with the version
   muted, the pp and the grade as a letter of its colour; below 600 wide it
-  keeps those columns, and wider (*Группа*) it adds the accuracy and the
+  keeps those columns, and wider (*Group*) it adds the accuracy and the
   mods. A top play, a title and a climb are one line across the player's
   and the map's columns — the event's glyph where the avatar stands, the
-  name, what happened (*новый топ-плей*, *получил титул*, *поднялся в
-  таблице*) and its object, a title in its rarity's colour — with the pp
+  name, what happened (*new top play*, *earned the title*, *climbed the
+  table*) and its object, a title in its rarity's colour — with the pp
   and the place or the move (*#4 → #2*) under the pp column; a top play
   opens onto its hits. Rows have no fill and no frame of their own, only a
   faint light under the pointer (tinted rows read as boxes). The news is
   cards, a post's picture or video above its words, an article's title and
-  lead, a build's first three changes, with *Всё · osu! · Каналы ·
-  Обновления*; *Новости* lays the cards two abreast. The filters left the
+  lead, a build's first three changes, with *All · osu! · Channels ·
+  Updates*; *News* lays the cards two abreast. The filters left the
   side card, which keeps only the channels.
   The feed was redrawn on 2026-10-04 (the first of three concepts drawn on a
   canvas, *rows with covers*): one filter row and the search, then the days.
@@ -872,16 +872,16 @@ in `docs/witness.md`.
   a news post, an article or a build is a row of the same rhythm, its
   picture in the cover's place, its source and time over two lines of words.
   A day's head names, at its right and in separate figures, how many plays,
-  records and titles the day holds. There is no *Главное* block and no
+  records and titles the day holds. There is no *Highlights* block and no
   cards: the rows are the feed. Below 600 wide the cover is 88 by 48.
   A cover is dimmed to what it is: its mean luminance is read once, a cover
   brighter than 0.34 is darkened toward 0.34 by at most 45%, a dark one is
   left as it is, so a pale cover does not outshine the rows around it. The
   dimming is baked into the pixels together with the rounded corners, so the
-  two renderers agree. An event reads as a sentence: *поставил топ-плей на*
-  and the map with its version muted, *получил титул* and the title in its
-  colour, *поднялся на 2 места в рейтинге:* and the board. Within the hour
-  the time says *18 мин назад*, later it is the clock. A name is a button
+  two renderers agree. An event reads as a sentence: *set a top play on*
+  and the map with its version muted, *earned the title* and the title in its
+  colour, *climbed 2 places in the rating:* and the board. Within the hour
+  the time says *18 min ago*, later it is the clock. A name is a button
   that opens the player's dossier; the rest of the row, the cover included,
   opens the result. A play puts its accuracy small beside the pp and its mods
   under them; a rendered replay (the film glyph on its cover) has no pp, so
@@ -889,8 +889,8 @@ in `docs/witness.md`.
   it. The refresh button is a square of 32 in the filter row, just before the
   search, and says its state with a glyph and, under the pointer, in words
   with the time of the last answer; it takes no row of its own. It stands
-  for a guest too, where it refreshes the news and says *Готово* at once,
-  and an empty feed offers *Обновить* under its words. The week's leaders in
+  for a guest too, where it refreshes the news and says *Rendered* at once,
+  and an empty feed offers *Refresh* under its words. The week's leaders in
   the side strip carry their place as a ringed number at the corner of the
   face, outside it, so it covers no letter.
   Mods are drawn as the bot draws them (2026-10-04, `services/image/base.py`
@@ -914,10 +914,10 @@ in `docs/witness.md`.
   that osu! serves as GIFs move wherever they are shown while the Community
   is open: up to sixty frames are kept, a longer animation keeping every
   second or third frame and its whole length, and the frames turn every 40 ms.
-- *Профиль* is the dossier (2026-09-24): the ringed avatar with the level
+- *Profile* is the dossier (2026-09-24): the ringed avatar with the level
   and its progress, the title worn, whether the person is online, the
-  country with its rank, the years in osu!, the streak and the duels, *Открыть
-  в osu!* and *Сравнить*; the place on each of the six boards this week;
+  country with its rank, the years in osu!, the streak and the duels, *Open
+  in osu!* and *Compare*; the place on each of the six boards this week;
   five figures — pp, global rank, accuracy, plays, hours — each with its
   gain, which choose what the chart draws over 30 or 90 days (rank from
   the daily history osu! keeps, the rest from the bot's weekly snapshots),
@@ -948,13 +948,13 @@ in `docs/witness.md`.
   play's particulars lie over its cover in a frame of its grade's colour; the grades, the one under the pointer lit and its share told; the
   titles as a collection, bar by rarity, the held ones filled and the next
   ones dashed, a press telling what each asks and when it was earned; and
-  thirteen weeks of plays a day. No panel says *наведите* or *нажмите*:
+  thirteen weeks of plays a day. No panel says *hover* or *click*:
   the grades tell a hovered grade's share in their heading, where the total
   stands otherwise, and the days tell theirs under the squares only while
   one is under the pointer. The chart has no values at its side —
   the pointer reads them — and its line and its shading are one monotone
   curve through the days, so the fill never parts from the line and the
-  dot sits on it. *Место в группе* says how many and which week once, and
+  dot sits on it. *Place in the group* says how many and which week once, and
   each tile the board, the place (gold, silver and bronze for the first
   three), a move as an arrow beside it and a thin bar for the standing. Its
   side columns grow with the window up to 380. Its data is the bot's card
@@ -966,7 +966,7 @@ in `docs/witness.md`.
   is a group, their first group otherwise), are kept in
   `~/.dossier/community.json` and asked for again every minute while the
   catalogue is open. Until the application is linked, or while the bot
-  cannot answer, the catalogue shows its sample and says so. *Люди* switches
+  cannot answer, the catalogue shows its sample and says so. *People* switches
   between the chat's members and the person's osu! friends, which the bot
   reads with the person's own osu! link and so needs the `friends.read`
   permission — a person linked before it asked for that is told to link osu!
@@ -983,12 +983,12 @@ in `docs/witness.md`.
   its length. Pressing one fetches the file Telegram's page names into
   `~/.dossier/cache/clips` (a `.part` renamed when whole, then kept) and
   plays it in the application's own player over the catalogue — the
-  channel's name and the post's first line above it, *Показать в папке* and
-  *В Telegram* under it, every key the renders' player knows; a clip that
+  channel's name and the post's first line above it, *Show in folder* and
+  *In Telegram* under it, every key the renders' player knows; a clip that
   is not 16:9 is letterboxed rather than stretched. A video too big for the
   page to carry — most of *@osunewsru*'s: Telegram answers *Media is too
   big* to anyone but its own apps, on the channel's page and the post's
-  alike — wears an outward arrow and *В Telegram* instead of ▶ and its
+  alike — wears an outward arrow and *In Telegram* instead of ▶ and its
   length, and opens the post. The player's scrim is fully
   opaque: blending is linear, so the old 97 % let a bright page through at
   about a sixth. The subreddit was tried and set
@@ -1010,33 +1010,33 @@ in `docs/witness.md`.
   drawn scaled, the pointer mapped back through the same scale, so the
   three columns and the dossier's figures fit a laptop's window. Nothing in
   it shows a scrollbar; the wheel and the trackpad scroll it.
-- *Люди* is a card per player over their osu! cover — avatar ringed in
+- *People* is a card per player over their osu! cover — avatar ringed in
   the medal's colour for the first three, name and flag, the title they
   wear in its rarity's colour, the place in the group large at the right,
   pp, global rank and accuracy, and plays, hours and the streak in a foot
   that darkens rather than a rule — in pp order, in a grid
   across the whole width (as many columns as fit at about 420 each), and
-  *Титулы* the same way at about 360. A country is drawn as its flag
+  *Titles* the same way at about 360. A country is drawn as its flag
   everywhere a code stood (osu!'s own pictures, kept in
   `~/.dossier/cache/flags`); until one arrives, its two letters in a small
   frame. A rise or a fall on a board is a small arrow with the number in a
   green or red pill. A card opens that player's dossier in a large panel
   that unfolds over the catalogue (2026-09-24) — the same columns as
-  *Профиль*: their osu! page read by the application (level, rank history,
+  *Profile*: their osu! page read by the application (level, rank history,
   grades, best plays, avatar, cover) and what the bot keeps of them
   (`/render/community/person?chat=…&id=…`, answered only to a member of
   that group: weeks, days, titles' dates, duels); until those come, what
   the group's list knows. Esc or ✕ folds it back.
-- *Рейтинг* is the bot's leaderboard in both of its modes (2026-09-24),
-  *Общий* and *Адаптивный*, over the same six boards, chosen on a
-  segmented switch that *Люди* uses too for *Беседа* and *Из игры*. *Общий* is the
-  standing for all time. *Адаптивный* is the week's gain, as the bot's
+- *Rankings* is the bot's leaderboard in both of its modes (2026-09-24),
+  *General* and *Adaptive*, over the same six boards, chosen on a
+  segmented switch that *People* uses too for *The chat* and *From the game*. *General* is the
+  standing for all time. *Adaptive* is the week's gain, as the bot's
   card draws it: only those who gained, the gain in green with the whole
-  beneath (*6 396 всего*), a move against where the player closed last
-  week (an arrow, *NEW* for no place then, — for the same), *неделя 39 ·
-  22–28 сентября*, the count of participants and how many sat out, the
-  person's own row telling how far the next place is (*до 16-го места
-  осталось 12 pp*) or, if they have not played, pinned below; before the
+  beneath (*6,396 total*), a move against where the player closed last
+  week (an arrow, *NEW* for no place then, — for the same), *week 39 ·
+  22–28 September*, the count of participants and how many sat out, the
+  person's own row telling how far the next place is (*12 pp to
+  16th place*) or, if they have not played, pinned below; before the
   week's first snapshot it says the data is still gathering and when the
   first standing comes. The first three stand on a podium — second, first,
   third, the first tallest, each over its cover with its medal's ring and a
@@ -1054,12 +1054,12 @@ in `docs/witness.md`.
   as a light rim at a rounded corner; *NEW* is an opaque dark green pill.
   When the bot does not send `week_began` (an older bot), the week is taken
   from Monday 00:00 in Moscow of the current week, not from 1970, which read
-  as *1–7 января*.
+  as *1–7 January*.
 
-*Хранилище*, a tile in the application's settings (2026-09-24), gives
+*Storage*, a tile in the application's settings (2026-09-24), gives
 the size of the application itself (its bundle) and of everything it
 keeps, split in a bar and a legend — videos, skins, maps, cache and the
-rest — with *Показать в папке* and *Очистить кэш*, which drops the
+rest — with *Show in folder* and *Clear cache*, which drops the
 pictures', flags', clips' and the catalogue's caches (they come back when
 needed). A folder's size used to be read with a function that only walked
 folders, so the maps' cache, two files, always read as nothing.
@@ -1075,8 +1075,8 @@ count in a small badge, drawn in opaque colours rather than white at low
 alpha. The application is 0.89.4 from here, a pre-release, and says so
 beside its build in the settings.
 
-- *Титулы* is the bot's catalogue by rarity, each rarity in the colour the
-  bot draws it with, *открыто n из m* for the group, and on every card
+- *Titles* is the bot's catalogue by rarity, each rarity in the colour the
+  bot draws it with, *n of m open* for the group, and on every card
   whose faces have it. A secret nobody holds shows *???*.
 
 What it needs from the bot, when it stops being a prototype: the group's
@@ -1092,13 +1092,12 @@ reader, a member's panel — or else clears the search and lets go of a
 field; it never closes the catalogue itself (it used to, at once and
 without the fold, which read as the page vanishing). In Settings, Videos
 and the worker it goes back to the replays through the same fade as the
-word *Реплеи*.
+word *Replays*.
 
 *The three words.* Replays is this screen. Worker and Settings open over
 the scene, dimmed to a fifth, in the first run's centred column; the crest
 does not move, and Esc or the word *Replays* brings the scene back. Until
-they are built, each is one card — its name and *Coming later* / *Будет
-доступно позже* — with *Back to replays*.
+they are built, each is one card — its name and *Coming later* — with *Back to replays*.
 
 *The scene.* The engine draws the chosen replay live, bare — no score, no
 counters, no key overlay, the play alone over the map's background — at
@@ -1137,7 +1136,7 @@ the window loses focus, and the wheel as a scrub.
   while the library is read — the emblem is the loading screen, no spinner
   — and the rest follows. If reading takes long, the crest's dot breathes.
 
-**Реплеи** is the main screen above; there is no separate library. What a
+**Replays** is the main screen above; there is no separate library. What a
 replay is beyond the viewer — the judgement's counts, whether it agrees with
 the header, the score — is designed after this screen is real, not before.
 
@@ -1154,34 +1153,34 @@ is read the screen says how far through the maps and the replays it is. lazer
 is never taken for stable: its install folder leads to its data, and its
 replays are known by their versions past thirty million.
 
-**Интерфейс** is a tile beside *Язык*: the scale follows the monitor — 100
+**Interface** is a tile beside *Language*: the scale follows the monitor — 100
 percent at 1080 logical pixels, more on taller screens, less on small ones,
 measured when the window opens and when it moves — or is set by hand on a
 continuous slider from 80 to 150 percent that applies when it is let go. When
 the scale grows a window grows with it; a maximised or full-screen window is
-never touched. The *Рендер* tile holds a fourth slider, *Процессор*, which
+never touched. The *Render* tile holds a fourth slider, *Processor*, which
 holds one's renders and the worker's to a quarter, half or three quarters of
 the cores, split between drawing and encoding.
 
 **Also in the journal** (2026-09-25): only the frames near what is seen are
 built, so thousands of replays cost nothing; a search slides the frames to
 their new places; left alone for a while the journal leaves through its
-replays by itself (*Листать журнал самому* in *Сцена*); a map missing from
+replays by itself (*Scroll the journal myself* in *Scene*); a map missing from
 disk borrows its cover and its name from the mirrors, and a map no server has
-can be taken from the player's own disk (*Указать карту…*). *Только
-экспортированные реплеи* in *Источники* keeps out stable's local scores and
+can be taken from the player's own disk (*Choose the map…*). *Only
+exported replays* in *Sources* keeps out stable's local scores and
 lazer's store.
 
-**Титулы** are worn and taken off from the application — in one's own dossier
+**Titles** are worn and taken off from the application — in one's own dossier
 and on each title card one holds — through the bot. **The feed** no longer
 waits for *rs*: the bot asks osu! for every registered player's recent plays
 in turn, and when the application sees its person's new replay it tells the
 bot, which asks for that player at once.
 
-**Воркер** is a tile of the application's settings, second after *Рендер*
+**Worker** is a tile of the application's settings, second after *Render*
 (2026-09-24; it was a third part of Settings for a day, and a part of its
 own did not earn its place): the farm is back in the bot, and a machine
-lends itself from here. The tile holds one switch — *Брать работу у бота* —
+lends itself from here. The tile holds one switch — *Take work from the bot* —
 with the sentence saying what it does while it is off; a coloured state —
 waiting, resting while one's own render runs, no answer from the bot,
 fetching the replay, finding the map, fetching the skin, drawing (with the
@@ -1199,26 +1198,26 @@ job away), evens the loudness with `loudnorm` to −14 LUFS, refits the video
 to the bot's limit when it is larger, and sends it — or hands the job back
 with the reason. While it draws, one's own *Render* waits and says why.
 
-**Обновления** live in the *Сборки* tile. At launch and every six hours the
+**Updates** live in the *Builds* tile. At launch and every six hours the
 application reads the repository's releases — pre-releases included, for
 everyone — and takes the newest one that has an archive for this system and
 a `SHA256SUMS`. The tile says what it knows: checking, the latest with the
-time it was checked, *Вышла 0.90.0 · пред-релиз* in red, the download's
-percent, ready, or why it failed; *Настройки* in the top bar carries a small
-red dot while an update waits, and a toast offers it once. *Обновить*
+time it was checked, *0.90.0 is out · pre-release* in red, the download's
+percent, ready, or why it failed; *Settings* in the top bar carries a small
+red dot while an update waits, and a toast offers it once. *Refresh*
 downloads the archive, checks its sum, unpacks it beside the data, puts the
 new application where the old one stood (the whole bundle on macOS, the
 executable elsewhere; the old one is set aside and cleared at the next
 launch) and starts it — but never while a render, a worker's job, a map's
 download, a sending or a search is under way; then it waits for them. The
-switch *Обновляться молча, пока меня нет* downloads as soon as an update is
+switch *Update quietly while I am away* downloads as soon as an update is
 out and puts it in after half an hour without a touch, or at the next
 launch, starting the new one in the background. A build from the source says
 it updates with git and does nothing. The first launch of a new version
-toasts *Dossier обновлён* with the versions and a link to what is new.
+toasts *Dossier updated* with the versions and a link to what is new.
 
-**Настройки.** A rail of eight: Подключение, Папки, Видео, Звук, Скины, Игра,
-Клиент, Авторство. Each row is a name, at most one short line under it, and
+**Settings.** A rail of eight: Connection, Folders, Video, Sound, Skins, Game,
+Client, Authorship. Each row is a name, at most one short line under it, and
 its control on the right. No row explains what the person can see for
 themselves.
 
@@ -1230,7 +1229,7 @@ the current one bright. Under the ledger, one card for the current step: a
 title, at most one line of why, the control, and a row of two buttons —
 *Continue* and a quiet *Back* or *Skip*. Nothing else is on the screen.
 
-1. **Language.** Two options, *English* and *Русский*, the system's one
+1. **Language.** Two options, *English* and *Русский* (Russian), the system's one
    preselected. This is the only step that cannot be skipped, and it is first
    so that every word after it is in the right language. Choosing the other
    one retypes every word on the screen over 640 ms: the old words are
@@ -1342,7 +1341,7 @@ bot* rather than a readiness. Nothing about the bot appears anywhere else.
 
 The main screen is designed after this flow is approved, not before.
 
-**Судейство and Студия** are deferred. They are the engine's own views and
+**Judging and Studio** are deferred. They are the engine's own views and
 deserve their own document once the five above are real.
 
 ### What the renderer taught us
@@ -1467,7 +1466,7 @@ skin. `--skins` prints what the hunt found and how long it took.
 An `.osk` is a zip, and the engine already knew how to open one
 (`skin::unpack`, which refuses entries that climb out of the folder and keeps
 everything else, nested folders and all). One dropped on the window, or a
-skin folder dropped on it, is taken at once; *Добавить скин…* asks for a file: an `.osk`, or
+skin folder dropped on it, is taken at once; *Add a skin…* asks for a file: an `.osk`, or
 the `skin.ini` of a folder, which stands for the folder it sits in — no one
 dialog offers files and folders at the same time, and the archive is what
 could not be reached before (fixed 2026-09-23, when a folder-only dialog left
@@ -1481,7 +1480,7 @@ honoured, and whatever the skin does not carry is drawn by the application
 as the engine draws it. The strip in the settings shows one circle per skin
 in a row that scrolls sideways with no bar under it, so the tile grows wide
 and never tall; the first cell is the engine's own skin, *Dossier Default*.
-*Подробнее…* opens a window of panels, one per skin, each holding the same
+*More…* opens a window of panels, one per skin, each holding the same
 prepared pattern, laid out in the playfield's own coordinates (settled
 2026-09-23): four circles in a row with the approach circle on the last, one
 long slider and one short one, both straight — a dark body inside the skin's
@@ -1499,14 +1498,13 @@ made them all the same mustard blob (tried and dropped 2026-09-23). The live
 replay on the main screen is drawn with the chosen skin too, and it starts
 again the moment the choice changes.
 
-**How the video plays is a tile of its own** (added 2026-09-23): *Игровой
-процесс* holds the background's dim and blur as two bars — the dim as the
+**How the video plays is a tile of its own** (added 2026-09-23): *Gameplay* holds the background's dim and blur as two bars — the dim as the
 share the map's artwork is darkened, 82 % by default as the engine's own, the
 blur as a share of the engine's own softening — and four switches: the
 interface, the cursor answering presses (the engine's `cursor_expand`, still
 subject to the skin's own `CursorExpand`), the map's own hitsounds and the
 skin's. All of it goes to the render only; the live replay keeps its own
-look. *Звуки карты* off means the mapper's sound design is set aside as a
+look. *Map sounds* off means the mapper's sound design is set aside as a
 whole, not only its custom samples: every hit is the skin's plain
 `normal-hitnormal` at the map's loudness, with no whistle, finish or clap and
 no sample set of the map's choosing, the slider's slide and ticks in the same
@@ -1531,7 +1529,7 @@ the replay asked for, following osu!'s own `BeatmapStore`. This is what
 
 The application's words were gone over on 2026-10-02 in both languages: the
 register is formal and plain — things are *найдены*, *сохранены*, *не удалось
-выполнить*, a device *ожидает задачу* — with no exclamations, no talk of
+выполнить*, a device *waiting for a task* — with no exclamations, no talk of
 programs as if they were people and no slang, while osu!'s own terms (реплей,
 скин, моды, pp, комбо, хитсаунды, сториборд, топ-плей) and the bot's (титул,
 *надеть*, беседа, воркер) stay as players know them. A count and its noun
@@ -1559,7 +1557,7 @@ movements at a chosen rate while the frame journal (`DOSSIER_FRAMES`, and
 Another player's replay is told apart in the journal (2026-10-02): replays the
 server brings from people who share theirs carry a small blue disc with the
 player's initial on their frame and beside the name in the bubble, and the
-heading of the chosen one says *реплей другого игрока* in the same blue after
+heading of the chosen one says *another player's replay* in the same blue after
 the date. Blue here means only that, the way red means the person's own.
 
 The profile panel of the feed (same day) lost its line of country place and
@@ -1603,56 +1601,60 @@ top right corner, in a row under the accuracy, where the client shows them; the
 counts of 300s, 100s, 50s and misses start lower by the height of that row, and
 only when there is one. A frame that is not signed carries neither.
 
-## Оперативное меню, колокольчик и подписка (9 октября 2026)
+## The quick menu, the bell and the subscription (9 October 2026)
 
-Прототипы лежат на холсте «Пулы, главная страница», страница «Меню и подписка», и в
-`~/Downloads/Главное меню - подписка и меню/`. Приложение должно совпадать с ними.
+The prototypes are on the canvas *Pools, the home page*, page *Menu and
+subscription*, and in `~/Downloads/Главное меню - подписка и меню/`. The app must
+match them exactly.
 
-- **Стекло.** Настоящего размытия фона в iced нет. `ui::glass` рисует в панели тот же
-  размытый кадр сцены, обрезанный по её скруглённым границам, и поверх тёмную
-  полупрозрачную заливку; `ui::glass_deep` темнее, для листов поверх затемнения.
-- **Колокольчик** стоит в верхней строке слева от аватара, со счётчиком непрочитанного.
-  По нажатию под ним раскрывается стеклянный список: идущая работа с процентом и
-  пришедшие уведомления, «Очистить». Открытие списка помечает всё прочитанным.
-- **Меню аккаунта** открывается аватаром и состоит из одной стеклянной панели:
-  аватар, имя, ник с ID, «Выйти»; ниже уровень подписки, метка состояния, число дней,
-  полоса периода, «Оплачено до …» и «Управлять». Вкладок, ленты и статистики больше нет.
-  Колокольчик и меню открываются по одному: `Tab::Bell` и `Tab::Head`.
-- **Панель подписки** (`native/src/billing.rs`). Каталог Lava у нас один продукт с пятью
-  уровнями, до четырёх сроков и тремя валютами. Сверху переключатели срока и валюты,
-  метка выгоды длинного срока против помесячной оплаты, ниже карточки уровней с ценой
-  за срок и в пересчёте на месяц; уровень, которого нет на выбранный срок, показан
-  неактивным. Внизу почта и кнопка с суммой. Состояния: активна, ждём оплату, не
-  продлится, оплата не прошла, каждое своей карточкой. Валюта по умолчанию: рубли при
-  русском языке, доллары при английском. Зарубежные покупатели платят картой в $ или €:
-  Lava сама выбирает провайдера по валюте. PayPal не подключён.
-- **Сервер.** Маршруты `/render/billing/*` в боте, см. README бота.
-- **Размытие стекла.** `ui::frosted` уменьшает кадр сцены до 96 точек по ширине и
-  размывает его, результат запоминается по номеру картинки. Картинка режется по
-  скруглению полосами в одну точку (`ui::glass_bands`): растровый рисовальщик не умеет
-  скруглять обрезку картинки, поэтому один прямоугольник оставлял квадратные углы.
-  Вне главного экрана (открыт раздел или плеер) кадра сцены под панелью нет, и стекло
-  становится плотной тёмной заливкой: `glass_picture` возвращает `None`.
-  У ошибки своё стекло с красным отливом и красной кромкой, `ui::glass_warm`.
-- **Откуда выходят панели.** Меню и список уведомлений растут из своих значков и
-  уходят в них же (`ui::grown` с опорной точкой в центре значка). Обе панели и лист
-  подписки завёрнуты в `opaque`: щелчок по ним и по затемнению под листом не доходит до
-  того, что лежит ниже. Открытое меню закрывает всплывающие уведомления.
-- **Колокольчик живой.** Новое уведомление коротко вспыхивает на значке
-  (`bell_flash`), идущая работа красит его кромку; аватар при этом не подсвечивается.
-  «Очистить» убирает плитки по очереди с короткой задержкой, а не разом. Плитки
-  уведомлений полупрозрачные, как на макете, а не серые.
-- **Цвета уровней.** У каждого из пяти уровней подписки свой цвет (`billing::TINTS`,
-  по порядку цены: зелёный, синий, фиолетовый, янтарный, красный). Им окрашены метка
-  уровня в карточке, кромка выбранной карточки и значок уровня в меню. Это задел под
-  значки подписчиков, как у osu!supporter.
-- **Журнал.** По краям ленты журнала стоят затухания (`ui::side_fades`), которые
-  появляются только с той стороны, куда есть что листать. Инерция после резкого рывка
-  длиннее: `glide::FLING` 0,34 вместо 0,22.
-- **Недостающие карты.** В настройках, плитка «Интерфейс», есть выключатель
-  «Скачивать недостающие карты к реплеям» (`auto_fetch_maps`, по умолчанию выключен). Когда он
-  включён, реплеи журнала без карты по одному ставят её на скачивание, каждую карту
-  один раз за запуск (`auto_fetched`, сообщение `AutoFetch`).
-- **Профиль по нику.** Ссылка на профиль пишется как `/users/@ник`: без собаки сайт
-  принимает ник из одних цифр за номер игрока.
-
+- **Glass.** iced has no real background blur. `ui::glass` draws in the panel the
+  same blurred frame of the scene, cut along its rounded border, with a dark
+  translucent fill on top; `ui::glass_deep` is darker, for sheets over a scrim.
+- **The bell** sits in the top row left of the avatar, with an unread counter.
+  A press unfolds a glass list under it: work in progress with its percentage and
+  arrived notices, *Clear*. Opening the list marks everything read.
+- **The account menu** opens from the avatar and is one glass panel: the avatar,
+  the name, the nickname with its ID, *Sign out*; below them the subscription
+  level, a state mark, the number of days, the period bar, *Paid until …* and
+  *Manage*. There are no tabs, feed or statistics any more. The bell and the menu
+  open one at a time: `Tab::Bell` and `Tab::Head`.
+- **The subscription panel** (`native/src/billing.rs`). Our Lava catalogue is one
+  product with five levels, up to four terms and three currencies. At the top are
+  the term and currency switches and a mark of how much a long term saves against
+  paying monthly; below are the level cards with the price for the term and per
+  month; a level not offered for the chosen term is shown inactive. At the bottom
+  are the email and a button with the sum. States: active, waiting for payment,
+  will not renew, payment failed, each with its own card. The default currency is
+  roubles for Russian and dollars for English. Buyers abroad pay by card in $ or €:
+  Lava picks the provider by currency. PayPal is not connected.
+- **The server.** The `/render/billing/*` routes in the bot, see the bot's README.
+- **Blurring the glass.** `ui::frosted` shrinks the scene's frame to 96 pixels
+  wide and blurs it; the result is remembered by the picture's id. `ui::glass_piece`
+  cuts the piece under a panel with its rounded corners into one picture and
+  `glass_cut` keeps it, because the raster painter cannot round a picture's clip.
+  Away from the main screen (a section or the player is open) there is no scene
+  frame under the panel, and the glass becomes a solid dark fill: `glass_picture`
+  returns `None`. An error has its own glass with a red cast and a red rim,
+  `ui::glass_warm`.
+- **Where panels come from.** The menu and the notice list grow out of their icons
+  and go back into them (`ui::grown` anchored at the icon's centre). Both panels
+  and the subscription sheet are wrapped in `opaque`: a click on them or on the
+  scrim under the sheet does not reach what lies below. An open menu closes the
+  popup notices.
+- **The bell is alive.** A new notice briefly flashes on the icon (`bell_flash`),
+  and work in progress tints its rim; the avatar is not highlighted. *Clear*
+  removes the tiles one after another with a short delay, not all at once. Notice
+  tiles are translucent, as in the mockup, not grey.
+- **Level colours.** Each of the five subscription levels has its own colour
+  (`billing::TINTS`, in price order: green, blue, purple, amber, red). They tint
+  the level mark on the card, the chosen card's rim and the level icon in the
+  menu. This prepares for subscriber badges like osu!supporter's.
+- **The journal.** At the journal strip's edges stand fades (`ui::side_fades`) that
+  appear only on the side where there is more to scroll. Inertia after a sharp
+  fling lasts longer: `glide::FLING` is 0.34 instead of 0.22.
+- **Missing maps.** The *Interface* tile in the settings has the switch
+  *Download missing maps for replays* (`auto_fetch_maps`, off by default). When it
+  is on, journal replays without their map queue it for download one by one, each
+  map once per launch (`auto_fetched`, the `AutoFetch` message).
+- **A profile by nickname.** A profile link is written as `/users/@nickname`:
+  without the at sign the site takes an all-digit nickname for a player id.

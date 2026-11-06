@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use iced::widget::shader::{self, Pipeline, Viewport};
+use iced::widget::shader::{self, Viewport};
 use iced::{mouse, wgpu, Element, Length, Rectangle};
 
 const FORGOTTEN_AFTER: u64 = 120;
@@ -127,7 +127,6 @@ impl shader::Primitive for Shown {
         let (dest, uv) = placed(self.fit, (bounds.width, bounds.height), (self.frame.width as f32, self.frame.height as f32));
         let scale = viewport.scale_factor() as f32;
         let shape = [self.radius * scale, bounds.width * dest[2] * scale, bounds.height * dest[3] * scale];
-        pipeline.trim();
         pipeline.load(device, queue, &self.frame);
         let linear = pipeline.texels.is_srgb();
         let channel = |c: f32| if linear { if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) } } else { c };
@@ -314,6 +313,7 @@ impl shader::Pipeline for Projector {
     }
 
     fn trim(&mut self) {
+        let shown = self.tick;
         self.tick += 1;
         let tick = self.tick;
         self.reels.retain(|_, reel| tick.saturating_sub(reel.seen) < FORGOTTEN_AFTER);
@@ -321,7 +321,7 @@ impl shader::Pipeline for Projector {
             u64::from(reel.size.0).saturating_mul(u64::from(reel.size.1)).saturating_mul(4)
         }).sum();
         while self.reels.len() > MAX_REELS || cached_bytes > MAX_REEL_BYTES {
-            let oldest = self.reels.iter().min_by_key(|(_, reel)| reel.seen).map(|(&key, reel)| {
+            let oldest = self.reels.iter().filter(|(_, reel)| reel.seen < shown).min_by_key(|(_, reel)| reel.seen).map(|(&key, reel)| {
                 (key, u64::from(reel.size.0).saturating_mul(u64::from(reel.size.1)).saturating_mul(4))
             });
             let Some((key, bytes)) = oldest else { break; };

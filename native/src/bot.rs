@@ -1196,12 +1196,12 @@ fn long(timeout: Duration) -> Result<reqwest::blocking::Client, Refused> {
     reqwest::blocking::Client::builder().timeout(timeout).user_agent(ENGINE).build().map_err(|e| Refused::Network(e.to_string()))
 }
 
-pub fn claim(server: &str, token: &str, name: &str, take: bool) -> Result<Option<Job>, Refused> {
-    let response = client()?
+pub fn claim(server: &str, token: &str, name: &str, take: bool, wait: Duration) -> Result<Option<Job>, Refused> {
+    let response = long(wait + Duration::from_secs(15))?
         .post(format!("{server}/render/claim"))
         .header("X-Render-Worker", crate::bot::worker(name))
         .bearer_auth(token)
-        .json(&serde_json::json!({"build": BUILD, "take": take, "rulesets": DRAWN_RULESETS}))
+        .json(&serde_json::json!({"build": BUILD, "take": take, "rulesets": DRAWN_RULESETS, "wait": wait.as_secs_f64()}))
         .send()
         .map_err(|e| Refused::Network(e.to_string()))?;
     if response.status().as_u16() == 204 {

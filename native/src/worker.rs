@@ -45,7 +45,8 @@ static HOLDING: AtomicBool = AtomicBool::new(false);
 
 const RESTING: Duration = Duration::from_secs(8);
 const QUIET: Duration = Duration::from_secs(20);
-const BEAT: Duration = Duration::from_secs(15);
+const BEAT: Duration = Duration::from_secs(5);
+const CLAIM_WAIT: Duration = Duration::from_secs(15);
 
 pub fn stop() {
     ON.store(false, Ordering::SeqCst);
@@ -78,13 +79,14 @@ fn work(setup: &Setup, push: &mut dyn FnMut(Step) -> bool) {
     ON.store(true, Ordering::SeqCst);
     while ON.load(Ordering::SeqCst) {
         if render::busy() {
-            let _ = bot::claim(&setup.server, &setup.token, &setup.name, false);
+            let _ = bot::claim(&setup.server, &setup.token, &setup.name, false, Duration::ZERO);
             if !push(Step::Resting) || !nap(RESTING) {
                 break;
             }
             continue;
         }
-        match bot::claim(&setup.server, &setup.token, &setup.name, true) {
+        let asked = Instant::now();
+        match bot::claim(&setup.server, &setup.token, &setup.name, true, CLAIM_WAIT) {
             Ok(Some(job)) => {
                 HOLDING.store(true, Ordering::SeqCst);
                 let title = job.title.clone();
@@ -111,7 +113,8 @@ fn work(setup: &Setup, push: &mut dyn FnMut(Step) -> bool) {
             }
             Ok(None) => {
                 let waiting = bot::hello(&setup.server, &setup.token, &setup.name).map_or(0, |hello| hello.waiting);
-                if !push(Step::Waiting { waiting }) || !nap(RESTING) {
+                let rest = if asked.elapsed() >= CLAIM_WAIT / 2 { Duration::ZERO } else { RESTING };
+                if !push(Step::Waiting { waiting }) || !nap(rest) {
                     break;
                 }
             }
@@ -122,7 +125,7 @@ fn work(setup: &Setup, push: &mut dyn FnMut(Step) -> bool) {
             }
         }
     }
-    let _ = bot::claim(&setup.server, &setup.token, &setup.name, false);
+    let _ = bot::claim(&setup.server, &setup.token, &setup.name, false, Duration::ZERO);
     ON.store(false, Ordering::SeqCst);
     push(Step::Stopped);
 }
@@ -150,10 +153,13 @@ fn draw_and_send(setup: &Setup, job: &bot::Job, folder: &Path, push: &mut dyn Fn
         let (progress, lost, finished) = (progress.clone(), lost.clone(), finished.clone());
         std::thread::spawn(move || {
             let mut last = Instant::now();
+            let mut told = String::new();
             while !finished.load(Ordering::SeqCst) {
-                if last.elapsed() >= BEAT {
+                let said = progress.lock().map(|p| p.clone()).unwrap_or_default();
+                let stage = said.get("stage").and_then(|stage| stage.as_str()).unwrap_or_default().to_owned();
+                if last.elapsed() >= BEAT || stage != told {
                     last = Instant::now();
-                    let said = progress.lock().map(|p| p.clone()).unwrap_or_default();
+                    told = stage;
                     if let Ok(false) = bot::heartbeat(&server, &token, &name, &id, &said) {
                         lost.store(true, Ordering::SeqCst);
                         render::stop();
@@ -265,7 +271,7 @@ fn steps(
     bot::deliver(&setup.server, &setup.token, &setup.name, &job.id, &sent, &meta, |_| {}).map_err(|e| format!("sending: {e}"))
 }
 
-const AVATARS_AT_ONCE: usize = 10;
+const AVATARS_AT_ONCE: usize = 25;
 
 pub(crate) fn rivals_of(board: &[bot::JobRival]) -> Vec<dossier_render::Entry> {
     let faces: Vec<Option<PathBuf>> = board

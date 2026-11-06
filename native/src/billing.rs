@@ -652,14 +652,14 @@ fn tier_card<'a>(state: &'a State, tier: &str, name: String, words: &'a Words) -
     };
     let chosen = state.tier.as_deref() == Some(tier);
     let own = state.changing && state.subscription().is_some_and(|held| offer_of(&held.plan) == tier);
-    let mut title = row![crate::badge::mark(Some(rank), state.stage(), 18.0), container(text(name.clone()).font(theme::SANS_SEMI).size(match name.chars().count() { 0..=10 => 16.0, 11..=12 => 14.0, _ => 12.5 }).wrapping(text::Wrapping::None).color(ui::faded(INK))).width(Length::Fill).clip(true)].spacing(8).align_y(iced::Center);
+    let mut title = row![container(crate::badge::mark(Some(rank), state.stage(), 18.0)).center_y(20.0), container(text(name.clone()).font(theme::SANS_SEMI).size(16.0).line_height(1.15).wrapping(text::Wrapping::Word).color(ui::faded(INK))).width(Length::Fill).padding(Padding::ZERO.top(1.0))].spacing(8).align_y(iced::Top);
     if chosen {
         title = title.push(container(crate::glyphs::glyph(crate::glyphs::Icon::Check, 12.0, Color::from_rgb(0.07, 0.03, 0.04))).center(20.0).style(move |_| container::Style { background: Some(Background::Color(Color { a: k, ..tint })), border: Border { radius: 10.0.into(), ..Border::default() }, ..container::Style::default() }));
     }
-    let caption: Element<'a, Message> = if own { container(text(words.t("billing-change-now")).font(theme::MONO).size(12.0).color(ui::faded(MUTED))).padding(Padding::ZERO.left(26.0).top(2.0)).into() } else { Space::new().height(0.0).into() };
+    let caption: Element<'a, Message> = if own { container(text(words.t("billing-change-now")).font(theme::SANS).size(13.0).color(ui::faded(MUTED))).padding(Padding::ZERO.left(26.0).top(2.0)).into() } else { Space::new().height(0.0).into() };
     let mut inside = column![title, caption, Space::new().height(Length::Fill), text(price(plan, words)).font(theme::SANS_SEMI).size(26.0).wrapping(text::Wrapping::None).color(ui::faded(INK)), text(period(plan, words)).font(theme::SANS).size(14.0).color(ui::faded(MUTED))].spacing(2);
     if let (Some(months), Ok(amount)) = (months_of(&plan.periodicity).filter(|months| *months > 1.0), plan.amount.parse::<f64>()) {
-        inside = inside.push(container(text(words.with("billing-each-month", &[("price", money((amount / months).round(), &plan.currency, words))])).font(theme::MONO_BOLD).size(13.0).color(ui::faded(Color::from_rgb(0.94, 0.77, 0.77)))).padding(Padding::ZERO.top(6.0)));
+        inside = inside.push(container(text(words.with("billing-each-month", &[("price", money((amount / months).round(), &plan.currency, words))])).font(theme::SANS_SEMI).size(14.0).color(ui::faded(Color::from_rgb(0.94, 0.77, 0.77)))).padding(Padding::ZERO.top(6.0)));
     }
     button(container(inside).padding(16).width(Length::Fill).height(Length::Fill))
         .padding(0)

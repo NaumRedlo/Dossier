@@ -14,12 +14,13 @@ jobs:
   witness:
     name: witness
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
-      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - run: bash tools/apt-install.sh gcc-mingw-w64-x86-64
       - uses: Swatinem/rust-cache@v2
         with:
           key: witness
@@ -35,6 +36,7 @@ jobs:
     name: build (${{ matrix.name }})
     needs: witness
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -49,7 +51,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: bash tools/apt-install.sh libasound2-dev
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
@@ -97,6 +99,8 @@ jobs:
           </dict>
           </plist>
           PLIST
+              codesign --force --sign - --timestamp=none "$out/Dossier.app"
+              codesign --verify --strict --verbose=2 "$out/Dossier.app"
               ditto -c -k --norsrc --noextattr --keepParent "$out" "$out.zip"
               ;;
             Windows)
@@ -117,6 +121,7 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4

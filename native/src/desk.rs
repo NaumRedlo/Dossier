@@ -177,6 +177,7 @@ pub struct Held {
     pub mapper: Option<String>,
     pub title: Option<String>,
     pub version: Option<String>,
+    pub main_slot: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

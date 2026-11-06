@@ -1469,10 +1469,20 @@ fn desk_states(community: &dyn Fn(crate::community_screen::Section, Option<usize
             let mut main = tabbed(Tab::Catalog);
             main.desk.band = Some(("NM3".into(), 1));
             main.desk.held = vec![
-                crate::desk::Held { reviewer: Some("NaumRedlo".into()), beatmap_id: 5687673, beatmapset_id: Some(2612145), stars: 5.71, level: "human".into(), tier: Some("exemplary".into()), typical: Some(0.71), mapper: Some("Nevo".into()), title: Some("HOT LIMIT".into()), version: Some("Extreme".into()) },
-                crate::desk::Held { reviewer: None, beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), tier: None, typical: Some(0.48), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()), version: Some("Insane".into()) },
+                crate::desk::Held { reviewer: Some("NaumRedlo".into()), beatmap_id: 5687673, beatmapset_id: Some(2612145), stars: 5.71, level: "human".into(), tier: Some("exemplary".into()), typical: Some(0.71), mapper: Some("Nevo".into()), title: Some("HOT LIMIT".into()), version: Some("Extreme".into()), main_slot: None },
+                crate::desk::Held { reviewer: None, beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), tier: None, typical: Some(0.48), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()), version: Some("Insane".into()), main_slot: None },
+                crate::desk::Held { reviewer: Some("NaumRedlo".into()), beatmap_id: 4851296, beatmapset_id: Some(2290766), stars: 5.48, level: "human".into(), tier: Some("borderline".into()), typical: Some(0.52), mapper: Some("Nevo".into()), title: Some("Ascension to Heaven".into()), version: Some("Heaven".into()), main_slot: Some("NM2".into()) },
             ];
             main.desk.added = Some(5379506);
+            main
+        }),
+        ("main-community-balance-catalog-extra".to_owned(), {
+            let mut main = tabbed(Tab::Catalog);
+            main.desk.band = Some(("HD2".into(), 1));
+            main.desk.held = vec![
+                crate::desk::Held { reviewer: None, beatmap_id: 5379506, beatmapset_id: Some(2440213), stars: 5.94, level: "uncertain".into(), tier: None, typical: Some(0.48), mapper: Some("Shmiklak".into()), title: Some("Harumodoki".into()), version: Some("Insane".into()), main_slot: None },
+                crate::desk::Held { reviewer: Some("NaumRedlo".into()), beatmap_id: 4851296, beatmapset_id: Some(2290766), stars: 5.48, level: "human".into(), tier: Some("borderline".into()), typical: Some(0.52), mapper: Some("Nevo".into()), title: Some("Ascension to Heaven".into()), version: Some("Heaven".into()), main_slot: Some("NM2".into()) },
+            ];
             main
         }),
         ("main-community-balance-catalog-workers".to_owned(), {

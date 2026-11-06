@@ -2059,6 +2059,7 @@ desk-skill-hd4 = Гиммики на HD
 desk-skill-hr4 = Гиммики на HR
 
 desk-reviewed-by = Проверил { $name }
+desk-held-main-slot = Основной слот
 desk-discovery-no-model = Для поиска нужна опубликованная модель Kamerton, совместимая с текущим анализатором.
 
 desk-did-discover-result = Поиск { $slot }, { $band }★. Назначен слот: { $assigned }. Ждут разметки: { $waiting }. Уже известны: { $known }. Ошибки: { $failed }.

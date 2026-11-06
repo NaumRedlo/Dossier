@@ -2442,6 +2442,9 @@ fn held_card<'a>(w: &Words, state: &'a State, map: &Held, k: f32) -> Element<'a,
     if let Some((tier, ink)) = map.tier.as_deref().and_then(|tier| match tier { "exemplary" => Some((tier, GOOD)), "borderline" => Some((tier, UNSURE)), _ => None }) {
         facts = facts.push(strong(w.t(&format!("desk-tier-{tier}")), 12.0 * k, ink));
     }
+    if let Some(main) = map.main_slot.as_deref() {
+        facts = facts.push(row![words(w.t("desk-held-main-slot"), 12.0 * k, MUTED), tag(main, k)].spacing(6).align_y(Alignment::Center));
+    }
     facts = facts.push(strong(if map.level == "human" { map.reviewer.as_ref().map_or_else(|| w.t("desk-level-human"), |name| w.with("desk-reviewed-by", &[("name", name.clone())])) } else { w.t(&format!("desk-level-{}", map.level)) }, 12.0 * k, colour));
     let top = row![
         cover(state, shown.beatmapset_id, 76.0 * k, 46.0 * k, 8.0),
@@ -2472,8 +2475,9 @@ fn cell_view<'a>(w: &Words, state: &'a State, coverage: &desk::Coverage, slot: &
     for map in &state.held {
         list = list.push(held_card(w, state, map, k));
     }
+    let extra = coverage.secondary.get(slot).and_then(|counts| counts.get(band)).copied().unwrap_or_default();
     if state.held.is_empty() {
-        list = list.push(words(w.t(if count == 0 { "desk-cell-empty" } else { "desk-loading" }), 13.0 * k, FAINT));
+        list = list.push(words(w.t(if count + extra == 0 { "desk-cell-empty" } else { "desk-loading" }), 13.0 * k, FAINT));
     }
     let range = format!("{}★", band_name(w, band));
     let search = button(container(if state.posting { busy(w, state, k) } else { row![glyph(Icon::Download, 16.0 * k, INK), strong(w.t("desk-search"), 14.0 * k, INK), meta_pill(range, k)].spacing(8).align_y(Alignment::Center).into() }).center_x(Length::Fill).center_y(40.0 * k))
@@ -2487,7 +2491,7 @@ fn cell_view<'a>(w: &Words, state: &'a State, coverage: &desk::Coverage, slot: &
     column![
         row![tag(slot, k), container(heading_k(k, skill(w, slot))).width(Length::Fill), band_pill(band_name(w, band), true, k)].spacing(8).align_y(Alignment::Center),
         column![
-            row![strong(w.with("desk-band-count", &[("count", count.to_string())]), 14.0 * k, ink), Space::new().width(Length::Fill), words(w.with("desk-band-need", &[("count", ENOUGH.to_string())]), 12.0 * k, FAINT)].align_y(Alignment::Center),
+            row![strong(w.with("desk-band-count", &[("count", count.to_string())]), 14.0 * k, ink), words(if extra > 0 { format!("+{extra}") } else { String::new() }, 12.0 * k, ink), Space::new().width(Length::Fill), words(w.with("desk-band-need", &[("count", ENOUGH.to_string())]), 12.0 * k, FAINT)].spacing(4).align_y(Alignment::Center),
             bar(count as f32 / ENOUGH as f32, ink),
         ].spacing(6),
         scrollable(list).direction(ui::hidden_bar()).height(Length::Fill),

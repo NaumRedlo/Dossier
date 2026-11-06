@@ -2015,6 +2015,7 @@ desk-skill-hd4 = HD Gimmick
 desk-skill-hr4 = HR Gimmick
 
 desk-reviewed-by = Reviewed by { $name }
+desk-held-main-slot = Main slot
 desk-discovery-no-model = Searching requires a published Kamerton model compatible with the current analyser.
 
 desk-did-discover-result = Search { $slot }, { $band }★. Assigned: { $assigned }. Awaiting review: { $waiting }. Already known: { $known }. Errors: { $failed }.

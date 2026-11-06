@@ -339,8 +339,7 @@ impl Letter {
         }
         let tall = (y1 - y0 + 1).max(x1 - x0 + 1);
         let side = tall + tall / 8;
-        let left = (x0 + x1 + 1) / 2;
-        let top = (y0 + y1 + 1) / 2;
+        let (left, top) = (w / 2, h / 2);
         let mut mask = vec![0u8; side * side];
         for y in 0..side {
             for x in 0..side {

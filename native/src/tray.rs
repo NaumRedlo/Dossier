@@ -128,7 +128,9 @@ pub fn template(mask: &image::GrayImage) -> Option<(Vec<u8>, u32)> {
     let pad = (side as f32 * MARGIN).round() as u32;
     let square = side + 2 * pad;
     let mut framed = image::GrayImage::new(square, square);
-    let (off_x, off_y) = (pad + (side - (right - left + 1)) / 2, pad + (side - (bottom - top + 1)) / 2);
+    let optical = (left + right + 1) as i32 / 2 - width as i32 / 2;
+    let off_x = (pad + (side - (right - left + 1)) / 2).saturating_add_signed(optical);
+    let off_y = pad + (side - (bottom - top + 1)) / 2;
     for y in top..=bottom {
         for x in left..=right {
             framed.put_pixel(off_x + x - left, off_y + y - top, *mask.get_pixel(x, y));
@@ -203,6 +205,9 @@ mod tests {
         let inked: Vec<u32> = (0..MARK_SIDE).filter(|y| (0..MARK_SIDE).any(|x| alpha(x, *y) > 128)).collect();
         let tall = inked[inked.len() - 1] - inked[0] + 1;
         assert!((28..=32).contains(&tall), "the letter should stand about 15 of the menu bar's 22 points, not {tall} of {MARK_SIDE} pixels");
+        let inked_x: Vec<u32> = (0..MARK_SIDE).filter(|x| (0..MARK_SIDE).any(|y| alpha(*x, y) > 128)).collect();
+        let (left, right) = (inked_x[0], MARK_SIDE - 1 - inked_x[inked_x.len() - 1]);
+        assert!(left > right, "the mark keeps the mask's optical centre, a little to the right: {left} and {right}");
     }
 
     #[test]

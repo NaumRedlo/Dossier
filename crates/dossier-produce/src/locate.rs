@@ -199,7 +199,7 @@ pub fn index(root: &Path) -> Known {
             let Ok(mut file) = zip.by_index(index) else {
                 continue;
             };
-            if !file.name().to_ascii_lowercase().ends_with(".osu") {
+            if !file.name().unwrap_or_default().to_ascii_lowercase().ends_with(".osu") {
                 continue;
             }
             let mut inside = Vec::new();
@@ -217,13 +217,13 @@ fn search_osz(bytes: &[u8], want_hash: &str) -> Result<Option<(String, String)>,
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-        if !file.name().to_ascii_lowercase().ends_with(".osu") {
+        if !file.name().unwrap_or_default().to_ascii_lowercase().ends_with(".osu") {
             continue;
         }
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).map_err(|e| e.to_string())?;
         if md5_hex(&contents) == want_hash {
-            let name = file.name().to_owned();
+            let name = file.name().unwrap_or_default().into_owned();
             return Ok(Some((decode(&contents), name)));
         }
     }
@@ -251,7 +251,7 @@ pub fn extract_audio(origin: &Origin, filename: &str, into: &Path) -> Option<Pat
             let wanted = normalise(filename);
             let index = (0..zip.len()).find(|&i| {
                 zip.by_index(i)
-                    .map(|f| normalise(f.name()) == wanted)
+                    .map(|f| normalise(&f.name().unwrap_or_default()) == wanted)
                     .unwrap_or(false)
             })?;
 
@@ -312,7 +312,7 @@ pub fn extract_samples(origin: &Origin, into: &Path, ffmpeg: &str) -> usize {
                     continue;
                 };
 
-                let leaf = Path::new(file.name())
+                let leaf = Path::new(&*file.name().unwrap_or_default())
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default();
@@ -404,7 +404,7 @@ pub fn read_background(origin: &Origin, filename: &str) -> Option<Vec<u8>> {
             let wanted = normalise(filename);
             let index = (0..zip.len()).find(|&i| {
                 zip.by_index(i)
-                    .map(|f| normalise(f.name()) == wanted)
+                    .map(|f| normalise(&f.name().unwrap_or_default()) == wanted)
                     .unwrap_or(false)
             })?;
             let mut file = zip.by_index(index).ok()?;
@@ -453,7 +453,7 @@ impl Assets {
                 for at in 0..zip.len() {
                     if let Ok(file) = zip.by_index(at) {
                         if !file.is_dir() {
-                            index.insert(flatten(file.name()), Entry::Inside(at));
+                            index.insert(flatten(&file.name().unwrap_or_default()), Entry::Inside(at));
                         }
                     }
                 }

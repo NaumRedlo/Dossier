@@ -382,7 +382,7 @@ fn unpack_worker_skin(archive: &Path, into: &Path) -> Result<(), String> {
     for at in 0..zip.len() {
         let mut entry = zip.by_index(at).map_err(|e| e.to_string())?;
         let relative = entry.enclosed_name().ok_or("the skin contains an invalid path")?;
-        if entry.name().contains('\\') || relative.components().any(|c| c.as_os_str().to_string_lossy().contains(':')) {
+        if entry.name().map_err(|e| e.to_string())?.contains('\\') || relative.components().any(|c| c.as_os_str().to_string_lossy().contains(':')) {
             return Err("the skin contains an invalid path".into());
         }
         if entry.unix_mode().is_some_and(|mode| mode & 0o170000 == 0o120000) { return Err("the skin contains a symbolic link".into()); }

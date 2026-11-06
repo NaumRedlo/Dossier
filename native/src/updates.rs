@@ -302,9 +302,7 @@ fn download(client: &reqwest::blocking::Client, release: &Release, into: &Path, 
 }
 
 fn unpack(archive: &Path, into: &Path) -> Result<(), String> {
-    let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
-    let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
-    zip.extract(into).map_err(|e| e.to_string())
+    crate::unzip::unpack(archive, into, crate::unzip::UPDATE).map(|_| ())
 }
 
 pub fn fetch(release: &Release, place: &Place, report: &mut dyn FnMut(Step) -> bool) {

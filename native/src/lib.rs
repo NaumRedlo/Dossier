@@ -67,6 +67,7 @@ pub mod sources;
 pub mod theme;
 pub mod tray;
 pub mod unfold;
+pub mod unzip;
 pub mod updates;
 pub mod tip;
 pub mod ui;

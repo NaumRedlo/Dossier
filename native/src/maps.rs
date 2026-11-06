@@ -373,27 +373,7 @@ fn free_folder(songs: &Path, wanted: &str) -> PathBuf {
 }
 
 pub fn unpack(archive: &Path, into: &Path) -> Result<usize, String> {
-    let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
-    let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(into).map_err(|e| e.to_string())?;
-    let mut written = 0;
-    for at in 0..zip.len() {
-        let mut entry = zip.by_index(at).map_err(|e| e.to_string())?;
-        if entry.is_dir() {
-            continue;
-        }
-        let Some(relative) = entry.enclosed_name() else {
-            continue;
-        };
-        let target = into.join(relative);
-        if let Some(dir) = target.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        let mut out = std::fs::File::create(&target).map_err(|e| e.to_string())?;
-        std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
-        written += 1;
-    }
-    Ok(written)
+    crate::unzip::unpack(archive, into, crate::unzip::MAP_SET)
 }
 
 fn difficulty_in(folder: &Path, hash: &str) -> Option<Map> {

@@ -466,7 +466,7 @@ pub fn archive_maps(path: &std::path::Path) -> Vec<Packed> {
     let mut found: Vec<Packed> = Vec::new();
     for at in 0..bundle.len() {
         let Ok(mut entry) = bundle.by_index(at) else { continue };
-        if !entry.name().to_lowercase().ends_with(".osu") || entry.size() > 8 * 1024 * 1024 {
+        if !entry.name().unwrap_or_default().to_lowercase().ends_with(".osu") || entry.size() > 8 * 1024 * 1024 {
             continue;
         }
         let mut raw = String::new();

@@ -4500,7 +4500,7 @@ impl Main {
                 let failed = match &step {
                     maps::Step::Nowhere => Some(self.words.t("not-on-any-mirror")),
                     maps::Step::Failed(why) if why == maps::NOT_THIS_MAP => Some(self.words.t("not-this-map")),
-                    maps::Step::Failed(why) => Some(why.clone()),
+                    maps::Step::Failed(why) => Some(crate::unzip::key(why).map(|key| self.words.t(key)).unwrap_or_else(|| why.clone())),
                     _ => None,
                 };
                 self.fetching[at].reached.push(step);

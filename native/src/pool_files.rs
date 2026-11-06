@@ -126,7 +126,7 @@ pub fn import_archive(path: &Path, songs: &Path) -> Result<Vec<(String, Map)>, R
     for at in 0..archive.len() {
         let mut entry = archive.by_index(at).map_err(|_| Refused::Map)?;
         if entry.is_dir() { continue; }
-        let relative = relative(entry.name()).ok_or(Refused::Map)?;
+        let relative = relative(&entry.name().map_err(|_| Refused::Map)?).ok_or(Refused::Map)?;
         if entry.unix_mode().is_some_and(|mode| mode & 0o170000 == 0o120000) { return Err(Refused::Map); }
         let extension = relative.extension().and_then(|extension| extension.to_str()).unwrap_or_default().to_ascii_lowercase();
         if !["osu", "jpg", "jpeg", "png", "bmp", "gif", "webp", "mp3", "ogg", "wav", "flac", "m4a", "opus"].contains(&extension.as_str()) { continue; }

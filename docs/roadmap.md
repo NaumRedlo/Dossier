@@ -193,6 +193,14 @@ Should:
 If time allows: **first launch** as one screen of steps: find osu!, download
 ffmpeg, link the bot, decide about Witness.
 
+Already fixed on the way:
+
+- **The system proxy is used.** reqwest was built without its `system-proxy`
+  feature, so a VPN client working as the system proxy (v2rayN, Hiddify, Clash
+  and others) carried the browser but not Dossier. On 7 November 2026 a tester's
+  community feed broke off on every large answer with the VPN on and off alike;
+  Caddy logged each as a broken pipe after the bot had answered.
+
 What changes in existing behaviour:
 
 - Replays from stable's folder (`Data/r`) are tied to local scores. A deleted

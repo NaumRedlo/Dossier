@@ -4399,6 +4399,127 @@ pub(crate) fn stroke_dashes(frame: &mut Frame, size: Size, radius: f32, colours:
     }
 }
 
+pub(crate) struct Outline {
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+    round: f32,
+}
+
+impl Outline {
+    pub(crate) fn new(size: Size, radius: f32) -> Option<Outline> {
+        let (left, top, right, bottom) = (0.75, 0.75, size.width - 0.75, size.height - 0.75);
+        if right <= left || bottom <= top {
+            return None;
+        }
+        let round = radius.min((right - left) / 2.0).min((bottom - top) / 2.0).max(0.0);
+        Some(Outline { left, top, right, bottom, round })
+    }
+
+    fn sides(&self) -> [f32; 2] {
+        [self.right - self.left - 2.0 * self.round, self.bottom - self.top - 2.0 * self.round]
+    }
+
+    fn bend(&self) -> f32 {
+        std::f32::consts::FRAC_PI_2 * self.round
+    }
+
+    pub(crate) fn around(&self) -> f32 {
+        let [across, down] = self.sides();
+        2.0 * across + 2.0 * down + 4.0 * self.bend()
+    }
+
+    pub(crate) fn corners(&self) -> [f32; 4] {
+        let [across, down] = self.sides();
+        let bend = self.bend();
+        let first = across + bend / 2.0;
+        [first, first + bend + down, first + 2.0 * bend + down + across, first + 3.0 * bend + 2.0 * down + across]
+    }
+
+    fn walk(&self, path: &mut canvas::path::Builder, from: f32, to: f32) {
+        let [across, down] = self.sides();
+        let bend = self.bend();
+        let (l, t, r, b, round) = (self.left, self.top, self.right, self.bottom, self.round);
+        let quarter = std::f32::consts::FRAC_PI_2;
+        let pieces: [(f32, Point, Point, Option<(Point, f32)>); 8] = [
+            (across, Point::new(l + round, t), Point::new(r - round, t), None),
+            (bend, Point::ORIGIN, Point::ORIGIN, Some((Point::new(r - round, t + round), -quarter))),
+            (down, Point::new(r, t + round), Point::new(r, b - round), None),
+            (bend, Point::ORIGIN, Point::ORIGIN, Some((Point::new(r - round, b - round), 0.0))),
+            (across, Point::new(r - round, b), Point::new(l + round, b), None),
+            (bend, Point::ORIGIN, Point::ORIGIN, Some((Point::new(l + round, b - round), quarter))),
+            (down, Point::new(l, b - round), Point::new(l, t + round), None),
+            (bend, Point::ORIGIN, Point::ORIGIN, Some((Point::new(l + round, t + round), 2.0 * quarter))),
+        ];
+        let mut at = 0.0;
+        let mut started = false;
+        for (length, start, end, turn) in pieces {
+            let (lo, hi) = (from.max(at), to.min(at + length));
+            if hi > lo || (length == 0.0 && from <= at && at <= to) {
+                let share = |s: f32| if length > 0.0 { (s - at) / length } else { 0.0 };
+                match turn {
+                    None => {
+                        let point = |k: f32| Point::new(start.x + (end.x - start.x) * k, start.y + (end.y - start.y) * k);
+                        if started { path.line_to(point(share(lo))); } else { path.move_to(point(share(lo))); started = true; }
+                        path.line_to(point(share(hi)));
+                    }
+                    Some((center, angle)) if round > 0.0 => {
+                        let begin = angle + quarter * share(lo);
+                        let finish = angle + quarter * share(hi);
+                        let edge = Point::new(center.x + round * begin.cos(), center.y + round * begin.sin());
+                        if started { path.line_to(edge); } else { path.move_to(edge); started = true; }
+                        path.arc(canvas::path::Arc { center, radius: round, start_angle: iced::Radians(begin), end_angle: iced::Radians(finish) });
+                    }
+                    Some(_) => {}
+                }
+            }
+            at += length;
+        }
+    }
+}
+
+pub(crate) fn even_marks(outline: &Outline, dash: f32) -> Vec<(f32, f32)> {
+    let corners = outline.corners();
+    let around = outline.around();
+    let mut marks = Vec::new();
+    for (index, &corner) in corners.iter().enumerate() {
+        marks.push((corner - dash / 2.0, corner + dash / 2.0));
+        let next = if index == 3 { corners[0] + around } else { corners[index + 1] };
+        let run = next - corner;
+        let count = ((run - 2.0 * dash) / (2.0 * dash)).round().max(0.0);
+        let gap = (run - dash * (count + 1.0)) / (count + 1.0);
+        for step in 0..count as usize {
+            let start = corner + dash / 2.0 + gap + step as f32 * (dash + gap);
+            marks.push((start, start + dash));
+        }
+    }
+    marks
+}
+
+pub(crate) fn stroke_even_dashes(frame: &mut Frame, size: Size, radius: f32, colours: &[Color]) {
+    let Some(outline) = Outline::new(size, radius) else { return };
+    if colours.is_empty() {
+        return;
+    }
+    let around = outline.around();
+    for (index, (from, to)) in even_marks(&outline, DASH / 2.0).into_iter().enumerate() {
+        let (from, to) = if from >= around { (from - around, to - around) } else { (from, to) };
+        let path = Path::new(|path| {
+            if to > around {
+                outline.walk(path, from, around);
+                outline.walk(path, 0.0, to - around);
+            } else if from < 0.0 {
+                outline.walk(path, from + around, around);
+                outline.walk(path, 0.0, to);
+            } else {
+                outline.walk(path, from, to);
+            }
+        });
+        frame.stroke(&path, canvas::Stroke { style: canvas::Style::Solid(colours[index % colours.len()]), width: 1.0, line_cap: canvas::LineCap::Butt, ..canvas::Stroke::default() });
+    }
+}
+
 const RISE_STEPS: usize = 7;
 
 pub fn rise<'a, Message: 'a>(colour: Color, high: f32) -> Element<'a, Message> {
@@ -6358,6 +6479,26 @@ mod glass_tests {
 #[cfg(test)]
 mod under_tests {
     use super::*;
+
+    #[test]
+    fn a_dashed_outline_puts_one_dash_on_every_corner_and_spaces_each_side_evenly() {
+        for (wide, high, radius) in [(140.0, 36.0, 8.0), (300.0, 300.0, 18.0), (61.0, 23.0, 12.0), (90.0, 40.0, 0.0)] {
+            let outline = Outline::new(Size::new(wide, high), radius).unwrap();
+            let marks = even_marks(&outline, 4.0);
+            for (from, to) in &marks {
+                assert!((to - from - 4.0).abs() < 1e-3, "every dash is as long as the others");
+            }
+            for corner in outline.corners() {
+                assert!(marks.iter().any(|(from, to)| ((from + to) / 2.0 - corner).abs() < 1e-3), "a dash sits on the corner at {corner}");
+            }
+            let mut ends: Vec<(f32, f32)> = marks.clone();
+            ends.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let gaps: Vec<f32> = ends.windows(2).map(|pair| pair[1].0 - pair[0].1).chain(std::iter::once(ends[0].0 + outline.around() - ends[ends.len() - 1].1)).collect();
+            for gap in &gaps {
+                assert!(*gap >= 2.0 - 1e-3 && *gap <= 8.0 + 1e-3, "{wide}×{high}: a gap of {gap}");
+            }
+        }
+    }
 
     #[test]
     fn a_sheet_hangs_under_its_anchor_stays_in_the_window_and_goes_above_when_there_is_no_room_below() {

@@ -25,7 +25,7 @@ pub fn mark<'a>(state: &State, content: Element<'a, Message>, selected: bool, ra
     let colours: Vec<_> = people.iter().map(|person| colour(person.player)).collect();
     if colours.is_empty() && !selected { return content; }
     let names = people.iter().map(|person| person.name.as_str()).collect::<Vec<_>>().join(", ");
-    let drawing = canvas(Mark { colours, border: selected.then(|| own(state)), radius, phase: state.busy_frame as f32 * 0.6 })
+    let drawing = canvas(Mark { colours, border: selected.then(|| own(state)), radius })
         .width(Length::Fill).height(Length::Fill);
     let marked = stack![content, drawing];
     if names.is_empty() { marked.into() } else {
@@ -33,13 +33,13 @@ pub fn mark<'a>(state: &State, content: Element<'a, Message>, selected: bool, ra
     }
 }
 
-struct Mark { colours: Vec<Color>, border: Option<Color>, radius: f32, phase: f32 }
+struct Mark { colours: Vec<Color>, border: Option<Color>, radius: f32 }
 
 impl canvas::Program<Message> for Mark {
     type State = ();
     fn draw(&self, _: &(), renderer: &Renderer, _: &Theme, bounds: Rectangle, _: mouse::Cursor) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
-        crate::ui::stroke_dashes(&mut frame, bounds.size(), self.radius, &self.colours, self.phase);
+        crate::ui::stroke_even_dashes(&mut frame, bounds.size(), self.radius, &self.colours);
         if let Some(colour) = self.border {
             let inset = if self.colours.is_empty() { 1.0 } else { 3.0 };
             frame.stroke(&Path::rounded_rectangle(Point::new(inset, inset), Size::new((bounds.width - 2.0 * inset).max(0.0), (bounds.height - 2.0 * inset).max(0.0)), (self.radius - inset).max(0.0).into()), Stroke::default().with_width(1.5).with_color(colour));

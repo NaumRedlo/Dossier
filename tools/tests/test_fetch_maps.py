@@ -86,6 +86,36 @@ class FetchMapsTests(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in root.iterdir() if p.suffix != ".tsv"), sorted(f"{h}.osu" for h in hashes))
             self.assertEqual((root / f"{hashes[1]}.osu").read_bytes(), second)
 
+    def test_bare_takes_a_single_map_of_the_right_revision_and_the_set_only_for_a_wrong_one(self):
+        right = b"osu file format v14\n[Metadata]\nVersion:Right\n"
+        stale = b"osu file format v14\n[Metadata]\nVersion:Stale\n"
+        wanted = hashlib.md5(right).hexdigest()
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as z:
+            z.writestr("right.osu", right)
+        for single, sets in [(right, 0), (stale, 1)]:
+            with self.subTest(sets=sets), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                urls = []
+
+                def respond(request, **kwargs):
+                    urls.append(request.full_url)
+                    if request.full_url == fetch_maps.MIRRORS_MD5[0].format(hash=wanted):
+                        return io.BytesIO(json.dumps({"id": 789, "beatmapset_id": 456}).encode())
+                    if request.full_url == fetch_maps.MIRRORS_OSU[0].format(id=789):
+                        return io.BytesIO(single)
+                    if request.full_url == fetch_maps.MIRRORS_OSZ[0].format(set_id=456):
+                        return io.BytesIO(archive.getvalue())
+                    self.fail(f"Unexpected network destination: {request.full_url}")
+
+                fetch_maps.answers.clear()
+                with patch.object(fetch_maps.urllib.request, "urlopen", side_effect=respond), patch.object(fetch_maps, "SPACING", 0):
+                    why, kept = fetch_maps.fetch_set(wanted, root, bare=True)
+                self.assertIsNone(why)
+                self.assertEqual(kept, {wanted})
+                self.assertEqual((root / f"{wanted}.osu").read_bytes(), right)
+                self.assertEqual(urls.count(fetch_maps.MIRRORS_OSZ[0].format(set_id=456)), sets)
+
     def test_a_busy_mirror_is_asked_again_after_the_wait_it_names(self):
         busy = fetch_maps.urllib.error.HTTPError("https://osu.direct/x", 429, "busy", {"Retry-After": "2"}, None)
         waits = []

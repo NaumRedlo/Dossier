@@ -19,6 +19,10 @@ MIRRORS_MD5 = (
     "https://osu.direct/api/v2/md5/{hash}",
 )
 
+MIRRORS_OSU = (
+    "https://osu.direct/api/osu/{id}",
+)
+
 MIRRORS_OSZ = (
     "https://api.nerinyan.moe/d/{set_id}",
     "https://beatconnect.io/b/{set_id}",
@@ -38,7 +42,7 @@ TIMEOUT = 20
 SET_TIMEOUT = 120
 TRIES = 4
 WAIT_MOST = 5.0
-SPACING = 0.5
+SPACING = 0.55
 INSPECT_BATCH = 400
 
 answers = {}
@@ -93,6 +97,10 @@ def get_set(url):
     return patiently(url, once)
 
 def set_id_of(want_hash):
+    entry, why = entry_of(want_hash)
+    return (int(entry["beatmapset_id"]), None) if entry else (None, why)
+
+def entry_of(want_hash):
     why = "no mirror knows this hash"
     for mirror in MIRRORS_MD5:
         host = mirror.split("/")[2]
@@ -108,8 +116,32 @@ def set_id_of(want_hash):
         except ValueError:
             continue
         if isinstance(entry, dict) and entry.get("beatmapset_id"):
-            return int(entry["beatmapset_id"]), None
+            return entry, None
     return None, why
+
+def fetch_single(want_hash, songs):
+    entry, _ = entry_of(want_hash)
+    if not entry or not entry.get("id"):
+        return False
+    for mirror in MIRRORS_OSU:
+        url = mirror.format(id=int(entry["id"]))
+
+        def once():
+            request = urllib.request.Request(url, headers={"User-Agent": "dossier/0.1"})
+            with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+                return response.read(MAX_BEATMAP_BYTES + 1)
+
+        try:
+            body = patiently(url, once)
+        except (urllib.error.URLError, OSError, TimeoutError):
+            continue
+        if len(body) <= MAX_BEATMAP_BYTES and hashlib.md5(body).hexdigest() == want_hash:
+            target = songs / f"{want_hash}.osu"
+            temporary = target.with_suffix(".osu.part")
+            temporary.write_bytes(body)
+            os.replace(temporary, target)
+            return True
+    return False
 
 def keep_set(content, want_hash, into):
     if not content:
@@ -181,6 +213,8 @@ def hashes_in(path):
         return set()
 
 def fetch_set(want_hash, songs, bare=False):
+    if bare and fetch_single(want_hash, songs):
+        return None, {want_hash}
     set_id, why = set_id_of(want_hash)
     if set_id is None:
         return why, set()

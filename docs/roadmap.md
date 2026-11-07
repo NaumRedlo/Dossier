@@ -67,6 +67,53 @@ Rules between releases:
 decided to ship its work together with the foundation as 0.98.0. The number
 0.97.9 is never released.
 
+## The engine track: lazer, replays, skins and judging
+
+Started on 7 November 2026 at the owner's request. It runs alongside the
+releases above: each finished step ships in the next release, and none of them
+holds a release back.
+
+Where it stands on that day:
+
+- osu!standard: 181 of 191 available replays match hit counts and maximum
+  combo, only 12 of them from lazer (`docs/corpus-status.md`).
+- mania: 161 of 204 match all six counts; lazer 112 of 153, stable 49 of 51.
+  Stable hold tick combo matches on 25 of 33 maps (`docs/mania-corpus-status.md`).
+- taiko and catch are not judged at all.
+- lazer in the library: Dossier finds lazer's data folder, its replays inside
+  the file store by content, and exported `.osk` skins. It reads neither maps
+  nor skins from the store, and it never parses `client.realm`.
+
+Steps, in order:
+
+1. **Corpus from the server.** The bot keeps donated, shared and player replays
+   under `data/` on the server. Copy them to the local corpus, drop copies by
+   content, take maps only from mirror archives verified by MD5, and split by
+   client and ruleset. New rows go to `tools/corpus.tsv` and
+   `tools/mania-corpus.tsv` with expectations read from replay headers; the
+   status documents get a new dated reading. Replays and maps stay out of Git.
+2. **osu!standard judging.** Every remaining mismatch gets a verdict: engine
+   bug, missing input, or client behaviour. lazer gets its own line in the
+   status once the sample holds at least 100 replays. No correction is ever
+   keyed to header values.
+3. **mania judging.** The 41 lazer count mismatches and the 8 stable hold tick
+   maxima, measured the same way.
+4. **lazer maps from the store.** Find `.osu` files in lazer's file store by
+   content and keep an MD5 index beside the replay index, so a lazer replay
+   plays without a stable Songs folder. Read only: nothing in lazer's storage
+   is written or moved.
+5. **lazer skins.** Skins come from exported `.osk` files, because the store
+   keeps sprites under content hashes and their names live in `client.realm`,
+   whose format is not public. A lazer replay drawn with a classic skin should
+   look the way lazer draws that skin; every difference from stable is written
+   down with the lazer source line it comes from, as `docs/stable-fidelity.md`
+   does for judging.
+6. **lazer replays.** List the lazer mods and settings the corpus contains that
+   the engine refuses or ignores, and close them by frequency.
+
+For the owner to decide: lazer's own default skins (Argon, Triangles) are drawn
+by lazer's code from its resources; using them needs a licence check first.
+
 ## 0.98.0. Fixes, holes and foundation
 
 No new features.

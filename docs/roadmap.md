@@ -89,19 +89,13 @@ Done:
 - ffmpeg 9.0.2 is downloaded only from pinned version links and refused when its
   SHA-256 differs; Windows has two sources with one hash;
 - in the bot: a device renders only its owner's replays and those of chats its
-  owner is in (S1, waiting for deployment).
+  owner is in (S1, deployed on the server);
+- one wrapper for a picture under a veil, `ui::under_veil` (C2), and a fix in our
+  `iced_wgpu` image shader, which mirrored per-corner radii;
+- tests for both picture caches (P5) and a review of every main-screen golden,
+  261 of which had drifted since 30 October (P4).
 
-Must, still open:
-
-- S1 deployed on the server.
-
-Should:
-
-- P4, P5: gallery scenes with covers in the feed, cache tests, a review of the
-  outdated subscription goldens;
-- C2: one wrapper for a picture under a veil.
-
-If time allows: a long session memory measurement and cache limits based on it.
+Moved to 0.98.2: a long session memory measurement and cache limits based on it.
 
 What changes in existing behaviour:
 
@@ -118,14 +112,15 @@ What changes in existing behaviour:
 - Downloading ffmpeg. An ffmpeg already downloaded stays. A new player gets it
   from a pinned source; evermeet.cx is no longer used because it stopped
   serving files.
-- The C2 wrapper moves the bottom of picture headers by 1–2 pixels. Compare
-  frames before and after for every such header.
+- The C2 wrapper moves pictures under a veil 1–2 pixels in from their panel's
+  edge. Frames before and after were compared on the GPU: the balance desk lost
+  its light edge, the score sheet head and the profile covers did not change.
 
-Bot compatibility: S1 is deployed before the release. A chat where no member has
+Bot compatibility: S1 is deployed on the server. A chat where no member has
 a worker waits for a render up to the common 15 minute limit. Everything already
 in the bot's `continuum` goes to the server with it.
 
-Debt: pays off S1 (deployment), and if done P4, P5 and C2. The iced update (C3)
+Debt: pays off S1 (deployment), P4, C2 and the tests of P5. The iced update (C3)
 is not taken: our copy of `iced_wgpu` makes it a separate piece of work.
 
 ## 0.98.1. Library control
@@ -196,6 +191,9 @@ What changes in existing behaviour:
 
 Bot compatibility: the switches are stored on the server and reach the worker in
 the job. An older worker ignores the new fields.
+
+Debt: S1 (the video's length against the replay's) and P5 (a long session memory
+measurement and cache limits based on it).
 
 ## 0.98.3. Overlay
 

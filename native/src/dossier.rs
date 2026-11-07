@@ -1450,6 +1450,26 @@ mod chart_tests {
     }
 
     #[test]
+    fn a_picture_rounds_only_the_corners_it_is_asked_to() {
+        let white = iced::widget::image::Handle::from_rgba(32, 32, [255, 255, 255, 255].repeat(32 * 32));
+        let top = iced::border::Radius { top_left: 16.0, top_right: 16.0, bottom_right: 0.0, bottom_left: 0.0 };
+        let page: Element<'_, ()> = container(iced::widget::image(white).content_fit(iced::ContentFit::Fill).width(200).height(120).border_radius(top)).padding(20).width(240).height(160).style(|_| container::Style {
+            background: Some(Background::Color(Color::BLACK)),
+            ..container::Style::default()
+        }).into();
+        let mut ui = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(240.0, 160.0), page);
+        let stem = std::env::temp_dir().join(format!("dossier-corners-{}", std::process::id()));
+        ui.snapshot(&theme::theme()).unwrap().matches_image(&stem).unwrap();
+        let picture = image::open(crate::gallery::written_as(&stem)).unwrap().to_rgba8();
+        let scale = picture.width() / 240;
+        let light = |x: u32, y: u32| { let p = picture.get_pixel(x * scale, y * scale).0; u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]) };
+        for x in [21, 218] {
+            assert!(light(x, 21) < 100, "the top corner at {x} is rounded");
+            assert!(light(x, 138) > 600, "the bottom corner at {x} stays square");
+        }
+    }
+
+    #[test]
     fn the_profile_backdrop_is_the_dimmed_cover_fading_away_at_the_bottom_and_the_sides() {
         let handle = iced::widget::image::Handle::from_rgba(64, 32, [255, 255, 255, 255].repeat(64 * 32));
         let Some(iced::widget::image::Handle::Rgba { width, height, pixels, .. }) = backdrop_picture(&handle, 400.0, 20.0) else {

@@ -10,20 +10,17 @@ checks break; **low**: an inconvenience or a future cost.
 
 ## Security
 
-### S1. Rendering only for one's own chats is not deployed yet (high)
+### S1. A rendered video is not checked against its replay (high)
 
-Done in the bot on 7 November: there is no trust and no lists any more. A paired
-device takes only its owner's jobs and the jobs of chats its owner is in
-(membership is asked from Telegram on every job request and kept for 2 minutes).
-Nobody renders for someone else's chat except the shared worker token. For
-accounts without Telegram, one's own job is matched by osu! player.
+Since 7 November a paired device takes only its owner's jobs and the jobs of
+chats its owner is in (membership is asked from Telegram on every job request
+and kept for 2 minutes). Nobody renders for someone else's chat except the shared
+worker token. For accounts without Telegram, one's own job is matched by osu!
+player. This is deployed on the server.
 
-Left:
+Left: compare the video's length with the replay's before posting it to a chat.
 
-- deploy the bot and restart the `1984` service;
-- compare the video's length with the replay's before posting it to a chat.
-
-Pay off: deployment before 0.98.0 ships, the length check in 0.98.2.
+Pay off: 0.98.2.
 
 ### S6. Updates are checked only against a hash from the same release (low)
 
@@ -60,26 +57,30 @@ offered the new one by the auto update.
 
 Rule: any fix after a release gets a new number.
 
-### P4. The gallery cannot see parts of the screen (medium)
+### P6. Goldens drift while no GPU runner checks them (medium)
 
-Feed cards in the gallery have no covers, so the GPU frames did not catch the
-covers going missing on 5 November. The subscription sheet goldens are out of
-date and were never refreshed.
+The GPU job in CI runs only by hand, so nobody compared main-screen frames with
+their goldens from 30 October to 7 November, and 261 of them drifted with
+accepted visual work. On 7 November every new frame was looked at and the
+goldens replaced.
 
-Fix: scenes with covers in the feed, a review of outdated goldens (new PNGs are
-looked at first; tests never update them).
+Rule until a runner is connected: before a release, run
+`cargo test --manifest-path native/Cargo.toml --test golden` locally on the GPU
+and review what it reports.
 
-Pay off: 0.98.0.
+Pay off: a self-hosted GPU runner, not before 0.100.0.
 
-### P5. Cache regressions were found by people, not tests (medium)
+### P5. Cache limits were chosen without a measurement (medium)
 
-Limiting the caches on 5 November broke avatars and covers, and testers found it.
+Limiting the caches on 5 November broke avatars and covers, and testers found
+it. Tests now hold both caches: a picture still on screen survives a full
+Community picture cache, and the frame cache draws one frame shown twice in a
+frame and more reels than it keeps.
 
-Fix: tests for the frame cache (`film.rs`, a picture twice in one frame) and for
-the Community picture cache, and a long session memory measurement before
-choosing limits.
+Left: a long session memory measurement on a signed-in account (feed, people,
+replays, videos for an hour) and limits chosen from it.
 
-Pay off: 0.98.0.
+Pay off: 0.98.2.
 
 ## Code
 
@@ -92,17 +93,6 @@ screens, and parallel changes collide.
 Fix: move screens into modules only together with work on them and only without
 changing behaviour, in a separate commit with tests and the gallery run. No big
 one-off move: it risks everything at once.
-
-### C2. Light edges on pictures (medium)
-
-Came up on 31 October, 1 and 6 November. The cause was the same each time: in a
-stack the veil and the picture under it share an edge, and iced takes the stack's
-height from its first layer.
-
-Fix: one `ui` wrapper for "a picture under a veil" that shortens the lower
-layers, and every such stack replaced by it.
-
-Pay off: 0.98.0.
 
 ### C3. Unmaintained iced dependencies (low)
 

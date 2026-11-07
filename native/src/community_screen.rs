@@ -1297,19 +1297,13 @@ pub(crate) fn backdrop_under<'a>(handle: Option<&image::Handle>, high: f32, radi
     };
     let ground = Color::from_rgb(0.047, 0.027, 0.035);
     let (first, middle, last) = stops;
-    let shade = container(Space::new().width(Length::Fill).height(Length::Fill)).style(move |_| container::Style {
-        background: Some(Background::Gradient(iced::Gradient::Linear(
-            iced::gradient::Linear::new(iced::Radians(angle))
-                .add_stop(0.0, Color { a: first * k, ..ground })
-                .add_stop(0.5, Color { a: middle * k, ..ground })
-                .add_stop(1.0, Color { a: last * k, ..ground }),
-        ))),
-        border: Border { radius: (radius - 1.0).max(0.0).into(), ..Border::default() },
-        ..container::Style::default()
-    });
-    let picture = image(handle.clone()).content_fit(iced::ContentFit::Cover).width(Length::Fill).height((high - 4.0).max(1.0)).border_radius((radius - 2.0).max(0.0)).opacity(k);
-    let picture = ui::clipped(container(picture).padding(2.0).width(Length::Fill).height(high));
-    stack![picture, container(shade).padding(1.0).width(Length::Fill).height(high)].width(Length::Fill).height(high).into()
+    let veil = Background::Gradient(iced::Gradient::Linear(
+        iced::gradient::Linear::new(iced::Radians(angle))
+            .add_stop(0.0, Color { a: first * k, ..ground })
+            .add_stop(0.5, Color { a: middle * k, ..ground })
+            .add_stop(1.0, Color { a: last * k, ..ground }),
+    ));
+    container(ui::under_veil(handle.clone(), radius, 1.0, veil)).width(Length::Fill).height(high).into()
 }
 
 pub(crate) fn medal(place: usize) -> Option<Color> {

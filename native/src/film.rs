@@ -436,6 +436,59 @@ mod tests {
         assert!((dest[1] - (1.0 - dest[3]) / 2.0).abs() < 1e-6);
     }
 
+    fn drawn(page: Element<'_, ()>, wide: f32, high: f32, frames: usize) -> image::RgbaImage {
+        let mut ui = iced_test::Simulator::with_size(crate::settings(), iced::Size::new(wide, high), page);
+        let stem = std::env::temp_dir().join(format!("dossier-film-{}-{}", std::process::id(), next()));
+        for _ in 1..frames {
+            let _ = ui.snapshot(&crate::theme::theme()).unwrap();
+        }
+        ui.snapshot(&crate::theme::theme()).unwrap().matches_image(&stem).unwrap();
+        image::open(crate::gallery::written_as(&stem)).unwrap().to_rgba8()
+    }
+
+    fn black<'a>(inside: impl Into<Element<'a, ()>>, wide: f32, high: f32) -> Element<'a, ()> {
+        iced::widget::container(inside).width(wide).height(high).style(|_| iced::widget::container::Style {
+            background: Some(iced::Background::Color(iced::Color::BLACK)),
+            ..iced::widget::container::Style::default()
+        }).into()
+    }
+
+    fn light(picture: &image::RgbaImage, wide: f32, x: f32, y: f32) -> u32 {
+        let scale = picture.width() as f32 / wide;
+        let p = picture.get_pixel((x * scale) as u32, (y * scale) as u32).0;
+        u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2])
+    }
+
+    #[test]
+    fn one_frame_shown_twice_in_a_frame_draws_in_both_places() {
+        let frame = Frame::new(reel(), 2, 2, vec![255; 16]);
+        let cell = |frame: &Frame| -> Element<'_, ()> { iced::widget::container(show(frame, Fit::Cover, 1.0)).width(100).height(100).into() };
+        let page = black(iced::widget::row![cell(&frame), iced::widget::Space::new().width(40), cell(&frame)], 240.0, 100.0);
+        let picture = drawn(page, 240.0, 100.0, 2);
+        assert!(light(&picture, 240.0, 50.0, 50.0) > 600, "the first copy is drawn");
+        assert!(light(&picture, 240.0, 190.0, 50.0) > 600, "the second copy is drawn");
+        assert!(light(&picture, 240.0, 120.0, 50.0) < 60, "nothing between them");
+    }
+
+    #[test]
+    fn more_reels_on_screen_than_the_cache_keeps_still_all_draw() {
+        let count = MAX_REELS + 8;
+        let frames: Vec<Frame> = (0..count).map(|_| Frame::new(reel(), 2, 2, vec![255; 16])).collect();
+        let mut rows = iced::widget::column![];
+        for line in frames.chunks(12) {
+            let mut cells = iced::widget::row![];
+            for frame in line {
+                cells = cells.push(iced::widget::container(show(frame, Fit::Cover, 1.0)).width(20).height(20));
+            }
+            rows = rows.push(cells);
+        }
+        let picture = drawn(black(rows, 240.0, 140.0), 240.0, 140.0, 3);
+        for at in 0..count {
+            let (x, y) = ((at % 12) as f32 * 20.0 + 10.0, (at / 12) as f32 * 20.0 + 10.0);
+            assert!(light(&picture, 240.0, x, y) > 600, "reel {at} is drawn");
+        }
+    }
+
     #[test]
     fn every_frame_is_its_own_and_a_reel_keeps_its_name() {
         let reel = reel();

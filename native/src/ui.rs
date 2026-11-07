@@ -4924,24 +4924,43 @@ pub fn appearing<'a, M: 'a>(k: f32, build: impl FnOnce() -> Element<'a, M>) -> E
 
 pub const PICTURE_SAFE: f32 = 2.0;
 
+fn shrunk(radius: iced::border::Radius, by: f32) -> iced::border::Radius {
+    iced::border::Radius {
+        top_left: (radius.top_left - by).max(0.0),
+        top_right: (radius.top_right - by).max(0.0),
+        bottom_right: (radius.bottom_right - by).max(0.0),
+        bottom_left: (radius.bottom_left - by).max(0.0),
+    }
+}
+
 pub fn inset_picture<'a, M: 'a>(handle: iced::widget::image::Handle, radius: f32) -> Element<'a, M> {
-    let picture = iced::widget::image(handle).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).border_radius((radius - PICTURE_SAFE).max(0.0)).opacity(fade());
+    inset_picture_seen(handle, radius, 1.0)
+}
+
+pub fn inset_picture_seen<'a, M: 'a>(handle: iced::widget::image::Handle, radius: impl Into<iced::border::Radius>, seen: f32) -> Element<'a, M> {
+    let picture = iced::widget::image(handle).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).border_radius(shrunk(radius.into(), PICTURE_SAFE)).opacity(fade() * seen);
     container(picture).padding(PICTURE_SAFE).width(Length::Fill).height(Length::Fill).into()
+}
+
+pub fn under_veil<'a, M: 'a>(handle: iced::widget::image::Handle, radius: impl Into<iced::border::Radius>, seen: f32, veil: iced::Background) -> Element<'a, M> {
+    let radius = radius.into();
+    let shade = container(Space::new().width(Length::Fill).height(Length::Fill)).width(Length::Fill).height(Length::Fill).style(move |_| container::Style {
+        background: Some(veil),
+        border: iced::Border { radius: shrunk(radius, PICTURE_SAFE / 2.0), ..iced::Border::default() },
+        ..container::Style::default()
+    });
+    iced::widget::stack![inset_picture_seen(handle, radius, seen), container(shade).padding(PICTURE_SAFE / 2.0).width(Length::Fill).height(Length::Fill)].width(Length::Fill).height(Length::Fill).into()
 }
 
 pub fn veiled<'a, M: 'a>(handle: iced::widget::image::Handle, radius: f32, tone: Color, top: f32, middle: f32, foot: f32) -> Element<'a, M> {
     let k = fade();
-    let shade = container(Space::new().width(Length::Fill).height(Length::Fill)).width(Length::Fill).height(Length::Fill).style(move |_| container::Style {
-        background: Some(iced::Background::Gradient(iced::Gradient::Linear(
-            iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
-                .add_stop(0.0, Color { a: top * k, ..tone })
-                .add_stop(0.45, Color { a: middle * k, ..tone })
-                .add_stop(1.0, Color { a: foot * k, ..tone }),
-        ))),
-        border: iced::Border { radius: (radius - PICTURE_SAFE / 2.0).max(0.0).into(), ..iced::Border::default() },
-        ..container::Style::default()
-    });
-    iced::widget::stack![inset_picture(handle, radius), container(shade).padding(PICTURE_SAFE / 2.0).width(Length::Fill).height(Length::Fill)].width(Length::Fill).height(Length::Fill).into()
+    let veil = iced::Background::Gradient(iced::Gradient::Linear(
+        iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
+            .add_stop(0.0, Color { a: top * k, ..tone })
+            .add_stop(0.45, Color { a: middle * k, ..tone })
+            .add_stop(1.0, Color { a: foot * k, ..tone }),
+    ));
+    under_veil(handle, radius, 1.0, veil)
 }
 
 pub fn behind<'a, M: 'a>(front: impl Into<Element<'a, M>>, back: impl Into<Element<'a, M>>) -> Element<'a, M> {

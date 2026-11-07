@@ -145,8 +145,9 @@ confirmations and empty states stay as text.
 
 A bright picture must not reach a rounded edge: on the antialiased border it
 shows through as a thin light arc. A picture under a fill goes only through
-`ui::veiled` or `ui::inset_picture`: it is 2 px smaller than its panel, and the
-fill is 1 px larger than the picture. The test
+`ui::under_veil` (any veil, any corners), `ui::veiled` (a vertical shade) or
+`ui::inset_picture`: it is 2 px smaller than its panel, and the fill is 1 px
+larger than the picture. A dim picture with nothing over it keeps its own edge. The test
 `a_bright_picture_never_shows_as_a_thin_light_edge` checks this on a white
 picture.
 

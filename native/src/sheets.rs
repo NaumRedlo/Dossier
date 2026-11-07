@@ -266,12 +266,11 @@ fn cover_back<'a>(ground: &Ground<'a>, scored: &Scored) -> Element<'a, Message> 
         ..container::Style::default()
     });
     let into_body = COVER_FADE.iter().fold(iced::gradient::Linear::new(Radians(std::f32::consts::PI)), |shade, (at, a)| shade.add_stop(*at, Color { a: a * k, ..theme::SLAB_SOLID }));
-    let fade = container(Space::new().width(Length::Fill).height(HEAD)).style(move |_| container::Style { background: Some(Background::Gradient(into_body.into())), border: Border { radius: top, ..Border::default() }, ..container::Style::default() });
     match scored.map.sharp_cover().and_then(|url| ground.pictures.get(&screen::wide(&url))) {
         Some(handle) => {
             let shown = scored.map.sharp_cover().map_or(1.0, |url| ground.picture_shown(&screen::wide(&url)));
             let picture = soft(handle).unwrap_or_else(|| handle.clone());
-            stack![container(under).height(HEAD), container(image(picture).content_fit(iced::ContentFit::Cover).width(Length::Fill).height(HEAD - 2.0 * ui::PICTURE_SAFE).border_radius(15.0 - ui::PICTURE_SAFE).opacity(COVER_SEEN * k * shown)).padding(Padding { top: ui::PICTURE_SAFE, right: ui::PICTURE_SAFE, bottom: 0.0, left: ui::PICTURE_SAFE }), fade].into()
+            stack![container(under).height(HEAD), container(ui::under_veil(picture, top, COVER_SEEN * shown, Background::Gradient(into_body.into()))).width(Length::Fill).height(HEAD)].into()
         }
         None => container(under).height(HEAD).into(),
     }

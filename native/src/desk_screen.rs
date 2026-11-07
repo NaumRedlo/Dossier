@@ -1753,7 +1753,7 @@ fn cover<'a>(state: &State, set: Option<i64>, wide: f32, high: f32, radius: f32)
         ..container::Style::default()
     });
     match set.and_then(|set| state.covers.get(&set)) {
-        Some(handle) => stack![base, container(image(handle.clone()).width(wide - 2.0).height(high - 2.0).content_fit(iced::ContentFit::Cover).border_radius((radius - 1.0).max(0.0))).padding(1)].into(),
+        Some(handle) => stack![base, container(ui::inset_picture(handle.clone(), radius)).width(wide).height(high)].into(),
         None => base.into(),
     }
 }
@@ -2227,7 +2227,7 @@ fn label_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
                 .style(|_| container::Style { background: Some(crate::duel_view::veil_fill()), border: Border { radius: 18.0.into(), ..Border::default() }, ..container::Style::default() });
             let set = map.beatmapset_id.or_else(|| about.and_then(|found| found.set));
             let picture: Element<'a, Message> = match set.and_then(|set| state.covers.get(&set)) {
-                Some(handle) => container(image(handle.clone()).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).border_radius(17.0)).padding(1).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 18.0.into(), ..Border::default() }, ..Default::default() }).into(),
+                Some(handle) => container(ui::inset_picture(handle.clone(), 18.0)).width(Length::Fill).height(Length::Fill).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 18.0.into(), ..Border::default() }, ..Default::default() }).into(),
                 None => container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 18.0.into(), ..Border::default() }, ..container::Style::default() }).into(),
             };
             let mut keys = row![].spacing(8);
@@ -2533,7 +2533,7 @@ fn gaps_view<'a>(w: &Words, state: &State, coverage: &desk::Coverage, k: f32) ->
 fn map_preview<'a>(w: &Words, state: &State, found: &desk::About, k: f32) -> Element<'a, Message> {
     let high = 150.0 * k;
     let picture: Element<'a, Message> = match found.set.and_then(|set| state.covers.get(&set)) {
-        Some(handle) => container(image(handle.clone()).width(Length::Fill).height(high - 2.0).content_fit(iced::ContentFit::Cover).border_radius(11.0)).padding(1).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..Default::default() }).into(),
+        Some(handle) => container(ui::inset_picture(handle.clone(), 12.0)).width(Length::Fill).height(high).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..Default::default() }).into(),
         None => container(Space::new()).width(Length::Fill).height(high).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default() }).into(),
     };
     let mut facts = row![status_pill(w, &found.status, k), stars_of(found.stars, 12.0 * k)].spacing(8).align_y(Alignment::Center);

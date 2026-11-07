@@ -9,6 +9,7 @@ import io
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -35,16 +36,61 @@ SOLO_REPLAY = re.compile(r"solo-replay-\w+_(\d+)_\d+")
 TIMEOUT = 20
 
 SET_TIMEOUT = 120
+TRIES = 4
+WAIT_MOST = 5.0
+SPACING = 0.5
+INSPECT_BATCH = 400
+
+answers = {}
+last_asked = {}
+
+def wait_for(error):
+    if not isinstance(error, urllib.error.HTTPError) or error.code != 429:
+        return None
+    try:
+        asked = float(error.headers.get("Retry-After", "1"))
+    except (TypeError, ValueError):
+        asked = 1.0
+    return min(max(asked, 1.0), WAIT_MOST)
+
+def spaced(url):
+    host = url.split("/")[2]
+    gap = SPACING - (time.monotonic() - last_asked.get(host, float("-inf")))
+    if gap > 0:
+        time.sleep(gap)
+    last_asked[host] = time.monotonic()
+
+def patiently(url, open_once):
+    for attempt in range(TRIES):
+        spaced(url)
+        try:
+            return open_once()
+        except urllib.error.HTTPError as error:
+            wait = wait_for(error)
+            if wait is None or attempt == TRIES - 1:
+                raise
+            time.sleep(wait)
 
 def get(url):
-    request = urllib.request.Request(url, headers={"User-Agent": "dossier/0.1"})
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        return response.read(MAX_BEATMAP_BYTES + 1)
+    if url in answers:
+        return answers[url]
+
+    def once():
+        request = urllib.request.Request(url, headers={"User-Agent": "dossier/0.1"})
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            return response.read(MAX_BEATMAP_BYTES + 1)
+
+    body = patiently(url, once)
+    answers[url] = body
+    return body
 
 def get_set(url):
-    request = urllib.request.Request(url, headers={"User-Agent": BROWSER_UA})
-    with urllib.request.urlopen(request, timeout=SET_TIMEOUT) as response:
-        return response.read(MAX_SET_BYTES + 1)
+    def once():
+        request = urllib.request.Request(url, headers={"User-Agent": BROWSER_UA})
+        with urllib.request.urlopen(request, timeout=SET_TIMEOUT) as response:
+            return response.read(MAX_SET_BYTES + 1)
+
+    return patiently(url, once)
 
 def set_id_of(want_hash):
     for mirror in MIRRORS_MD5:
@@ -87,10 +133,48 @@ def keep_set(content, want_hash, into):
         bare.unlink()
     return None
 
-def fetch_set(want_hash, songs):
+def keep_bare(content, want_hash, songs):
+    if not content:
+        return "empty", set()
+    if len(content) > MAX_SET_BYTES:
+        return f"over {MAX_SET_BYTES // (1024 * 1024)}MB", set()
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(content))
+        names = archive.namelist()
+    except (zipfile.BadZipFile, OSError):
+        return "not an archive", set()
+    maps = {}
+    for name in names:
+        if not name.lower().endswith(".osu"):
+            continue
+        try:
+            body = archive.read(name)
+        except (zipfile.BadZipFile, OSError):
+            continue
+        if len(body) <= MAX_BEATMAP_BYTES:
+            maps[hashlib.md5(body).hexdigest()] = body
+    if want_hash not in maps:
+        return "the set does not hold this revision", set()
+    for digest, body in maps.items():
+        target = songs / f"{digest}.osu"
+        if target.exists():
+            continue
+        temporary = target.with_suffix(".osu.part")
+        temporary.write_bytes(body)
+        os.replace(temporary, target)
+    return None, set(maps)
+
+def hashes_in(path):
+    try:
+        archive = zipfile.ZipFile(path)
+        return {hashlib.md5(archive.read(name)).hexdigest() for name in archive.namelist() if name.lower().endswith(".osu")}
+    except (zipfile.BadZipFile, OSError):
+        return set()
+
+def fetch_set(want_hash, songs, bare=False):
     set_id = set_id_of(want_hash)
     if set_id is None:
-        return "no mirror knows this hash"
+        return "no mirror knows this hash", set()
     why = "no mirror answered"
     for mirror in MIRRORS_OSZ:
         host = mirror.split("/")[2]
@@ -99,20 +183,27 @@ def fetch_set(want_hash, songs):
         except (urllib.error.URLError, OSError, TimeoutError) as error:
             why = f"{host}: {error}"
             continue
-        problem = keep_set(content, want_hash, songs / f"{want_hash}.osz")
+        if bare:
+            problem, kept = keep_bare(content, want_hash, songs)
+        else:
+            target = songs / f"{want_hash}.osz"
+            problem = keep_set(content, want_hash, target)
+            kept = hashes_in(target) if problem is None else set()
         if problem is None:
-            return None
+            return None, kept
         why = f"{host}: {problem}"
-    return f"set {set_id}: {why}"
+    return f"set {set_id}: {why}", set()
 
 def headers_of(dossier, replays):
-    out = subprocess.run(
-        [dossier, "inspect", "--json", *[str(r) for r in replays]],
-        capture_output=True,
-        text=True,
-    ).stdout
+    out = []
+    for start in range(0, len(replays), INSPECT_BATCH):
+        out.extend(subprocess.run(
+            [dossier, "inspect", "--json", *[str(r) for r in replays[start:start + INSPECT_BATCH]]],
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines())
     wanted = {}
-    for line in out.splitlines():
+    for line in out:
         try:
             entry = json.loads(line)
         except ValueError:
@@ -231,8 +322,14 @@ def main():
         help="also replace existing bare .osu files with mirror beatmapsets containing audio. "
         "Missing maps are always fetched as .osz archives from mirrors.",
     )
+    parser.add_argument(
+        "--bare",
+        action="store_true",
+        help="keep only the .osu files of each fetched set, named by their MD5, and drop the archive",
+    )
     parser.add_argument("--dry-run", action="store_true", help="say what is missing, fetch nothing")
     options = parser.parse_args()
+    answers.clear()
     if not options.songs:
         parser.error("--songs is required (or set DOSSIER_SONGS_DIR)")
     songs = pathlib.Path(options.songs).expanduser()
@@ -280,6 +377,10 @@ def main():
     fetched, failed = 0, []
     for want_hash, for_replays in sorted(missing.items()):
         name = pathlib.Path(for_replays[0]).name
+        if want_hash in have and not options.with_audio:
+            fetched += 1
+            print(f"  ok {want_hash}  came with an earlier set")
+            continue
         if options.dry_run:
             print(f"  ?? {want_hash}  {name[:56]}")
             continue
@@ -289,13 +390,14 @@ def main():
             found, how = beatmap_id(want_hash, for_replays)
             if found is not None:
                 resolved[want_hash] = found
-        why = fetch_set(want_hash, songs)
+        why, kept = fetch_set(want_hash, songs, options.bare)
+        have |= kept
         if why:
             failed.append((want_hash, name, why))
-            print(f"  !! {want_hash}  {why}")
+            print(f"  !! {want_hash}  {why}", flush=True)
         else:
             fetched += 1
-            print(f"  ok {want_hash}  mirror set with audio")
+            print(f"  ok {want_hash}  {'mirror set, maps only' if options.bare else 'mirror set with audio'}", flush=True)
 
     if options.dry_run:
         return 0

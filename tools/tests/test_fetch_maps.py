@@ -95,6 +95,17 @@ class FetchMapsTests(unittest.TestCase):
             self.assertEqual(fetch_maps.get("https://osu.direct/api/v2/md5/" + "c" * 32), b"{}")
         self.assertEqual(waits, [2.0])
 
+    def test_an_unreachable_mirror_is_not_taken_for_an_unknown_map(self):
+        refused = fetch_maps.urllib.error.URLError("certificate verify failed")
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(fetch_maps.urllib.request, "urlopen", side_effect=refused), \
+                patch.object(fetch_maps, "SPACING", 0):
+            fetch_maps.answers.clear()
+            why, kept = fetch_maps.fetch_set("d" * 32, Path(directory))
+        self.assertIn("certificate verify failed", why)
+        self.assertNotIn("no mirror knows", why)
+        self.assertEqual(kept, set())
+
     def test_dry_run_does_not_access_network(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

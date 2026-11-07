@@ -93,14 +93,23 @@ def get_set(url):
     return patiently(url, once)
 
 def set_id_of(want_hash):
+    why = "no mirror knows this hash"
     for mirror in MIRRORS_MD5:
+        host = mirror.split("/")[2]
         try:
             entry = json.loads(get(mirror.format(hash=want_hash)))
-        except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                why = f"{host}: {error}"
+            continue
+        except (urllib.error.URLError, OSError, TimeoutError) as error:
+            why = f"{host}: {error}"
+            continue
+        except ValueError:
             continue
         if isinstance(entry, dict) and entry.get("beatmapset_id"):
-            return int(entry["beatmapset_id"])
-    return None
+            return int(entry["beatmapset_id"]), None
+    return None, why
 
 def keep_set(content, want_hash, into):
     if not content:
@@ -172,9 +181,9 @@ def hashes_in(path):
         return set()
 
 def fetch_set(want_hash, songs, bare=False):
-    set_id = set_id_of(want_hash)
+    set_id, why = set_id_of(want_hash)
     if set_id is None:
-        return "no mirror knows this hash", set()
+        return why, set()
     why = "no mirror answered"
     for mirror in MIRRORS_OSZ:
         host = mirror.split("/")[2]

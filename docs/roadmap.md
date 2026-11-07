@@ -100,8 +100,11 @@ Moved to 0.98.2: a long session memory measurement and cache limits based on it.
 What changes in existing behaviour:
 
 - Unpacking updates. The most dangerous place of the release: if it is wrong,
-  nobody can update. Check updating from 0.97.8 to 0.98.0 on a copy before
-  publishing. Rollback: the 0.97.8 archive stays in its release.
+  nobody can update. Rehearsed on 7 November: a bundle packed and signed the way
+  the release workflow does it unpacks with 0.97.8's unpacker and keeps its
+  signature, and 0.98.0's own unpacker puts it over an installed copy
+  (`DOSSIER_UPDATE_ARCHIVE=… cargo test -- --ignored
+  a_release_archive_replaces`). Rollback: the 0.97.8 archive stays in its release.
 - Links: only `https`, `http`, `mailto` and `osu` open (*Open in osu! through
   osu!direct* opens `osu://b/…`).
 - Map archive limits leave room for sets with video; a refusal is explained in

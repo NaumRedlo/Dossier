@@ -602,6 +602,44 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "rehearses an update on the release archive named by DOSSIER_UPDATE_ARCHIVE"]
+    fn a_release_archive_replaces_an_installed_copy_and_stays_runnable() {
+        let archive = PathBuf::from(std::env::var("DOSSIER_UPDATE_ARCHIVE").expect("DOSSIER_UPDATE_ARCHIVE names a release archive"));
+        let root = std::env::temp_dir().join(format!("dossier-rehearsal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let installed = if cfg!(target_os = "macos") { root.join("Applications").join("Dossier.app") } else { root.join("bin").join(if cfg!(windows) { "dossier.exe" } else { "dossier" }) };
+        let place = if cfg!(target_os = "macos") {
+            std::fs::create_dir_all(installed.join("Contents/MacOS")).unwrap();
+            std::fs::write(installed.join("Contents/MacOS/dossier"), b"the old version").unwrap();
+            Place::Bundle(installed.clone())
+        } else {
+            std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+            std::fs::write(&installed, b"the old version").unwrap();
+            Place::Binary(installed.clone())
+        };
+        let shelf = root.join("shelf");
+        unpack(&archive, &shelf.join("unpacked")).expect("the archive unpacks within its limits");
+        let payload = payload_in(&shelf.join("unpacked"), &place).expect("the archive holds what this place runs");
+        runnable(&payload);
+        let target = apply(&Staged { version: "rehearsal".into(), payload, dir: shelf.clone() }, &place).expect("the update applies");
+        assert_eq!(target, installed);
+        assert!(!shelf.exists(), "the shelf is cleared");
+        let binary = if cfg!(target_os = "macos") { installed.join("Contents/MacOS/dossier") } else { installed.clone() };
+        assert_ne!(std::fs::read(&binary).unwrap(), b"the old version");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_ne!(std::fs::metadata(&binary).unwrap().permissions().mode() & 0o111, 0, "the new binary runs");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let checked = std::process::Command::new("codesign").args(["--verify", "--strict"]).arg(&installed).status().unwrap();
+            assert!(checked.success(), "the bundle keeps its signature");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     #[ignore = "downloads the newest release from GitHub"]
     fn the_newest_release_downloads_matches_its_checksum_and_unpacks() {
         let text = client(Duration::from_secs(30))

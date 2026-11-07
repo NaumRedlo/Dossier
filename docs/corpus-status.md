@@ -263,6 +263,60 @@ before the paths diverge; the head still adds combo immediately and the final
 grades differ correctly. The existing 275 CLI/simulation tests and the added
 regression test passed.
 
+## Server corpus — 2026-11-07
+
+The bot's server kept every replay sent to it: donated, shared for video and
+uploaded by players. Copied on 7 November 2026, they give 7,678 replays not in
+the corpus before, after 306 copies and 20 already known files are dropped. The
+copy lives in `Dossier Corpus/replays-2026-11-07`, outside Git, without the
+index that names who donated what.
+
+| Ruleset | Client | Replays |
+| --- | --- | ---: |
+| osu!standard | stable | 7,547 |
+| osu!standard | lazer | 86 |
+| mania | lazer | 42 |
+| mania | stable | 3 |
+
+They name 3,398 maps from 25 players. 179 were already on disk; 3,038 came from
+osu.direct, almost all as single `.osu` files checked against the MD5 the replay
+names (`tools/fetch-maps.py --bare`). 142 are still missing: 133 on no mirror,
+8 refused with 503, 1 set without the revision. Maps live in
+`Dossier Corpus/Server Beatmaps`.
+
+First reading, osu!standard only:
+
+```
+dossier corpus --songs "Server Beatmaps" --threads 10 <7,678 replays>
+6312 exact of 7314, total count error 16311, 364 skipped
+```
+
+364 are skipped: 45 mania replays this command does not judge and the replays
+of the missing maps. A play is *complete* when its header counts add up to the
+map's objects; a quit or a fail is not.
+
+| Plays | Exact | Count error |
+| --- | ---: | ---: |
+| complete, without ScoreV2 | 4,683 of 5,377 (87.1%) | 4,580 |
+| complete, ScoreV2 | 240 of 358 (67.0%) | 458 |
+| incomplete, without ScoreV2 | 1,412 of 1,563 (90.3%) | 11,249 |
+| incomplete, ScoreV2 | 18 of 22 | 12 |
+
+Two thirds of the count error sits in 151 incomplete plays. The five largest
+have a maximum combo of 0 and about 200 frames: the player quit at once, the
+header counts nothing, and this engine judges the rest of the map as misses.
+They say nothing about judging and should be compared only up to the replay's
+end.
+
+The 358 complete ScoreV2 plays settled the slider rule left open in
+`docs/stable-fidelity.md`: see the section added there on this date. Before it
+they matched on 154, and the engine gave 454 hundreds where the headers have 50s.
+
+The old corpus is unchanged by that: 181 exact of 191, count error 20, 0 rows
+worse against `tools/corpus.tsv`. The new replays are not in the manifest yet,
+because a manifest row records today's error as the baseline, and the
+incomplete plays should first be judged only up to their end.
+
 ## Missing historical replays
 
 These rows remain in `tools/corpus.tsv`; names alone are not identity. Recovery

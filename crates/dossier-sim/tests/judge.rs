@@ -2669,3 +2669,23 @@ SliderTickRate:1
         second.scored_ms
     );
 }
+
+#[test]
+fn score_v2_wants_more_than_half_the_pieces_for_a_hundred() {
+    let map = beatmap(&SHORT_SLIDER.replace("L|140:0,1,140", "L|280:0,1,280"));
+    let verdict = |hold_until: i64| {
+        let frames = frames_over(
+            900,
+            2200,
+            |t| (2.0 * ball_x(t, 1000.0, 1000.0), 0.0),
+            |t| (1000..hold_until).contains(&t),
+        );
+        let replay = replay_with(frames, dossier_replay::bits::SCORE_V2);
+        let state = GameState::new(&map, &replay);
+        let judge = state.judge().expect("judged");
+        judge.events().iter().find(|e| e.part == Part::Slider).expect("a verdict").result
+    };
+    assert_eq!(verdict(1200), Judgement::Meh, "the head and one of three pieces are half, not more than half");
+    assert_eq!(verdict(1600), Judgement::Ok);
+    assert_eq!(verdict(2100), Judgement::Great);
+}

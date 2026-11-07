@@ -928,7 +928,7 @@ fn build_slider_events(
         };
         if ruleset.slider_verdict_also_needs_its_pieces() {
             let took_head = matches!(head, Head::Hit { .. });
-            let pieces = slider_judgement(parts_hit + u32::from(took_head), parts_total + 1);
+            let pieces = score_v2_pieces(parts_hit + u32::from(took_head), parts_total + 1);
             if took_head {
                 score_v2_slider(pieces, from_head)
             } else {
@@ -960,6 +960,18 @@ fn build_slider_events(
         error_ms: None,
         combo_after: 0,
     });
+}
+
+fn score_v2_pieces(hit: u32, total: u32) -> Judgement {
+    if total == 0 || hit == total {
+        Judgement::Great
+    } else if hit * 2 > total {
+        Judgement::Ok
+    } else if hit > 0 {
+        Judgement::Meh
+    } else {
+        Judgement::Miss
+    }
 }
 
 fn score_v2_slider(from_pieces: Judgement, from_head: Judgement) -> Judgement {

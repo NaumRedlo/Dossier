@@ -5382,3 +5382,31 @@ client's updates — unseen between the frames — is worth; a model that ran th
 spinner in chunks of a guessed size fixed two of them and broke a third, and
 was not kept. The eighth is thirty-two points, one hundred's worth of one
 combo step, on a map of several hundred short sliders.
+
+## ScoreV2 wants more than half the pieces — 2026-11-07
+
+The corner left open above, "two or three more ScoreV2 replays would turn this
+from a guess into a measurement", got 358: complete stable plays with ScoreV2
+from the bot's server (`docs/corpus-status.md`). Judged with the rule as it
+stood, 154 matched, and the error leaned one way: 454 more hundreds and 490
+fewer fifties than the headers.
+
+Under ScoreV2 the head counts as one of the pieces. A slider used to earn a
+hundred from its pieces when at least half of them were caught. Measured
+variants, all on the same 358:
+
+| rule for the pieces | exact | count error |
+| --- | ---: | ---: |
+| half is enough (before) | 154 | 1,134 |
+| **more than half** | **240** | **458** |
+| more than half, head left out of the pieces | 34 | 9,114 |
+| half is enough, head left out of the pieces | 25 | 6,440 |
+| head 300 needed for a hundred | 3 | 32,060 |
+
+So the pieces give a hundred only when more than half were caught, the head
+included; the head's own window still caps the verdict as before. A tie is only
+possible with an even count, so a slider of a head and a tail that lost its tail
+now gets 50. The 358 do not test that case either way: the rule gives the same
+counts with and without it. Stable without ScoreV2 keeps "half is enough".
+
+The old corpus does not move: 181 exact of 191, 0 rows worse.

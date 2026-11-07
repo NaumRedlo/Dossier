@@ -83,7 +83,7 @@ fn osu_text(beatmap: i64) -> Option<String> {
     }
     let client = crate::bot::client().ok()?;
     for address in [format!("https://osu.direct/api/osu/{beatmap}")] {
-        let Ok(response) = client.get(address).header("User-Agent", crate::desk::MIRROR_AGENT).send() else { continue };
+        let Some(response) = crate::desk::mirror_get(&client, &address) else { continue };
         if !response.status().is_success() {
             continue;
         }

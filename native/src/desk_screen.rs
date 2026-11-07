@@ -56,7 +56,7 @@ impl Tab {
     fn open(self, roles: &[String]) -> bool {
         match self {
             Tab::Queue | Tab::Label | Tab::Catalog => desk::allows(roles, desk::REVIEWER),
-            Tab::Batches => roles.iter().any(|role| role == desk::OWNER),
+            Tab::Batches => desk::allows(roles, desk::REVIEWER),
             Tab::Model => desk::allows(roles, desk::REVIEWER) || desk::allows(roles, desk::PUBLISHER),
             Tab::Duels => desk::allows(roles, desk::OPERATOR),
             Tab::Journal | Tab::People => !roles.is_empty(),
@@ -3904,6 +3904,14 @@ mod tests {
         assert_eq!((running.id.as_str(), running.beatmap_id, running.slot.as_deref(), running.watching), ("r1", Some(4_606_518), Some("DT1"), 2));
         assert_eq!(running.players.len(), 2);
         assert!(state.update(Message::WatchDuel("gone".into()), &w).is_empty());
+    }
+
+    #[test]
+    fn balance_reviewers_see_the_batches_they_add_and_operators_do_not() {
+        assert!(Tab::Batches.open(&[desk::REVIEWER.to_owned()]));
+        assert!(Tab::Batches.open(&[desk::OWNER.to_owned()]));
+        assert!(!Tab::Batches.open(&[desk::OPERATOR.to_owned()]));
+        assert!(!Tab::Batches.open(&[]));
     }
 
     #[test]

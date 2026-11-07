@@ -393,10 +393,32 @@ pub fn spare_set_address(set: i64) -> String {
     format!("https://osu.direct/api/v2/s/{set}")
 }
 
+const MIRROR_TRIES: usize = 4;
+const MIRROR_WAIT_MOST: std::time::Duration = std::time::Duration::from_secs(5);
+
+pub fn mirror_wait(status: reqwest::StatusCode, retry_after: Option<&str>) -> Option<std::time::Duration> {
+    (status == reqwest::StatusCode::TOO_MANY_REQUESTS).then(|| {
+        let seconds = retry_after.and_then(|said| said.trim().parse::<u64>().ok()).unwrap_or(1).max(1);
+        std::time::Duration::from_secs(seconds).min(MIRROR_WAIT_MOST)
+    })
+}
+
+pub fn mirror_get(client: &reqwest::blocking::Client, address: &str) -> Option<reqwest::blocking::Response> {
+    for _ in 0..MIRROR_TRIES {
+        let response = client.get(address).header("User-Agent", MIRROR_AGENT).send().ok()?;
+        let said = response.headers().get(reqwest::header::RETRY_AFTER).and_then(|value| value.to_str().ok());
+        match mirror_wait(response.status(), said) {
+            Some(wait) => std::thread::sleep(wait),
+            None => return Some(response),
+        }
+    }
+    None
+}
+
 pub fn looked_up(beatmap: i64) -> Option<Value> {
     let client = crate::bot::client().ok()?;
     let get = |address: String| -> Option<Value> {
-        let response = client.get(address).header("User-Agent", MIRROR_AGENT).send().ok()?;
+        let response = mirror_get(&client, &address)?;
         if !response.status().is_success() {
             return None;
         }
@@ -694,6 +716,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_busy_mirror_is_waited_for_as_long_as_it_asks_and_no_longer_than_five_seconds() {
+        use reqwest::StatusCode;
+        use std::time::Duration;
+        assert_eq!(mirror_wait(StatusCode::TOO_MANY_REQUESTS, Some("1")), Some(Duration::from_secs(1)));
+        assert_eq!(mirror_wait(StatusCode::TOO_MANY_REQUESTS, None), Some(Duration::from_secs(1)));
+        assert_eq!(mirror_wait(StatusCode::TOO_MANY_REQUESTS, Some("0")), Some(Duration::from_secs(1)));
+        assert_eq!(mirror_wait(StatusCode::TOO_MANY_REQUESTS, Some("120")), Some(Duration::from_secs(5)));
+        assert_eq!(mirror_wait(StatusCode::OK, Some("3")), None);
+        assert_eq!(mirror_wait(StatusCode::NOT_FOUND, None), None);
+    }
+
+    #[test]
+    #[ignore = "asks osu.direct about eleven maps in a row, more than its burst allows"]
+    fn eleven_maps_in_a_row_all_come_back_from_the_mirror() {
+        for id in [3612221, 3711545, 3287712, 3676677, 2659353, 3711818, 3192865, 3711420, 3711568, 3711541, 3711423] {
+            assert!(about(id).is_some_and(|found| !found.title.trim().is_empty()), "{id} has a title");
+        }
+    }
+
+    #[test]
     fn batch_acknowledgement_must_account_for_every_input_map() {
         assert!(batch_reply(json!({"read": 0, "added": 0}), 2).is_err());
         assert!(batch_reply(json!({"read": 1, "added": 1}), 2).is_err());
@@ -768,3 +810,4 @@ mod tests {
         assert!(allows(&["OWNER".to_owned()], OPERATOR) && !allows(&[REVIEWER.to_owned()], OPERATOR));
     }
 }
+

@@ -84,7 +84,7 @@ pub fn load(beatmap: i64, revision: &str) -> Option<Details> {
     }
     let client = crate::bot::client().ok()?;
     for address in [format!("https://osu.direct/api/osu/{beatmap}")] {
-        let Ok(response) = client.get(address).header("User-Agent", super::MIRROR_AGENT).send() else { continue };
+        let Some(response) = crate::desk::mirror_get(&client, &address) else { continue };
         if !response.status().is_success() { continue; }
         let mut text = String::new();
         if response.take(FILE_LIMIT + 1).read_to_string(&mut text).is_err() { continue; }

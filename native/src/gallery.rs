@@ -1148,6 +1148,29 @@ pub fn main_states(lang: Lang) -> Vec<(String, crate::main_screen::Main)> {
             players.group = crate::carousel::Group::Players;
             players
         }),
+        ("main-select-picked".to_owned(), {
+            let mut picked = hovering.clone();
+            picked.hover = None;
+            picked.hover_since = None;
+            picked.group = crate::carousel::Group::Flat;
+            let shown: Vec<usize> = picked.laid().rows.iter().filter_map(|row| match row { crate::carousel::Row::Replay { at, .. } => Some(*at), _ => None }).collect();
+            picked.picked.extend(shown.iter().skip(1).take(2).copied());
+            picked
+        }),
+        ("main-remove-ask".to_owned(), {
+            let mut asking = hovering.clone();
+            asking.hover = None;
+            asking.hover_since = None;
+            asking.removal = Some(crate::removal::Plan { files: vec!["/r/a.osr".into(), "/r/b.osr".into(), "/r/c.osr".into()], bytes: 3 * 172_000, local: 1, stored: 2 });
+            asking
+        }),
+        ("main-remove-stayed".to_owned(), {
+            let mut stayed = hovering.clone();
+            stayed.hover = None;
+            stayed.hover_since = None;
+            stayed.removal_left = Some(crate::removal::Done { removed: Vec::new(), stayed: vec![("/r/Naum - xi - FREEDOM DiVE [FOUR DIMENSIONS] (2026-11-08).osr".into(), "The process cannot access the file because it is being used by another process. (os error 32)".to_owned())] });
+            stayed
+        }),
         ("main-select-empty".to_owned(), {
             let mut nothing = hovering.clone();
             nothing.filters_open = true;

@@ -57,6 +57,7 @@ pub mod pool_share;
 pub mod pools;
 pub mod pools_screen;
 pub mod rating;
+pub mod removal;
 pub mod render;
 pub mod scan;
 pub mod history;

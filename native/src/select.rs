@@ -90,6 +90,7 @@ fn pulses(_grade: Grade) -> bool {
 const CARD: Color = theme::GLASS;
 const CARD_LIT: Color = theme::GLASS_LIT;
 const PICKED: Color = theme::GLASS_PICKED;
+const MARKED: Color = Color::from_rgba(0.914, 0.196, 0.251, 0.34);
 const BACKING: Color = Color::from_rgba(0.024, 0.008, 0.016, 0.72);
 const SCRIM: Color = theme::GROUND;
 const PANEL: Color = Color::from_rgb(0.055, 0.022, 0.031);
@@ -782,8 +783,8 @@ impl Main {
             .padding(0)
             .width(Length::Fill)
             .height(height)
-            .style(ui::button_faded(card_style(open, false, focused)))
-            .on_press_maybe(live.then_some(Message::Choose(first)))
+            .style(ui::button_faded(card_style(open, false, focused, false)))
+            .on_press_maybe(live.then_some(Message::Head(first)))
             .into()
     }
 
@@ -856,7 +857,7 @@ impl Main {
             .padding(0)
             .width(Length::Fill)
             .height(height)
-            .style(ui::button_faded(card_style(chosen, true, focused)))
+            .style(ui::button_faded(card_style(chosen, true, focused, self.picked.contains(&at))))
             .on_press_maybe(live.then_some(Message::Choose(at)))
             .into()
     }
@@ -1087,14 +1088,15 @@ impl Main {
     }
 }
 
-fn card_style(on: bool, replay: bool, focused: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+fn card_style(on: bool, replay: bool, focused: bool, marked: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let lit = focused || matches!(status, button::Status::Hovered | button::Status::Pressed);
         let (fill, edge) = match (on, replay) {
+            _ if marked => (MARKED, ACCENT),
             (true, true) => (PICKED, Color { a: 0.7, ..ACCENT }),
             _ => (if lit { CARD_LIT } else { CARD }, Color::TRANSPARENT),
         };
-        let (edge, width) = if focused { (ACCENT, 2.0) } else { (edge, 1.0) };
+        let (edge, width) = if focused || marked { (ACCENT, 2.0) } else { (edge, 1.0) };
         button::Style {
             background: Some(Background::Color(fill)),
             text_color: INK,

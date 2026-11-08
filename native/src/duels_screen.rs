@@ -838,10 +838,6 @@ pub(crate) fn slab_faded() -> impl Fn(&iced::Theme) -> container::Style + 'stati
     }
 }
 
-pub(crate) fn slab<'a>(inside: Element<'a, Message>, padding: f32) -> Element<'a, Message> {
-    container(inside).padding(padding).width(Length::Fill).height(Length::Fill).style(slab_faded()).into()
-}
-
 pub(crate) fn strip<'a>(parts: Vec<Element<'a, Message>>, lit: Option<Color>) -> Element<'a, Message> {
     let line = row(parts).spacing(18).align_y(Alignment::Center);
     let base = slab_faded();

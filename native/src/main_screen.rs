@@ -105,6 +105,14 @@ pub enum Message {
     PoolCommands,
     PoolHot(crate::pools_screen::Hot),
     PoolHeld(bool),
+    Held(iced::keyboard::Modifiers),
+    Head(usize),
+    PickAll,
+    AskRemove,
+    KeepReplays,
+    RemoveReplays,
+    RemovalTap,
+    Removed(crate::removal::Done),
     MapBoard(u64, bool, Result<crate::community::wire::MapBoard, String>),
     EveryoneArrived(Result<crate::community::wire::Everyone, String>),
     WornArrived(std::collections::HashMap<i64, crate::bot::Worn>),
@@ -503,6 +511,12 @@ pub struct Main {
     video_request: Option<PathBuf>,
     video_serial: u64,
     pub asking_delete: bool,
+    pub picked: std::collections::BTreeSet<usize>,
+    pick_anchor: Option<usize>,
+    held: iced::keyboard::Modifiers,
+    pub removal: Option<crate::removal::Plan>,
+    pub removing: bool,
+    pub removal_left: Option<crate::removal::Done>,
     pub skin_room: bool,
     pub skin_delete: Option<PathBuf>,
     pub skin_deleting: bool,
@@ -813,6 +827,12 @@ impl Main {
             video_request: None,
             video_serial: 0,
             asking_delete: false,
+            picked: std::collections::BTreeSet::new(),
+            pick_anchor: None,
+            held: iced::keyboard::Modifiers::default(),
+            removal: None,
+            removing: false,
+            removal_left: None,
             skin_room: false,
             skin_delete: None,
             skin_deleting: false,
@@ -1518,7 +1538,7 @@ impl Main {
             (iced::Event::Window(window::Event::Opened { size, .. }), _) => Some(Message::WindowOpened(id, size.width, size.height)),
             (iced::Event::Window(window::Event::Rescaled(scale)), _) => Some(Message::Rescaled(scale)),
             (iced::Event::Window(window::Event::Focused | window::Event::Unfocused), _) => Some(Message::CheckMinimized(id)),
-            (iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)), _) => Some(Message::PoolHeld(modifiers.shift())),
+            (iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)), _) => Some(Message::Held(modifiers)),
             (iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, physical_key, modifiers, .. }), iced::event::Status::Ignored) => {
                 use iced::keyboard::key::{Key, Named};
                 if paste_shortcut(&key, physical_key, modifiers) {
@@ -1541,6 +1561,7 @@ impl Main {
                     Key::Character(letter) if modifiers.command() && modifiers.shift() && latin(letter) == Some('c') => Some(Message::PoolHot(crate::pools_screen::Hot::Text)),
                     Key::Character(letter) if modifiers.command() && latin(letter) == Some('c') => Some(Message::PoolHot(crate::pools_screen::Hot::Copy)),
                     Key::Character(letter) if modifiers.command() && latin(letter) == Some('d') => Some(Message::PoolHot(crate::pools_screen::Hot::Double)),
+                    Key::Character(letter) if modifiers.command() && !modifiers.shift() && latin(letter) == Some('a') => Some(Message::PickAll),
                     Key::Named(Named::Backspace) if modifiers.command() => Some(Message::PoolHot(crate::pools_screen::Hot::Remove)),
                     Key::Named(Named::Delete) => Some(Message::PoolHot(crate::pools_screen::Hot::Remove)),
                     Key::Character(letter) => letter.chars().next().map(|c| Message::Typed(c.to_lowercase().next().unwrap_or(c))),
@@ -2764,7 +2785,10 @@ impl Main {
                 let before: std::collections::HashSet<String> = self.entries().iter().map(|e| e.replay_hash.clone()).collect();
                 let was = self.chosen_entry().map(|e| e.path.clone());
                 let fresh: Vec<Entry> = library.entries.iter().filter(|e| !before.contains(&e.replay_hash) && !crate::mixed::is_shared(&e.path)).cloned().collect();
+                let picked: std::collections::HashSet<PathBuf> = self.picked.iter().filter_map(|at| self.entries().get(*at)).map(|e| e.path.clone()).collect();
                 self.library = Some(library);
+                self.picked = self.entries().iter().enumerate().filter(|(_, e)| picked.contains(&e.path)).map(|(at, _)| at).collect();
+                self.pick_anchor = None;
                 self.chosen = was.and_then(|path| self.entries().iter().position(|e| e.path == path)).or_else(|| self.visible().first().copied());
                 self.hover = None;
                 self.hover_bounds = None;
@@ -2799,6 +2823,8 @@ impl Main {
                 self.refreshing = false;
                 self.watch_sig = 0;
                 self.library = Some(library);
+                self.picked.clear();
+                self.pick_anchor = None;
                 self.now_unix = unix_now();
                 let entries = self.entries().to_vec();
                 self.store.marry(&entries);
@@ -2842,7 +2868,74 @@ impl Main {
                 self.combos.insert(path, combo);
                 Task::none()
             }
+            Message::Choose(at) if self.picking() => {
+                self.pick(at);
+                Task::none()
+            }
             Message::Choose(at) => self.choose(at),
+            Message::Head(first) if self.picking() && self.held.command() => {
+                self.pick_group(first);
+                Task::none()
+            }
+            Message::Head(first) => self.choose(first),
+            Message::PickAll => {
+                if self.overlay != Overlay::None || self.player.is_some() {
+                    return Task::none();
+                }
+                let Some(at) = self.focused().map(|focus| match focus { select::Focus::Head(at) | select::Focus::Replay(at) => at }).or(self.chosen) else { return Task::none() };
+                self.picked.clear();
+                self.pick_group(at);
+                Task::none()
+            }
+            Message::AskRemove => {
+                if self.removing || self.overlay != Overlay::None || self.player.is_some() || !self.nothing_over() {
+                    return Task::none();
+                }
+                let targets: Vec<usize> = if self.picked.is_empty() {
+                    match self.focused() {
+                        Some(select::Focus::Replay(at)) => vec![at],
+                        _ => self.chosen.into_iter().collect(),
+                    }
+                } else {
+                    self.picked.iter().copied().collect()
+                };
+                let paths: Vec<PathBuf> = targets.iter().filter_map(|at| self.entries().get(*at)).map(|entry| entry.path.clone()).collect();
+                if paths.is_empty() {
+                    return Task::none();
+                }
+                self.removal_left = None;
+                self.removal = Some(crate::removal::plan(paths, &self.settings.sources));
+                Task::none()
+            }
+            Message::KeepReplays => {
+                if !self.removing {
+                    self.removal = None;
+                    self.removal_left = None;
+                }
+                Task::none()
+            }
+            Message::RemovalTap => Task::none(),
+            Message::RemoveReplays => {
+                let Some(plan) = self.removal.as_ref().filter(|plan| !plan.files.is_empty() && !self.removing) else { return Task::none() };
+                self.removing = true;
+                let files = plan.files.clone();
+                ui::in_thread(move || Message::Removed(crate::removal::carry_out(&files, videos::to_bin)))
+            }
+            Message::Removed(done) => {
+                self.removing = false;
+                self.removal = None;
+                self.picked.clear();
+                self.pick_anchor = None;
+                let gone = !done.removed.is_empty();
+                self.removal_left = (!done.stayed.is_empty()).then_some(done);
+                if !gone || self.refreshing {
+                    return Task::none();
+                }
+                self.hush_next = true;
+                self.refreshing = true;
+                self.refreshed_at = Instant::now();
+                read_library(self.settings.sources.clone(), Message::Refreshed)
+            }
             Message::Step(by) => {
                 self.step_focus(by);
                 Task::none()
@@ -3000,6 +3093,14 @@ impl Main {
                 }
             }
             Message::Escape => {
+                if self.removal.is_some() || self.removal_left.is_some() {
+                    return self.update(Message::KeepReplays);
+                }
+                if !self.picked.is_empty() && self.overlay == Overlay::None && self.player.is_none() {
+                    self.picked.clear();
+                    self.pick_anchor = None;
+                    return Task::none();
+                }
                 if self.share_open {
                     self.share_open = false;
                 } else if self.error_shown.is_some() && self.error_fade.value() {
@@ -3302,6 +3403,10 @@ impl Main {
                 }
                 Task::none()
             }
+            Message::Held(modifiers) => {
+                self.held = modifiers;
+                self.update(Message::PoolHeld(modifiers.shift()))
+            }
             Message::PoolHeld(held) => {
                 self.pools.shift = held;
                 Task::none()
@@ -3313,6 +3418,15 @@ impl Main {
                 }
                 None => Task::none(),
             },
+            Message::PoolHot(crate::pools_screen::Hot::Remove) if self.overlay == Overlay::None && self.player.is_none() => self.update(Message::AskRemove),
+            Message::PoolHot(crate::pools_screen::Hot::Confirm) if self.overlay == Overlay::None && self.player.is_none() && self.focus.is_none() && self.nothing_over() => {
+                if let Some(entry) = self.chosen_entry().filter(|entry| entry.map.is_some() && self.ffmpeg.is_some()) {
+                    if self.rendering.as_ref().is_none_or(|rendering| rendering.path != entry.path || rendering.is_over()) {
+                        return self.update(Message::Render);
+                    }
+                }
+                Task::none()
+            }
             Message::PoolHot(hot) => {
                 if self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Pools {
                     return self.update(Message::Community(crate::community_screen::Message::Pools(crate::pools_screen::Message::Hot(hot))));
@@ -4916,6 +5030,95 @@ impl Main {
         stack![veil, container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)].into()
     }
 
+    fn nothing_over(&self) -> bool {
+        self.removal.is_none() && self.removal_left.is_none() && self.skin_delete.is_none() && !self.witness_asking && !self.asking_delete
+            && self.menu.is_none() && !self.billing.shown && !self.skin_room && !self.share_open && self.sharing.picker.is_none() && self.sharing.open.is_none()
+            && matches!(self.pairing, Pairing::Idle)
+    }
+
+    fn picking(&self) -> bool {
+        self.overlay == Overlay::None && self.player.is_none() && (self.held.command() || self.held.shift())
+    }
+
+    fn pick(&mut self, at: usize) {
+        if self.held.shift() {
+            let order = self.visible();
+            let from = self.pick_anchor.or(self.chosen).and_then(|anchor| order.iter().position(|seen| *seen == anchor));
+            if let (Some(from), Some(to)) = (from, order.iter().position(|seen| *seen == at)) {
+                let (low, high) = if from <= to { (from, to) } else { (to, from) };
+                self.picked.extend(order[low..=high].iter().copied());
+                return;
+            }
+        }
+        if !self.picked.remove(&at) {
+            self.picked.insert(at);
+        }
+        self.pick_anchor = Some(at);
+    }
+
+    fn pick_group(&mut self, at: usize) {
+        let laid = self.laid();
+        let members: Vec<usize> = laid.rows.iter().find_map(|row| match row {
+            crate::carousel::Row::Head { first, count, .. } => {
+                let start = laid.order.iter().position(|seen| seen == first)?;
+                let members = &laid.order[start..(start + count).min(laid.order.len())];
+                members.contains(&at).then(|| members.to_vec())
+            }
+            crate::carousel::Row::Replay { .. } => None,
+        }).unwrap_or_else(|| if laid.rows.iter().all(|row| matches!(row, crate::carousel::Row::Replay { .. })) { laid.order.clone() } else { vec![at] });
+        if members.iter().all(|member| self.picked.contains(member)) {
+            for member in &members {
+                self.picked.remove(member);
+            }
+        } else {
+            self.picked.extend(members);
+        }
+        self.pick_anchor = Some(at);
+    }
+
+    fn removal_layer(&self) -> Element<'_, Message> {
+        let w = &self.words;
+        let note = |said: String| text(said).font(theme::SANS).size(13.0).wrapping(text::Wrapping::WordOrGlyph).color(MUTED);
+        let title = |said: String| text(said).font(theme::SANS_SEMI).size(20.0).wrapping(text::Wrapping::WordOrGlyph).color(INK);
+        let body = if let Some(left) = &self.removal_left {
+            let mut body = column![title(w.count("remove-stayed", left.stayed.len() as u64)), note(w.t("remove-stayed-note"))].spacing(14);
+            for (path, why) in left.stayed.iter().take(6) {
+                let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+                body = body.push(column![
+                    text(name).font(theme::MONO).size(12.0).wrapping(text::Wrapping::WordOrGlyph).color(INK),
+                    text(why.clone()).font(theme::SANS).size(12.0).wrapping(text::Wrapping::WordOrGlyph).color(MUTED),
+                ].spacing(2));
+            }
+            body.push(row![ui::grow(), ui::primary(w.t("remove-done"), Some(Message::KeepReplays))])
+        } else if let Some(plan) = &self.removal {
+            let mut body = column![].spacing(14);
+            if plan.files.is_empty() {
+                body = body.push(title(w.t("remove-nothing")));
+            } else {
+                body = body.push(title(w.count("remove-replays", plan.files.len() as u64))).push(note(w.with("remove-size", &[("size", w.mb(plan.bytes))])));
+            }
+            if plan.local > 0 {
+                body = body.push(note(w.n("remove-local", plan.local as u64)));
+            }
+            if plan.stored > 0 && !plan.files.is_empty() {
+                body = body.push(note(w.n("remove-stored", plan.stored as u64)));
+            }
+            let keep = (!self.removing).then_some(Message::KeepReplays);
+            let go = (!self.removing && !plan.files.is_empty()).then_some(Message::RemoveReplays);
+            let buttons = if plan.files.is_empty() {
+                row![ui::grow(), ui::primary(w.t("remove-done"), keep)]
+            } else {
+                row![ui::grow(), ui::quiet(w.t("keep"), keep), container(ui::primary(w.t(if self.removing { "remove-moving" } else { "remove-bin" }), go)).id(iced::widget::Id::new("removal-confirm"))]
+            };
+            body.push(buttons.spacing(8))
+        } else {
+            return Space::new().into();
+        };
+        let card = mouse_area(container(body).padding(24).width(440).style(theme::stage)).on_press(Message::RemovalTap);
+        let veil = mouse_area(ui::veil(theme::DEEP_SCRIM)).on_press(Message::KeepReplays);
+        stack![veil, container(card).width(Length::Fill).height(Length::Fill).center(Length::Fill)].into()
+    }
+
     fn skin_delete_layer(&self) -> Element<'_, Message> {
         let Some(folder) = &self.skin_delete else { return Space::new().into(); };
         let w = &self.words;
@@ -5144,6 +5347,7 @@ impl Main {
         };
         let room = self.skin_room_layer();
         let skin_ask = self.skin_delete_layer();
+        let removal_ask = self.removal_layer();
         let witness_ask = self.witness_ask_layer();
         let share_menu: Element<'_, Message> = if loaded && self.overlay == Overlay::None { self.share_layer_menu() } else { blank() };
         let resting: Element<'_, Message> = if rest > 0.001 || self.resting.value() {
@@ -5157,7 +5361,7 @@ impl Main {
         } else { blank() };
         let mini = self.mini_player_layer();
         let rest_scene = if loaded { self.reel_view(rest) } else { blank() };
-        let layers = stack![scene_before, scene, body, share_menu, bubble, ground, own_cover, overlay, chrome_layer, crest, mini, person, room, ask, sharing, duel_strip, toasts, menu, billing, signing, skin_ask, witness_ask, duel_leaving, failure, rest_scene, resting];
+        let layers = stack![scene_before, scene, body, share_menu, bubble, ground, own_cover, overlay, chrome_layer, crest, mini, person, room, ask, sharing, duel_strip, toasts, menu, billing, signing, skin_ask, removal_ask, witness_ask, duel_leaving, failure, rest_scene, resting];
         layers.width(Length::Fill).height(Length::Fill).into()
     }
 

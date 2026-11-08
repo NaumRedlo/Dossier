@@ -238,6 +238,19 @@ stays there. The app asks the server to delete nothing.
 Debt: a context menu widget of our own, since iced has none. Write it down under
 C if it ends up serving only the replay list.
 
+Done on 8 November 2026:
+
+- Deleting to the trash, one replay or a batch, with the count and the size
+  asked about first. Lazer's storage is never planned for deletion; replays from
+  stable's `Data/r` are named in the question. Files that stayed are listed with
+  the system's reason.
+- Batch selection: Cmd (Ctrl) toggles a card, Shift adds the run from the last
+  click, Cmd on a group card or Cmd+A takes the whole group, Esc lets go. A
+  selection follows its files when the library is read again.
+- Enter renders the shown replay when nothing has keyboard focus and no dialog
+  is open; Delete and Cmd+Backspace ask about the selection. In *Pools* both keys
+  still belong to the pool editor.
+
 ## 0.98.3. Renders through the bot
 
 Must:

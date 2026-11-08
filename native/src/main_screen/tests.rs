@@ -1942,3 +1942,103 @@ fn regression_pictures_still_on_screen_survive_a_full_picture_cache() {
     assert!(!main.news_pictures.contains_key(&stale));
     assert!(!main.ask_picture(&avatar, std::time::Instant::now()));
 }
+
+#[test]
+fn command_and_shift_clicks_pick_replays_and_a_plain_click_still_chooses_one() {
+    use super::{Message, Overlay};
+    use iced::keyboard::Modifiers;
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+    main.overlay = Overlay::None;
+    let order = main.visible();
+    assert!(order.len() >= 4);
+    let chosen = main.chosen;
+    let _ = main.update(Message::Held(Modifiers::COMMAND));
+    let _ = main.update(Message::Choose(order[1]));
+    let _ = main.update(Message::Choose(order[3]));
+    assert_eq!(main.picked.iter().copied().collect::<Vec<_>>(), { let mut both = vec![order[1], order[3]]; both.sort(); both });
+    assert_eq!(main.chosen, chosen, "picking does not change the shown replay");
+    let _ = main.update(Message::Choose(order[3]));
+    assert!(!main.picked.contains(&order[3]), "a second command click lets go");
+    let _ = main.update(Message::Held(Modifiers::SHIFT));
+    let _ = main.update(Message::Choose(order[0]));
+    assert!(order[0..=3].iter().all(|at| main.picked.contains(at)), "shift picks everything between the last click and this one");
+    let _ = main.update(Message::Held(Modifiers::default()));
+    let _ = main.update(Message::Escape);
+    assert!(main.picked.is_empty());
+    let _ = main.update(Message::Choose(order[2]));
+    assert_eq!(main.chosen, Some(order[2]));
+    assert!(main.picked.is_empty());
+}
+
+#[test]
+fn a_group_is_picked_whole_from_its_card_or_with_command_a() {
+    use super::{Message, Overlay};
+    use iced::keyboard::Modifiers;
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+    main.overlay = Overlay::None;
+    let laid = main.laid();
+    let (first, count) = laid.rows.iter().find_map(|row| match row {
+        crate::carousel::Row::Head { first, count, .. } if *count > 1 => Some((*first, *count)),
+        _ => None,
+    }).expect("a group of several replays");
+    let start = laid.order.iter().position(|at| *at == first).unwrap();
+    let members: std::collections::BTreeSet<usize> = laid.order[start..start + count].iter().copied().collect();
+    let _ = main.update(Message::Held(Modifiers::COMMAND));
+    let _ = main.update(Message::Head(first));
+    assert_eq!(main.picked, members);
+    let _ = main.update(Message::Head(first));
+    assert!(main.picked.is_empty(), "the whole group lets go together");
+    let _ = main.update(Message::Held(Modifiers::default()));
+    main.chosen = Some(first);
+    let _ = main.update(Message::PickAll);
+    assert_eq!(main.picked, members);
+}
+
+#[test]
+fn delete_asks_about_the_picked_replays_only_on_the_replay_screen() {
+    use super::{Message, Overlay};
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+    main.overlay = Overlay::None;
+    let order = main.visible();
+    main.picked.extend([order[0], order[1]]);
+    main.overlay = Overlay::Community;
+    let _ = main.update(Message::PoolHot(crate::pools_screen::Hot::Remove));
+    assert!(main.removal.is_none(), "inside the community the key belongs to its own section");
+    main.overlay = Overlay::None;
+    let _ = main.update(Message::PoolHot(crate::pools_screen::Hot::Remove));
+    let plan = main.removal.clone().expect("a question before anything moves");
+    let wanted: Vec<std::path::PathBuf> = [order[0], order[1]].iter().map(|at| main.entries()[*at].path.clone()).collect();
+    assert_eq!(plan.files.len() + plan.stored, 2);
+    assert!(plan.files.iter().all(|path| wanted.contains(path)));
+    let _ = main.update(Message::Escape);
+    assert!(main.removal.is_none());
+    assert_eq!(main.picked.len(), 2, "closing the question keeps the selection");
+}
+
+#[test]
+fn files_that_stayed_are_listed_until_the_player_closes_the_note() {
+    use super::Message;
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+    main.removal = Some(crate::removal::Plan { files: vec!["/r/a.osr".into()], bytes: 1, local: 0, stored: 0 });
+    main.removing = true;
+    main.picked.insert(0);
+    let stayed = crate::removal::Done { removed: Vec::new(), stayed: vec![("/r/a.osr".into(), "in use".to_owned())] };
+    let _ = main.update(Message::Removed(stayed.clone()));
+    assert!(!main.removing && main.removal.is_none() && main.picked.is_empty());
+    assert_eq!(main.removal_left, Some(stayed));
+    let _ = main.update(Message::Escape);
+    assert!(main.removal_left.is_none());
+}
+
+#[test]
+fn picked_replays_follow_their_files_when_the_library_is_read_again() {
+    use super::Message;
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+    let mut library = main.library.clone().unwrap();
+    let kept = library.entries[2].path.clone();
+    main.picked.extend([1, 2]);
+    library.entries.remove(1);
+    let _ = main.update(Message::Refreshed(library));
+    let now: Vec<std::path::PathBuf> = main.picked.iter().map(|at| main.entries()[*at].path.clone()).collect();
+    assert_eq!(now, vec![kept], "a file that left the library leaves the selection and the rest keep theirs");
+}

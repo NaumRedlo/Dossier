@@ -2044,3 +2044,25 @@ desk-training-server = Training runs on the server. You can close Dossier.
 desk-training-shadow = The finished version will appear here for review. Publishing is a separate action.
 desk-training-done = { $version } is ready for review
 desk-training-not-started = The server did not confirm that training started. Please try again.
+remove-replays = { $n ->
+    [one] replay to the trash?
+   *[other] replays to the trash?
+}
+remove-size = Frees { $size }
+remove-local = { $n ->
+    [one] { $n } replay from the osu!stable folder also disappears from replay viewing in the game itself.
+   *[other] { $n } replays from the osu!stable folder also disappear from replay viewing in the game itself.
+}
+remove-stored = { $n ->
+    [one] { $n } replay in lazer's storage stays: those are deleted in the game itself.
+   *[other] { $n } replays in lazer's storage stay: those are deleted in the game itself.
+}
+remove-nothing = Nothing to delete here: these replays live in lazer's storage and are deleted in the game itself.
+remove-bin = Move to trash
+remove-moving = Moving
+remove-stayed = { $n ->
+    [one] file stayed where it was
+   *[other] files stayed where they were
+}
+remove-stayed-note = Most often the file is held by a running game. Close osu! and try again.
+remove-done = Got it

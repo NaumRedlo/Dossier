@@ -801,8 +801,8 @@ impl Main {
             Group::Days => w.clock(entry.played_at),
             _ => format!("{} {}", w.day(entry.played_at, self.now_unix), w.clock(entry.played_at)),
         };
-        let when = if self.group == Group::Flat { format!("{} · {}", entry.player, when) } else { when };
-        let sub = text(when).font(theme::MONO).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED));
+        let small = |said: String| text(said).font(theme::MONO).size(theme::CAPTION).wrapping(text::Wrapping::None).color(ui::faded(MUTED));
+        let sub: Element<'_, Message> = if self.group == Group::Flat { row![small(entry.player.clone()), small(when)].spacing(12).into() } else { small(when).into() };
         let title = text(title).font(theme::SANS_SEMI).size(theme::BODY).wrapping(text::Wrapping::None).color(ui::faded(INK));
         let mut name = match self.group {
             Group::Maps => row![title],

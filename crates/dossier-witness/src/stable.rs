@@ -177,10 +177,33 @@ pub fn map(memory: &dyn Memory, anchors: &Anchors) -> Option<Map> {
     })
 }
 
+fn ruleset_of(memory: &dyn Memory, anchors: &Anchors) -> Option<u64> {
+    memory.pointer(memory.pointer(anchors.rulesets - 0xB)? + 0x4)
+}
+
 pub fn score_at(memory: &dyn Memory, anchors: &Anchors) -> Option<u64> {
-    let rulesets = memory.pointer(memory.pointer(anchors.rulesets - 0xB)? + 0x4)?;
-    let gameplay = memory.pointer(rulesets + 0x64)?;
+    let gameplay = memory.pointer(ruleset_of(memory, anchors)? + 0x64)?;
     memory.pointer(gameplay + 0x38)
+}
+
+pub const SCORE_V2: u32 = 1 << 29;
+
+pub fn counts_v2(memory: &dyn Memory, at: u64) -> bool {
+    memory.u32(at + 0x54).is_some_and(|processor| processor != 0)
+}
+
+pub fn live_v2(memory: &dyn Memory, anchors: &Anchors) -> Option<i32> {
+    memory.i32(ruleset_of(memory, anchors)? + 0xF8)
+}
+
+fn scored_live(play: &mut Play, memory: &dyn Memory, anchors: &Anchors) {
+    if !counts_v2(memory, play.at) {
+        return;
+    }
+    play.mods |= SCORE_V2;
+    if let Some(score) = live_v2(memory, anchors) {
+        play.score = score;
+    }
 }
 
 pub const HEALTH_MOST: f64 = 200.0;
@@ -195,7 +218,9 @@ pub fn health(memory: &dyn Memory, anchors: &Anchors) -> Option<f64> {
 pub const NEVER_FAILS: u32 = 1 | 1 << 7 | 1 << 13;
 
 pub fn play(memory: &dyn Memory, anchors: &Anchors) -> Option<Play> {
-    score_at(memory, anchors).map(|at| play_of(memory, at))
+    let mut play = play_of(memory, score_at(memory, anchors)?);
+    scored_live(&mut play, memory, anchors);
+    Some(play)
 }
 
 pub fn result_at(memory: &dyn Memory, anchors: &Anchors) -> Option<u64> {
@@ -307,8 +332,19 @@ impl Recorder {
         held.is_some_and(|raw| i32::from_le_bytes([raw[12], raw[13], raw[14], raw[15]]) == take.frames[last].time && f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) == take.frames[last].x)
     }
 
-    fn refresh(take: &mut Take, memory: &dyn Memory, score: u64) {
+    fn refresh(take: &mut Take, memory: &dyn Memory, score: u64, live: Option<&Anchors>) {
+        let held = take.play.score;
         take.play = play_of(memory, score);
+        match live {
+            Some(anchors) => scored_live(&mut take.play, memory, anchors),
+            None if counts_v2(memory, score) => {
+                take.play.mods |= SCORE_V2;
+                if take.play.score == 0 {
+                    take.play.score = held;
+                }
+            }
+            None => {}
+        }
         if let Some(fresh) = frames_from(memory, score, take.frames.len()) {
             take.frames.extend(fresh);
         }
@@ -333,7 +369,7 @@ impl Recorder {
                 if let Some(take) = self.current.as_mut() {
                     take.score = score;
                     take.watched = watched(take.watched, seen.watching);
-                    Recorder::refresh(take, memory, score);
+                    Recorder::refresh(take, memory, score, Some(anchors));
                     let read = health(memory, anchors);
                     let emptied = self.filled && read.is_some_and(|health| health <= 0.0);
                     self.filled |= read.is_some_and(|health| health > 0.0);
@@ -344,7 +380,7 @@ impl Recorder {
             Some(Mode::Rank) => {
                 let mut take = self.current.take()?;
                 if let Some(score) = result_at(memory, anchors).filter(|score| frame_count(memory, *score).is_some_and(|count| count >= take.frames.len())) {
-                    Recorder::refresh(&mut take, memory, score);
+                    Recorder::refresh(&mut take, memory, score, None);
                 }
                 take.passed = true;
                 take.failed = false;
@@ -590,6 +626,32 @@ pub(crate) mod tests {
         fake.set_u32(DATA + 0x10, 7);
         let done = recorder.poll(&fake, &anchors).expect("the finished play");
         assert_eq!((done.passed, done.frames.len(), done.play.score, done.watched), (true, 5, 2_000_000, Some(false)));
+    }
+
+    #[test]
+    fn under_score_v2_the_points_come_from_the_ruleset_and_the_mod_is_marked() {
+        let (mut fake, anchors, score) = with_frames();
+        fake.set_u32(score + 0x78, 0);
+        fake.set_u32(score + 0x54, (DATA + 0x2C00) as u32);
+        fake.set_u32(DATA + 0x1000 + 0xF8, 412_345);
+        let seen = glance(&fake, &anchors).and_then(|seen| seen.play).expect("the play");
+        assert_eq!((seen.score, seen.mods), (412_345, 24 | SCORE_V2));
+        let mut recorder = Recorder::default();
+        assert!(recorder.poll(&fake, &anchors).is_none());
+        assert_eq!(recorder.recording().map(|take| (take.play.score, take.play.mods)), Some((412_345, 24 | SCORE_V2)));
+
+        fake.set_u32(DATA + 0x1000 + 0x38, score as u32);
+        fake.set_u32(DATA + 0x10, 7);
+        let done = recorder.poll(&fake, &anchors).expect("the finished play");
+        assert_eq!((done.play.score, done.play.mods), (412_345, 24 | SCORE_V2), "the results keep the last points the ruleset showed");
+    }
+
+    #[test]
+    fn without_score_v2_the_points_stay_on_the_score() {
+        let (mut fake, anchors) = staged();
+        fake.set_u32(DATA + 0x1000 + 0xF8, 999);
+        let seen = glance(&fake, &anchors).and_then(|seen| seen.play).expect("the play");
+        assert_eq!((seen.score, seen.mods), (1_234_567, 24));
     }
 
     #[test]

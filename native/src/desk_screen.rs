@@ -2494,7 +2494,7 @@ fn cell_view<'a>(w: &Words, state: &'a State, coverage: &desk::Coverage, slot: &
             row![strong(w.with("desk-band-count", &[("count", count.to_string())]), 14.0 * k, ink), words(if extra > 0 { format!("+{extra}") } else { String::new() }, 12.0 * k, ink), Space::new().width(Length::Fill), words(w.with("desk-band-need", &[("count", ENOUGH.to_string())]), 12.0 * k, FAINT)].spacing(4).align_y(Alignment::Center),
             bar(count as f32 / ENOUGH as f32, ink),
         ].spacing(6),
-        scrollable(list).direction(ui::hidden_bar()).height(Length::Fill),
+        crate::glide::brim(scrollable(list).direction(ui::hidden_bar()).height(Length::Fill)).on(Color { a: 1.0, ..workspace::SURFACE }).both().high(44.0 * k),
         search,
         more,
     ].spacing(12).into()

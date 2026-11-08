@@ -20,6 +20,7 @@ pub mod duel_view;
 pub mod duel_watch;
 pub mod desk;
 pub mod desk_screen;
+pub mod chime;
 pub mod preview;
 pub mod desktop;
 pub mod ffmpeg;

@@ -56,6 +56,7 @@ pub struct State {
     pub tempos: std::collections::HashMap<i64, f32>,
     pub timed: std::collections::HashSet<i64>,
     pub moments: Moments,
+    pub chimed: Option<String>,
 }
 
 pub const DWELL: std::time::Duration = std::time::Duration::from_millis(500);
@@ -147,6 +148,7 @@ pub enum Effect {
     Order(crate::duels::Order),
     Tempo(i64),
     Stage(i64),
+    Chime,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,9 +202,22 @@ impl State {
     }
 
     pub fn update(&mut self, message: Message, now: i64) -> Vec<Effect> {
-        let effects = self.step(message, self.server_now(now));
+        let mut effects = self.step(message, self.server_now(now));
         self.observe();
+        effects.extend(self.chime());
         effects
+    }
+
+    fn chime(&mut self) -> Option<Effect> {
+        if self.stage() != Stage::Offer {
+            return None;
+        }
+        let id = self.current()?.id.clone();
+        if self.chimed.as_ref() == Some(&id) {
+            return None;
+        }
+        self.chimed = Some(id);
+        Some(Effect::Chime)
     }
 
     fn observe(&mut self) {
@@ -1295,12 +1310,25 @@ mod tests {
     }
 
     #[test]
+    fn a_found_opponent_chimes_once_for_each_offer() {
+        let mut state = State { player: Some(1), ..State::default() };
+        let offered = |id: &str| Message::Loaded(Ok(Snapshot { queue: None, me: Me::default(), live: Live::default(),
+            mine: vec![Duel { id: id.into(), ..duel("MATCH_OFFERED", &["accept", "decline"]) }], notices: Vec::new() }));
+        assert!(state.update(offered("d"), 0).contains(&Effect::Chime));
+        assert!(!state.update(offered("d"), 1).contains(&Effect::Chime));
+        assert!(state.update(offered("e"), 2).contains(&Effect::Chime));
+        let waiting = Message::Loaded(Ok(Snapshot { queue: None, me: Me::default(), live: Live::default(),
+            mine: vec![Duel { id: "f".into(), ..duel("MATCH_OFFERED", &[]) }], notices: Vec::new() }));
+        assert!(!state.update(waiting, 3).contains(&Effect::Chime), "an offer already answered does not chime");
+    }
+
+    #[test]
     fn clocks_counts_and_sides_read_right() {
         let at = chrono::DateTime::parse_from_rfc3339("2026-10-23T12:00:00Z").unwrap().timestamp();
         assert_eq!(seconds_left(&duel("MATCH_OFFERED", &[]), at), Some(30));
         assert_eq!(seconds_left(&duel("MATCH_OFFERED", &[]), at + 5), Some(25));
         assert_eq!(seconds_left(&duel("MATCH_OFFERED", &[]), at + 40), Some(0));
-        let mut state = State { mine: vec![duel("MATCH_OFFERED", &["accept"])], ..Default::default() };
+        let mut state = State { mine: vec![duel("MATCH_OFFERED", &["accept"])], chimed: Some("d".into()), ..Default::default() };
         assert!(state.clock_running());
         assert!(state.update(Message::Clock, at + 5).is_empty());
         state.mine[0].state = "EXPIRED".into();

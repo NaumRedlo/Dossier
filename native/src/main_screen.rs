@@ -2163,6 +2163,10 @@ impl Main {
                     Task::none()
                 }
                 Effect::Download(sets) => ui::in_thread(move || D::Downloaded(crate::preview::fetch_sets(&sets))).map(wrap),
+                Effect::Chime => {
+                    crate::chime::opponent_found(self.settings.preview_level);
+                    Task::none()
+                }
                 Effect::Tell(told, ids) => {
                     for (key, name) in told {
                         let said = self.words.with(key, &[("name", name)]);

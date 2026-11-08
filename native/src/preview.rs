@@ -23,7 +23,7 @@ fn level() -> f32 {
     f32::from_bits(LEVEL.load(Ordering::Relaxed))
 }
 
-fn steadied(samples: &[f32]) -> f32 {
+pub(crate) fn steadied(samples: &[f32]) -> f32 {
     if samples.is_empty() {
         return 1.0;
     }

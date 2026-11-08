@@ -1026,7 +1026,8 @@ fn live_panel<'a>(w: &Words, live: &Live) -> Element<'a, Message> {
         .spacing(12)
         .align_x(Alignment::Center)
         .max_width(260.0);
-        return container(slab(container(quiet).center(Length::Fill).into(), 22.0)).width(LIVE_WIDTH).height(Length::Fill).into();
+        let held = container(quiet).center_x(Length::Fill).padding(Padding { top: 40.0, right: 22.0, bottom: 44.0, left: 22.0 }).style(slab_faded());
+        return container(held).width(LIVE_WIDTH).into();
     }
     let live_mark = fa(LOST);
     let header = row![
@@ -1059,7 +1060,8 @@ fn live_panel<'a>(w: &Words, live: &Live) -> Element<'a, Message> {
             container(words(ago(w, duel.seconds_ago), 12.0, FAINT)).width(56).align_x(iced::alignment::Horizontal::Right),
         ].spacing(10).align_y(Alignment::Center).height(30));
     }
-    container(slab(scrollable(list).direction(crate::ui::hidden_bar()).into(), 22.0)).width(LIVE_WIDTH).height(Length::Fill).into()
+    let held = container(scrollable(list).direction(crate::ui::hidden_bar())).padding(22.0).width(Length::Fill).style(slab_faded());
+    container(held).width(LIVE_WIDTH).into()
 }
 
 fn ways<'a>(w: &Words, stacked: bool) -> Element<'a, Message> {
@@ -1087,6 +1089,8 @@ pub fn view<'a>(state: &State, w: &Words, now: i64, wide: f32) -> Element<'a, Me
     if let Some(running) = &state.watching {
         return crate::duel_watch::view(state, running, w, wide);
     }
+    let grown = home_scale(wide);
+    let wide = wide / grown;
     let hero = container(column![standing(w, state.me.as_ref()), action(w, state, now)].spacing(28)).padding(32).width(Length::Fill).style(slab_faded());
     let roomy = wide >= ROOMY;
     let top: Element<'a, Message> = if roomy { row![hero, ways(w, true)].spacing(16).into() } else { column![hero, ways(w, false)].spacing(16).into() };
@@ -1095,7 +1099,15 @@ pub fn view<'a>(state: &State, w: &Words, now: i64, wide: f32) -> Element<'a, Me
         left = left.push(row![glyph(Icon::Warn, 16.0, LOST), words(w.with("duels-failed", &[("reason", why.clone())]), 14.0, MUTED)].spacing(8).align_y(Alignment::Center));
     }
     let page = container(row![left, live_panel(w, &state.live)].spacing(28).height(Length::Fill)).max_width(PAGE_WIDTH);
-    container(page).padding(Padding { top: 8.0, right: 40.0, bottom: 28.0, left: 40.0 }).center_x(Length::Fill).height(Length::Fill).into()
+    let home = container(page).padding(Padding { top: 8.0, right: 40.0, bottom: 28.0, left: 40.0 }).center_x(Length::Fill).height(Length::Fill);
+    ui::scaled(home, grown).into()
+}
+
+const HOME_WIDE: f32 = PAGE_WIDTH + 80.0;
+const HOME_GROWTH: f32 = 1.3;
+
+fn home_scale(wide: f32) -> f32 {
+    (wide / HOME_WIDE).clamp(1.0, HOME_GROWTH)
 }
 
 #[cfg(test)]

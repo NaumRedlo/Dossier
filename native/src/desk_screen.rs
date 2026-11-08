@@ -2619,6 +2619,8 @@ fn add_map_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message>
     scrollable(body).direction(ui::hidden_bar()).height(Length::Fill).into()
 }
 
+const CATALOG_WIDEST: f32 = 1240.0;
+
 fn catalog_view<'a>(w: &Words, state: &'a State, _wide: f32, k: f32) -> Element<'a, Message> {
     let Some(coverage) = &state.desk.coverage else { return panel(words(w.t("desk-loading"), 15.0 * k, FAINT)) };
     let totals = &coverage.totals;
@@ -2723,7 +2725,7 @@ fn catalog_view<'a>(w: &Words, state: &'a State, _wide: f32, k: f32) -> Element<
         .height(if tall { Length::Fill } else { Length::Shrink })
         .max_height(if state.adding_map { 760.0 } else { 620.0 } * k);
     let content = row![table, aside].spacing(workspace::GAP).height(Length::Fill);
-    container(column![tiles, content].spacing(12).height(Length::Fill)).max_width(1200.0).height(Length::Fill).into()
+    container(column![tiles, content].spacing(12).height(Length::Fill)).max_width(CATALOG_WIDEST).height(Length::Fill).into()
 }
 
 fn percent(value: Option<f64>) -> (String, Color) {
@@ -3465,7 +3467,7 @@ pub fn view<'a>(state: &'a State, roles: &[String], w: &Words, now: i64, wide: f
         page = page.push(words(w.t("desk-loading"), 14.0, MUTED));
     }
     page = page.push(body);
-    let limit = match state.tab { Tab::Catalog => 1200.0, Tab::Label => 1180.0, _ => 1400.0 };
+    let limit = match state.tab { Tab::Catalog => CATALOG_WIDEST, Tab::Label => 1180.0, _ => 1400.0 };
     container(container(page).max_width(limit).id(iced::widget::Id::new("desk-workspace"))).padding(Padding { top: 8.0, right: 40.0, bottom: 24.0, left: 40.0 }).center_x(Length::Fill).height(Length::Fill).id(iced::widget::Id::new("desk-work-area")).into()
 }
 

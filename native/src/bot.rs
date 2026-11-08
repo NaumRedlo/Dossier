@@ -1482,6 +1482,37 @@ mod tests {
     }
 
     #[test]
+    fn the_feed_is_asked_for_compressed_and_read_back_whole() {
+        use std::io::Write as _;
+        let body = format!(r#"{{"week":9,"group":"{}"}}"#, "Osu Squad ".repeat(400));
+        let mut packed = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        packed.write_all(body.as_bytes()).unwrap();
+        let packed = packed.finish().unwrap();
+        assert!(packed.len() * 10 < body.len());
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = format!("http://{}", listener.local_addr().unwrap());
+        let asked = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut head = Vec::new();
+            let mut buffer = [0u8; 2048];
+            while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+                match stream.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => head.extend_from_slice(&buffer[..read]),
+                }
+            }
+            let reply = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", packed.len());
+            stream.write_all(reply.as_bytes()).unwrap();
+            stream.write_all(&packed).unwrap();
+            String::from_utf8_lossy(&head).to_ascii_lowercase()
+        });
+        let feed = community(&server, "token", "device", Some(-101)).unwrap();
+        assert_eq!(feed.week, 9);
+        let head = asked.join().unwrap();
+        assert!(head.contains("accept-encoding: gzip"), "{head}");
+    }
+
+    #[test]
     fn a_tag_kept_for_one_chat_is_not_sent_for_another() {
         let body = r#"{"week":1}"#;
         let full = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: \"one\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());

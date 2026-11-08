@@ -276,7 +276,7 @@ For the first 60 seconds p from 0.40 to 0.60 is allowed and a difference in over
 
 Candidates are ranked by the sum 2 × |p − 0.5| + 0.5 × min(|theta_A − theta_B|, 2) + 0.2 × repeat_opponent. repeat_opponent is 1 if the pair already played in the last 60 minutes, otherwise 0. On a tie the earlier request wins. The automatic queue does not arrange a pair's third rated meeting within 24 hours; a direct challenge stays available. This limit reduces repetition in a small sample without investigating anyone's intent.
 
-Beyond the last range the queue does not widen silently. The user keeps waiting or sends a direct challenge. In a direct challenge the warning about a large difference shows when p is outside 0.20–0.80 or the overall theta differs by more than 1.5 SR. With too little data, uncertainty is shown instead of an exact statement. Both players always get the same map conditions; there are no handicaps or individual speeds.
+Beyond the last range the queue does not widen silently. The user keeps waiting or sends a direct challenge. Accepting a direct challenge takes both players out of the queue, so neither has to leave it first. In a direct challenge the warning about a large difference shows when p is outside 0.20–0.80 or the overall theta differs by more than 1.5 SR. With too little data, uncertainty is shown instead of an exact statement. Both players always get the same map conditions; there are no handicaps or individual speeds.
 
 ### 11 2 Choosing difficulty inside a slot
 

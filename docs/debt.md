@@ -20,7 +20,7 @@ player. This is deployed on the server.
 
 Left: compare the video's length with the replay's before posting it to a chat.
 
-Pay off: 0.98.2.
+Pay off: 0.98.3.
 
 ### S6. Updates are checked only against a hash from the same release (low)
 
@@ -80,7 +80,7 @@ frame and more reels than it keeps.
 Left: a long session memory measurement on a signed-in account (feed, people,
 replays, videos for an hour) and limits chosen from it.
 
-Pay off: 0.98.2.
+Pay off: 0.98.3.
 
 ## Code
 

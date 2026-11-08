@@ -53,9 +53,10 @@ Rules between releases:
 | Release | Theme | Why now |
 |---|---|---|
 | 0.98.0 | Fixes, holes and foundation | Ready fixes, vulnerabilities, CI and a checked ffmpeg; without them every next release is risky |
-| 0.98.1 | Library control | The most frequent everyday complaints: deleting, keys, menus |
-| 0.98.2 | Renders through the bot | The farm already works for every chat, and speed-ups show at once |
-| 0.98.3 | Overlay | Witness is in use by testers, and the plates' look is unfinished |
+| 0.98.1 | Connection and training fixes | A tester behind a VPN could not load the community feed, and balance batches were never learned |
+| 0.98.2 | Library control | The most frequent everyday complaints: deleting, keys, menus |
+| 0.98.3 | Renders through the bot | The farm already works for every chat, and speed-ups show at once |
+| 0.98.4 | Overlay | Witness is in use by testers, and the plates' look is unfinished |
 | 0.99.0 | Profile and titles | Cheap, on data we have, visible to everyone |
 | 0.99.1 | The first real duel | A closed test on the server |
 | 0.99.2 | Community interactions | People already see each other; time to give them actions |
@@ -142,7 +143,7 @@ Done:
 - tests for both picture caches (P5) and a review of every main-screen golden,
   261 of which had drifted since 30 October (P4).
 
-Moved to 0.98.2: a long session memory measurement and cache limits based on it.
+Moved to 0.98.3: a long session memory measurement and cache limits based on it.
 
 What changes in existing behaviour:
 
@@ -173,7 +174,30 @@ in the bot's `continuum` goes to the server with it.
 Debt: pays off S1 (deployment), P4, C2 and the tests of P5. The iced update (C3)
 is not taken: our copy of `iced_wgpu` makes it a separate piece of work.
 
-## 0.98.1. Library control
+## 0.98.1. Connection and training fixes
+
+Inserted on 8 November 2026: the fixes below could not wait for library control,
+which moves to 0.98.2 with every later release shifting by one.
+
+- **The system proxy is used.** reqwest was built without its `system-proxy`
+  feature, so a VPN client working as the system proxy (v2rayN, Hiddify, Clash
+  and others) carried the browser but not Dossier. On 7 November 2026 a tester's
+  community feed broke off on every large answer with the VPN on and off alike;
+  Caddy logged each as a broken pipe after the bot had answered.
+- **Answers come compressed.** Dossier asks for gzip, and the bot compresses
+  every JSON answer of a kilobyte or more.
+- **Batches are learned.** A Kamerton training first fetches and analyses the
+  maps of balance batches that have no file yet; until 8 November none of the
+  26 batches, about 540 maps, had reached training. The desk shows this as its
+  own phase with the maps fetched out of all.
+- **Even presence dashes**: one dash centred on every corner, the rest spaced
+  evenly along each side.
+
+Bot compatibility: the bot must be deployed before the release; an older
+Dossier shows the fetching phase as waiting for training to start and reads
+uncompressed answers as before.
+
+## 0.98.2. Library control
 
 Must:
 
@@ -192,14 +216,6 @@ Should:
 
 If time allows: **first launch** as one screen of steps: find osu!, download
 ffmpeg, link the bot, decide about Witness.
-
-Already fixed on the way:
-
-- **The system proxy is used.** reqwest was built without its `system-proxy`
-  feature, so a VPN client working as the system proxy (v2rayN, Hiddify, Clash
-  and others) carried the browser but not Dossier. On 7 November 2026 a tester's
-  community feed broke off on every large answer with the VPN on and off alike;
-  Caddy logged each as a broken pipe after the bot had answered.
 
 What changes in existing behaviour:
 
@@ -222,7 +238,7 @@ stays there. The app asks the server to delete nothing.
 Debt: a context menu widget of our own, since iced has none. Write it down under
 C if it ends up serving only the replay list.
 
-## 0.98.2. Renders through the bot
+## 0.98.3. Renders through the bot
 
 Must:
 
@@ -253,7 +269,7 @@ the job. An older worker ignores the new fields.
 Debt: S1 (the video's length against the replay's) and P5 (a long session memory
 measurement and cache limits based on it).
 
-## 0.98.3. Overlay
+## 0.98.4. Overlay
 
 Starting point, the `dossier-hud` sample frames of 6 November: text about 11 px
 at 720p, almost no gaps between words (*Witness подключился* runs together), and

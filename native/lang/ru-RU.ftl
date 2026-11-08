@@ -2070,6 +2070,7 @@ desk-did-discover-result = Поиск { $slot }, { $band }★. Назначен 
 
 desk-training-new = Новая модель
 desk-training-queued = Ожидаем начала обучения
+desk-training-fetching = Скачиваем карты наборов
 desk-training-gathering = Собираем размеченные карты
 desk-training-validating = Проверяем обучение на отдельных наборах
 desk-training-fitting = Обучаем итоговую модель
@@ -2078,6 +2079,7 @@ desk-training-waiting-link = Ожидаем связи с сервером
 desk-training-elapsed = Прошло { $time }
 desk-training-steps = Шаги обучения: { $done } из { $total }
 desk-training-maps = Карт для обучения: { $count }
+desk-training-fetched = Карты наборов: { $done } из { $total }
 desk-training-checks = Проверено наборов: { $done } из { $total }
 desk-training-fold = Сейчас проверяем: { $source }
 desk-training-reconnecting = Связь потеряна. Показан последний полученный статус; после подключения он обновится.

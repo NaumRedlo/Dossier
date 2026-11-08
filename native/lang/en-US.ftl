@@ -2026,6 +2026,7 @@ desk-did-discover-result = Search { $slot }, { $band }★. Assigned: { $assigned
 
 desk-training-new = New model
 desk-training-queued = Waiting for training to start
+desk-training-fetching = Fetching the maps of batches
 desk-training-gathering = Gathering labelled maps
 desk-training-validating = Validating on held-out sets
 desk-training-fitting = Training the final model
@@ -2034,6 +2035,7 @@ desk-training-waiting-link = Waiting for the server
 desk-training-elapsed = Elapsed { $time }
 desk-training-steps = Training steps: { $done } of { $total }
 desk-training-maps = Maps for training: { $count }
+desk-training-fetched = Batch maps: { $done } of { $total }
 desk-training-checks = Sets checked: { $done } of { $total }
 desk-training-fold = Checking now: { $source }
 desk-training-reconnecting = Connection lost. Showing the last received status; it will update after reconnecting.

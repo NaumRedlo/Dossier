@@ -678,6 +678,8 @@ pub struct Job {
     pub completed: u64,
     pub total: u64,
     pub maps: u64,
+    pub fetched: u64,
+    pub fetch_total: u64,
     pub checks_done: u64,
     pub checks_total: u64,
     pub fold: Option<String>,

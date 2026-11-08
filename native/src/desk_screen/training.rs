@@ -50,11 +50,20 @@ impl State {
 }
 
 fn fraction(active: &Training) -> f32 {
-    active.status.as_ref().filter(|job| job.total > 0).map(|job| (job.completed as f64 / job.total as f64).clamp(0.0, 1.0) as f32).unwrap_or(0.0)
+    active.status.as_ref().and_then(progress).map(|(done, total)| (done as f64 / total as f64).clamp(0.0, 1.0) as f32).unwrap_or(0.0)
+}
+
+fn progress(job: &desk::Job) -> Option<(u64, u64)> {
+    if job.phase == "fetching" {
+        (job.fetch_total > 0).then_some((job.fetched, job.fetch_total))
+    } else {
+        (job.total > 0).then_some((job.completed, job.total))
+    }
 }
 
 fn phase(w: &Words, active: &Training) -> String {
     let key = match active.status.as_ref().map(|job| job.phase.as_str()) {
+        Some("fetching") => "desk-training-fetching",
         Some("gathering") => "desk-training-gathering",
         Some("validation") => "desk-training-validating",
         Some("fitting") => "desk-training-fitting",
@@ -65,7 +74,7 @@ fn phase(w: &Words, active: &Training) -> String {
 }
 
 pub(super) fn card<'a>(w: &Words, active: &Training, selected: bool, k: f32) -> Element<'a, Message> {
-    let amount = active.status.as_ref().filter(|job| job.total > 0).map(|_| format!("{}%", (fraction(active) * 100.0).floor() as u32)).unwrap_or_else(|| "—".into());
+    let amount = active.status.as_ref().and_then(progress).map(|_| format!("{}%", (fraction(active) * 100.0).floor() as u32)).unwrap_or_else(|| "—".into());
     let face = container(column![
         row![strong(w.t("desk-training-new"), 16.0 * k, INK), Space::new().width(Length::Fill), strong(amount, 14.0 * k, INK)].spacing(8),
         words(if active.disconnected { w.t("desk-training-waiting-link") } else { phase(w, active) }, 13.0 * k, MUTED),
@@ -84,7 +93,9 @@ pub(super) fn detail<'a>(w: &Words, active: &Training, k: f32) -> Element<'a, Me
         words(w.with("desk-training-elapsed", &[("time", format!("{}:{:02}", elapsed / 60, elapsed % 60))]), 14.0 * k, MUTED),
     ].spacing(16);
     if let Some(job) = &active.status {
-        if job.total > 0 {
+        if job.phase == "fetching" && job.fetch_total > 0 {
+            content = content.push(bar(fraction(active), ACCENT)).push(words(w.with("desk-training-fetched", &[("done", job.fetched.to_string()), ("total", job.fetch_total.to_string())]), 14.0 * k, MUTED));
+        } else if job.total > 0 {
             content = content.push(bar(fraction(active), ACCENT)).push(words(w.with("desk-training-steps", &[("done", job.completed.to_string()), ("total", job.total.to_string())]), 14.0 * k, MUTED));
         }
         if job.maps > 0 {
@@ -141,6 +152,19 @@ mod tests {
         assert!(state.update(presence(Some(job("done", 100, 10))), &w).is_empty());
         state.update(presence(Some(job("running", 60, 8))), &w);
         assert!(state.training.is_none(), "a delayed response cannot revive a completed job");
+    }
+
+    #[test]
+    fn fetching_batch_maps_shows_its_own_progress_before_the_steps() {
+        let w = Words::new(crate::lang::Lang::Ru);
+        let mut state = State::default();
+        let fetching = desk::Job { phase: "fetching".into(), fetched: 135, fetch_total: 540, total: 0, ..job("running", 0, 3) };
+        state.update(presence(Some(fetching)), &w);
+        let active = state.training.as_ref().unwrap();
+        assert_eq!(fraction(active), 0.25);
+        assert_eq!(phase(&w, active), "Скачиваем карты наборов");
+        state.update(presence(Some(job("running", 10, 4))), &w);
+        assert_eq!(fraction(state.training.as_ref().unwrap()), 0.1);
     }
 
     #[test]

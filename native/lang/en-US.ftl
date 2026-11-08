@@ -619,6 +619,7 @@ pool-slot-empty = Empty slot
 pool-slot-need = Choose a category and a map
 pool-slot-mod = Category
 pool-slot-note = Slot note
+pool-slot-note-hint = What the map tests or why it was chosen
 pool-mod-nm = No mod
 pool-mod-hd = Hidden objects
 pool-mod-hr = Mirror and harder windows

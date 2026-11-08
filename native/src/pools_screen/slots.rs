@@ -201,7 +201,7 @@ pub(super) fn slot_panel<'a>(pool: &'a Pool, editor: &'a Editor, at: usize, wide
         body = body.push(
             column![
                 ui::label(words.t("pool-slot-note"), FAINT),
-                text_input("", &slot.note).on_input(move |note| Message::Note(at, note)).on_paste(move |contents| Message::PasteInto(Input::Note(at), contents)).font(theme::SANS).size(13.0).padding([8, 12]).style(theme::field_faded(ui::fade())),
+                text_input(&words.t("pool-slot-note-hint"), &slot.note).on_input(move |note| Message::Note(at, note)).on_paste(move |contents| Message::PasteInto(Input::Note(at), contents)).font(theme::SANS).size(13.0).padding([8, 12]).style(theme::field_faded(ui::fade())),
             ]
             .spacing(8),
         );

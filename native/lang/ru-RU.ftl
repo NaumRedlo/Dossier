@@ -637,6 +637,7 @@ pool-slot-empty = Пустой слот
 pool-slot-need = Выберите категорию и карту
 pool-slot-mod = Категория
 pool-slot-note = Заметка к слоту
+pool-slot-note-hint = Что проверяет карта или почему её выбрали
 pool-mod-nm = Без мода
 pool-mod-hd = Скрытые объекты
 pool-mod-hr = Зеркало и жёсткие допуски

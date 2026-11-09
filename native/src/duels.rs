@@ -326,6 +326,10 @@ pub fn act(account: &Account, duel: &str, action: &str, body: Value, version: Op
     call(account, reqwest::Method::POST, &format!("/render/duels/{duel}/{action}"), Some(body), Some(operation))
 }
 
+pub fn feedback(account: &Account, duel: &str, body: Value) -> Result<(), Failure> {
+    call::<Value>(account, reqwest::Method::POST, &format!("/render/duels/{duel}/feedback"), Some(body), Some(&key())).map(|_| ())
+}
+
 pub fn read(account: &Account, duel: &str) -> Result<Duel, Failure> {
     call(account, reqwest::Method::GET, &format!("/render/duels/{duel}"), None, None)
 }

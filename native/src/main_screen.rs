@@ -2131,6 +2131,10 @@ impl Main {
                 }).map(wrap),
                 Effect::Read(_) if offline => Task::none(),
                 Effect::Read(duel) => ui::in_thread(move || D::Read(crate::duels::read(&account, &duel).map_err(|why| why.to_string()))).map(wrap),
+                Effect::Feedback(duel, body) => ui::in_thread(move || {
+                    let said = if offline { Err("offline".to_owned()) } else { crate::duels::feedback(&account, &duel, body).map_err(|why| why.to_string()) };
+                    D::FeedbackSent(said)
+                }).map(wrap),
                 Effect::Act(duel, action, body, version) => ui::in_thread(move || {
                     let said = if offline { Err("offline".to_owned()) } else { crate::duels::act(&account, &duel, action, body, version, &crate::duels::key()).map_err(|why| why.to_string()) };
                     D::Acted(said)

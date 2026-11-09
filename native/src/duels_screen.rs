@@ -110,6 +110,7 @@ pub enum Message {
     Heard(crate::duels::Heard),
     Act(&'static str, serde_json::Value),
     Acted(Result<Duel, String>),
+    FeedbackSent(Result<(), String>),
     Cover(i64, Option<iced::widget::image::Handle>),
     Hover(Option<i64>),
     Copy(String),
@@ -137,6 +138,7 @@ pub enum Effect {
     Answer(String, u32, bool),
     Read(String),
     Act(String, &'static str, serde_json::Value, Option<u32>),
+    Feedback(String, serde_json::Value),
     Cover(i64),
     Hear(Option<i64>),
     Copy(String),
@@ -484,6 +486,7 @@ impl State {
                     self.moments.sent = None;
                 }
                 match said {
+                    Ok(duel) if duel.id.is_empty() => self.duel.as_ref().map(|duel| duel.id.clone()).map(|id| self.read(id)).unwrap_or_default(),
                     Ok(duel) => {
                         let id = duel.id.clone();
                         self.duel = Some(duel);
@@ -555,7 +558,13 @@ impl State {
                 if let Some(difficulty) = difficulty {
                     body["difficulty"] = serde_json::json!(difficulty);
                 }
-                vec![Effect::Act(duel.id.clone(), "feedback", body, None)]
+                vec![Effect::Feedback(duel.id.clone(), body)]
+            }
+            Message::FeedbackSent(said) => {
+                if let Err(why) = said {
+                    self.failed = Some(why);
+                }
+                Vec::new()
             }
             Message::Challenge(player) if !self.acting => {
                 self.acting = true;
@@ -1328,6 +1337,17 @@ mod tests {
         let waiting = Message::Loaded(Ok(Snapshot { queue: None, me: Me::default(), live: Live::default(),
             mine: vec![Duel { id: "f".into(), ..duel("MATCH_OFFERED", &[]) }], notices: Vec::new() }));
         assert!(!state.update(waiting, 3).contains(&Effect::Chime), "an offer already answered does not chime");
+    }
+
+    #[test]
+    fn rating_a_pool_is_sent_on_its_own_and_never_replaces_the_open_duel() {
+        let mut state = State { player: Some(1), duel: Some(duel("COMPLETED", &[])), ..State::default() };
+        let effects = state.update(Message::Rate("NM1".into(), Some("fits".into()), None), 0);
+        assert_eq!(effects, vec![Effect::Feedback("d".into(), serde_json::json!({ "slot": "NM1", "fit": "fits" }))]);
+        let _ = state.update(Message::FeedbackSent(Ok(())), 1);
+        assert_eq!(state.duel.as_ref().map(|duel| duel.id.as_str()), Some("d"));
+        let _ = state.update(Message::Acted(Ok(Duel::default())), 2);
+        assert_eq!(state.duel.as_ref().map(|duel| (duel.id.as_str(), duel.state.as_str())), Some(("d", "COMPLETED")), "an answer that is not a duel leaves the duel shown");
     }
 
     #[test]

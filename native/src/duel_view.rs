@@ -524,11 +524,12 @@ fn round_status<'a>(w: &Words, state: &State, duel: &Duel, now: i64) -> Element<
     let ready = duel.actions.iter().any(|action| action == "ready");
     match duel.state.as_str() {
         "ROUND_SETUP" | "WAITING_READY" | "STARTING" => {
-            let mut right: Vec<Element<'a, Message>> = left.into_iter().collect();
-            if ready {
-                right.push(ui::primary(w.t("duels-ready"), (!state.acting).then(|| Message::Act("ready", serde_json::json!({})))));
-            }
-            status(w.t(if duel.state == "STARTING" { "duels-starting" } else { "duels-preparing" }), right, None, None)
+            let heading = match duel.state.as_str() {
+                "STARTING" => "duels-starting",
+                _ if ready => "duels-ready-asked",
+                _ => "duels-preparing",
+            };
+            status(w.t(heading), left.into_iter().collect(), None, None)
         }
         "PLAYING" => {
             let total = current_entry(duel).and_then(|entry| entry.song_seconds).map(|seconds| seconds.round() as i64);

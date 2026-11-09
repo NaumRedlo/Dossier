@@ -110,6 +110,8 @@ All deadlines are kept in UTC on the server and shown in local time in the app. 
 | Waiting for the API after a round | Up to 10 minutes | Technical cancellation without evidence |
 | Consent to an extra TB | 60 seconds | Ends without an extra game |
 
+Readiness for a round is given with Ready in the osu! room: when BanchoBot says that all players are ready, the round starts. Dossier no longer asks for it with a button of its own (owner's decision of 9 November 2026); the server still accepts the ready action from older versions.
+
 An immediate abort means sending the command right after a disconnect is reliably detected, without waiting for the map to end. The system cannot detect a network break earlier than an available source reports it. Bancho's event of leaving the game room is grounds for aborting. An IRC user merely leaving the chat without leaving the game slot is not treated as a player disconnecting.
 
 Dossier sends a heartbeat every 5 seconds. Closing the app explicitly triggers a stop at once; no heartbeat for 20 seconds counts as lost presence. In an active round the bot sends an abort, confirms the stop, saves the attempt as ABORTED and waits for the return. If a confirmed end of the round actually arrived before the disconnect, the order of events from section 17 applies first, not an unconditional cancellation of a game already finished.

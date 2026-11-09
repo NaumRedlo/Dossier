@@ -30,7 +30,6 @@ pub struct Account {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct Participant {
-    #[serde(default)]
     pub player: i64,
     #[serde(default)]
     pub name: Option<String>,
@@ -92,9 +91,7 @@ pub struct Deadline {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct Entry {
-    #[serde(default)]
     pub slot: String,
-    #[serde(default)]
     pub beatmap_id: i64,
     #[serde(default)]
     pub mods: Vec<String>,
@@ -122,7 +119,6 @@ pub struct Entry {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct Played {
-    #[serde(default)]
     pub score: i64,
     #[serde(default)]
     pub accuracy: Option<f32>,
@@ -152,9 +148,8 @@ pub struct Room {
 pub struct Turn {
     #[serde(default)]
     pub turn: u32,
-    #[serde(default, rename = "type")]
+    #[serde(rename = "type")]
     pub kind: String,
-    #[serde(default)]
     pub slot: String,
     #[serde(default)]
     pub by: Option<i64>,
@@ -164,9 +159,7 @@ pub struct Turn {
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct Round {
-    #[serde(default)]
     pub ordinal: u32,
-    #[serde(default)]
     pub slot: String,
     #[serde(default)]
     pub state: String,
@@ -194,13 +187,10 @@ pub struct Bonus {
 pub struct Duel {
     #[serde(default)]
     pub viewer: Option<i64>,
-    #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub mode: String,
-    #[serde(default)]
     pub state: String,
-    #[serde(default)]
     pub version: u32,
     #[serde(default)]
     pub participants: Vec<Participant>,
@@ -243,6 +233,7 @@ pub struct Notice {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Failure {
     Network(String),
+    Unreadable(String),
     Refused { code: String, message: String, retryable: bool, duel: Option<Box<Duel>> },
     Status(u16),
 }
@@ -251,6 +242,7 @@ impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Failure::Network(said) => write!(f, "{said}"),
+            Failure::Unreadable(said) => write!(f, "unreadable answer: {said}"),
             Failure::Refused { code, message, .. } => write!(f, "{}", if message.is_empty() { code } else { message }),
             Failure::Status(code) => write!(f, "{code}"),
         }
@@ -278,10 +270,10 @@ fn refused(code: u16, body: &str) -> Failure {
         #[serde(default)]
         retryable: bool,
         #[serde(default)]
-        duel: Option<Duel>,
+        duel: Option<Value>,
     }
     match serde_json::from_str::<Said>(body) {
-        Ok(said) if !said.error.is_empty() => Failure::Refused { code: said.error, message: said.message, retryable: said.retryable, duel: said.duel.map(Box::new) },
+        Ok(said) if !said.error.is_empty() => Failure::Refused { code: said.error, message: said.message, retryable: said.retryable, duel: said.duel.and_then(|duel| serde_json::from_value::<Duel>(duel).ok()).map(Box::new) },
         _ => Failure::Status(code),
     }
 }
@@ -311,7 +303,7 @@ pub(crate) fn call_within<T: serde::de::DeserializeOwned>(account: &Account, met
     if !(200..300).contains(&code) {
         return Err(refused(code, &text));
     }
-    serde_json::from_str(&text).map_err(|why| Failure::Network(why.to_string()))
+    serde_json::from_str(&text).map_err(|why| Failure::Unreadable(why.to_string()))
 }
 
 pub fn invite(account: &Account, opponent: i64, operation: &str) -> Result<Duel, Failure> {
@@ -815,14 +807,68 @@ mod tests {
         assert_eq!((duel.draft[0].kind.as_str(), duel.rounds[0].picked_by), ("ban", Some(2)));
     }
 
+    const SAMPLES: [(&str, &str); 4] = [
+        ("duel_invited", include_str!("../tests/fixtures/wire/duel_invited.json")),
+        ("duel_drafting", include_str!("../tests/fixtures/wire/duel_drafting.json")),
+        ("duel_ready", include_str!("../tests/fixtures/wire/duel_ready.json")),
+        ("duel_completed", include_str!("../tests/fixtures/wire/duel_completed.json")),
+    ];
+
+    #[test]
+    fn the_server_s_own_answers_read_into_duels_with_nothing_lost() {
+        let read = |name: &str| serde_json::from_str::<Duel>(SAMPLES.iter().find(|(known, _)| *known == name).unwrap().1).unwrap_or_else(|why| panic!("{name}: {why}"));
+        let invited = read("duel_invited");
+        assert_eq!((invited.state.as_str(), invited.mode.as_str(), invited.participants.len()), ("INVITED", "direct", 2));
+        assert_eq!(invited.actions, ["accept", "decline"]);
+        assert!(invited.deadlines.iter().any(|deadline| deadline.kind == "invitation" && deadline.at.is_some()));
+        let drafting = read("duel_drafting");
+        let pool = drafting.pool.as_ref().expect("the revealed pool");
+        assert_eq!((drafting.state.as_str(), pool.entries.len()), ("DRAFTING", 9));
+        assert!(pool.entries.iter().all(|entry| !entry.slot.is_empty() && entry.beatmap_id > 0 && entry.stars.is_some()));
+        let ready = read("duel_ready");
+        assert_eq!(ready.state.as_str(), "WAITING_READY");
+        assert_eq!(ready.draft.iter().filter(|turn| turn.kind == "ban").count(), 4);
+        assert_eq!(ready.rounds.len(), 2);
+        assert!(ready.rounds[0].scores.values().all(|played| played.score > 0));
+        let done = read("duel_completed");
+        assert_eq!((done.state.as_str(), done.wins.a, done.outcome.as_deref()), ("COMPLETED", 3, Some("played")));
+        assert!(done.winner.is_some() && done.meeting.is_some());
+        assert_eq!((done.actions.as_slice(), done.bonus.as_ref().map(|bonus| bonus.state.as_str())), (["bonus".to_owned()].as_slice(), Some("offered")));
+    }
+
+    #[test]
+    fn the_samples_are_the_ones_the_bot_checks_when_its_repository_is_beside_this_one() {
+        let theirs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../1984/tests/contract/wire");
+        if !theirs.is_dir() {
+            return;
+        }
+        for (name, ours) in SAMPLES {
+            let held = std::fs::read_to_string(theirs.join(format!("{name}.json"))).unwrap_or_else(|why| panic!("{name}: {why}"));
+            assert!(held == ours, "{name} differs from the bot's sample; run tools/sync-wire.sh");
+        }
+    }
+
     #[test]
     fn a_refusal_keeps_its_code_and_the_current_duel() {
-        let failure = refused(409, r#"{"error":"VERSION_CONFLICT","message":"Дуэль уже изменилась","retryable":true,"duel":{"id":"d1","version":3}}"#);
+        let failure = refused(409, r#"{"error":"VERSION_CONFLICT","message":"Дуэль уже изменилась","retryable":true,"duel":{"id":"d1","state":"DRAFTING","version":3}}"#);
         match failure {
             Failure::Refused { code, retryable, duel, .. } => assert_eq!((code.as_str(), retryable, duel.unwrap().version), ("VERSION_CONFLICT", true, 3)),
             other => panic!("{other:?}"),
         }
         assert_eq!(refused(502, "<html>"), Failure::Status(502));
+        let half = refused(409, r#"{"error":"ALREADY_BUSY","duel":{"version":3}}"#);
+        assert!(matches!(half, Failure::Refused { ref code, duel: None, .. } if code == "ALREADY_BUSY"), "a duel that cannot be read does not take the code with it: {half:?}");
+    }
+
+    #[test]
+    fn an_answer_that_is_not_a_duel_is_an_error_and_never_an_empty_duel() {
+        for said in [r#"{"slot":"NM1","played":true,"version":4}"#, r#"{"id":"d1","version":4}"#, r#"{"id":"d1","state":"PLAYING"}"#] {
+            assert!(serde_json::from_str::<Duel>(said).is_err(), "{said}");
+        }
+        let without_score = r#"{"id":"d1","state":"PLAYING","version":4,"rounds":[{"ordinal":1,"slot":"NM1","scores":{"101":{"accuracy":0.98}}}]}"#;
+        assert!(serde_json::from_str::<Duel>(without_score).is_err(), "a score that names no points is not zero points");
+        let bare = r#"{"id":"d1","state":"INVITED","version":1}"#;
+        assert_eq!(serde_json::from_str::<Duel>(bare).map(|duel| duel.participants.len()).ok(), Some(0));
     }
 
     #[test]

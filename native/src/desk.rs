@@ -514,7 +514,7 @@ pub fn band_of(stars: f32) -> usize {
 fn listed<T: serde::de::DeserializeOwned>(account: &Account, path: &str, key: &str) -> Result<Vec<T>, Failure> {
     let found: Value = read(account, path)?;
     let inner = if key.is_empty() { found } else { found.get(key).cloned().unwrap_or(Value::Array(Vec::new())) };
-    serde_json::from_value(inner).map_err(|why| Failure::Network(why.to_string()))
+    serde_json::from_value(inner).map_err(|why| Failure::Unreadable(why.to_string()))
 }
 
 pub fn load(account: &Account, roles: &[String]) -> Result<Desk, Failure> {

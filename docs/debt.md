@@ -123,7 +123,8 @@ Pay off: 0.98.3.
 
 ### C1. Big screen files (low, growing)
 
-`main_screen.rs` 7896 lines, `ui.rs` 6364, `desk_screen.rs` 4100,
+`main_screen.rs` 7998 lines (10 November 2026, after its picture loading moved
+to `main_screen/pictures.rs`), `ui.rs` 6364, `desk_screen.rs` 4100,
 `gallery.rs` 2715, `pools_screen.rs` 2100. Every change in them touches other
 screens, and parallel changes collide.
 

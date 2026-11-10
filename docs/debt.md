@@ -115,7 +115,14 @@ Left:
 - The feed and *People* draw every row they have, so a community of several
   hundred people will again hold more than the limit while that screen is
   open. Drawing only the visible rows fixes both memory and frame time.
-- The hour-long run of the same script on the final build.
+
+The hour-long run of the same script on the final build (20 rounds) shows no
+growth: the median of each ten minutes after the first is 984, 946, 935, 937
+and 932 MB, and the last sample is 936 MB. The first ten minutes are left out
+because unit and golden tests ran on the same machine then and the starved
+application queued up to 1414 MB. Every cache the run prints stays within its
+limit; the picture cache passes its 128 MB only for the 10 seconds a screen
+just left is still held.
 
 Pay off: 0.98.3.
 

@@ -505,6 +505,10 @@ pub fn heard_of(text: &str) -> Option<Heard> {
 }
 
 pub fn socket_address(server: &str) -> String {
+    socket_at(server, "/render/duels/live")
+}
+
+pub fn socket_at(server: &str, path: &str) -> String {
     let base = server.trim_end_matches('/');
     let swapped = if let Some(rest) = base.strip_prefix("https://") {
         format!("wss://{rest}")
@@ -513,7 +517,7 @@ pub fn socket_address(server: &str) -> String {
     } else {
         base.to_owned()
     };
-    format!("{swapped}/render/duels/live")
+    format!("{swapped}{path}")
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -542,7 +546,7 @@ impl Drop for Link {
     }
 }
 
-type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
+pub(crate) type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
 
 fn reach(host: &str, port: u16) -> Result<TcpStream, String> {
     let mut why = format!("{host}:{port} has no address");
@@ -556,7 +560,11 @@ fn reach(host: &str, port: u16) -> Result<TcpStream, String> {
 }
 
 fn open(account: &Account) -> Result<Socket, String> {
-    let mut request = socket_address(&account.server).into_client_request().map_err(|why| why.to_string())?;
+    open_at(account, "/render/duels/live")
+}
+
+pub(crate) fn open_at(account: &Account, path: &str) -> Result<Socket, String> {
+    let mut request = socket_at(&account.server, path).into_client_request().map_err(|why| why.to_string())?;
     let headers = request.headers_mut();
     headers.insert("Authorization", format!("Bearer {}", account.token).parse().map_err(|_| "bad token".to_owned())?);
     headers.insert("X-Render-Worker", crate::bot::worker(&account.device).parse().map_err(|_| "bad device name".to_owned())?);

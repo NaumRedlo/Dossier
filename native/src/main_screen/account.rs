@@ -10,6 +10,29 @@ impl Main {
         ui::in_thread(move || Message::Known(bot::me(&server, &token, &name)))
     }
 
+    pub(super) fn drop_events(&mut self) {
+        self.events_link = None;
+        self.events_for = None;
+        self.events_on = false;
+        self.events_turn += 1;
+    }
+
+    pub(super) fn hear_events(&mut self) -> Task<Message> {
+        let wanted = (self.settings.server.clone(), self.settings.token.clone());
+        if self.events_for.as_ref() == Some(&wanted) {
+            return Task::none();
+        }
+        self.drop_events();
+        let (link, stopping) = crate::events::link();
+        self.events_link = Some(std::sync::Arc::new(link));
+        self.events_for = Some(wanted);
+        let turn = self.events_turn;
+        let account = crate::duels::Account { server: self.settings.server.clone(), token: self.settings.token.clone(), device: self.settings.device.clone() };
+        ui::streamed(move |push: &mut dyn FnMut(Message) -> bool| {
+            crate::events::run(&account, &stopping, &mut |heard| push(Message::Events(turn, heard)));
+        })
+    }
+
     pub fn signed_in(&self) -> bool {
         !self.settings.token.is_empty()
     }
@@ -211,12 +234,43 @@ impl Main {
                 Task::none()
             }
             Message::PresenceTick => {
-                if self.presence_pending || self.settings.token.is_empty() || self.gallery {
+                if self.settings.token.is_empty() || self.gallery {
                     return Task::none();
+                }
+                let events = self.hear_events();
+                if self.presence_pending || self.events_on {
+                    return events;
                 }
                 self.presence_pending = true;
                 let (server, token, name) = (self.settings.server.clone(), self.settings.token.clone(), self.settings.device.clone());
-                ui::in_thread(move || Message::PresenceAnswered(bot::presence(&server, &token, &name)))
+                Task::batch([events, ui::in_thread(move || Message::PresenceAnswered(bot::presence(&server, &token, &name)))])
+            }
+            Message::Events(turn, _) if turn != self.events_turn => Task::none(),
+            Message::Events(_, heard) => {
+                use crate::events::{Heard, Topic};
+                let home = self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels && self.duels.duel.is_none() && self.duels.watching.is_none();
+                let changed = match heard {
+                    Heard::Connected(online) => {
+                        self.events_on = true;
+                        self.online = Some(online);
+                        true
+                    }
+                    Heard::Lost(_) => {
+                        self.events_on = false;
+                        false
+                    }
+                    Heard::Online(online) => {
+                        self.online = Some(online);
+                        false
+                    }
+                    Heard::Changed(Topic::Duels) => true,
+                    Heard::Changed(Topic::Live) => home,
+                };
+                if changed {
+                    self.update(Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Changed)))
+                } else {
+                    Task::none()
+                }
             }
             Message::PresenceAnswered(result) => {
                 self.presence_pending = false;
@@ -265,6 +319,7 @@ impl Main {
             Message::SignOut => {
                 self.reset_billing();
                 self.settings.token.clear();
+                self.drop_events();
                 self.dossier_cache.clear();
                 self.people_dossiers.clear();
                 self.settings.linked_as.clear();

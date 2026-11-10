@@ -251,6 +251,26 @@ Done on 8 November 2026:
   is open; Delete and Cmd+Backspace ask about the selection. In *Pools* both keys
   still belong to the pool editor.
 
+Connection with the server, added to this release on 9 and 10 November 2026
+after a pool rating opened an empty duel:
+
+- **Answers are read strictly.** A duel answer that lacks a field every duel
+  carries is an error with its own text, apart from a lost connection, and is
+  never shown as an empty duel. The bot keeps samples of the answers Dossier
+  reads in `tests/contract/wire`; Dossier reads copies of them in
+  `native/tests/fixtures/wire`, and `tools/sync-wire.sh` copies them over.
+- **One event socket.** A signed-in Dossier keeps a socket at `/render/events`.
+  The server says on it that the player's duels changed, that the public duel
+  list changed and how many people are online. While the socket is connected,
+  Dossier asks for duels every 6 seconds in a duel or the queue instead of
+  every 2, every 60 seconds otherwise instead of every 10 or 15, and stops
+  posting presence every 5 seconds. When the socket is lost the old periods
+  return, so an older server or a blocked socket changes nothing.
+
+Left for the connection: the sockets do not go through the system proxy, the
+lists of people, the desk and the duels home are sent whole every time, and
+each screen keeps its own idea of whether the server is reachable.
+
 ## 0.98.3. Renders through the bot
 
 Must:

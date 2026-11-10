@@ -25,6 +25,7 @@ pub struct State {
     pub player: Option<i64>,
     pub searching: Option<i64>,
     pub loading: bool,
+    pub behind: bool,
     pub acting: bool,
     pub failed: Option<String>,
     pub roles_failed: Option<String>,
@@ -103,6 +104,7 @@ pub enum Message {
     Answer(String, u32, bool),
     Answered(Result<Duel, String>),
     Again,
+    Changed,
     Watch(String),
     Spectate(Running),
     Staged(i64, Option<std::sync::Arc<crate::duel_watch::Stage>>),
@@ -287,6 +289,10 @@ impl State {
                     self.searching = snapshot.queue.as_ref().and_then(crate::duels::Queue::since_unix);
                 }
                 let mut effects = self.follow();
+                if std::mem::take(&mut self.behind) {
+                    self.loading = true;
+                    effects.push(Effect::Load);
+                }
                 if !snapshot.notices.is_empty() {
                     let ids = snapshot.notices.iter().map(|notice| notice.id).collect();
                     let told = snapshot.notices.iter().filter_map(|notice| self.told(notice)).collect();
@@ -296,6 +302,7 @@ impl State {
             }
             Message::Loaded(Err(why)) => {
                 self.loading = false;
+                self.behind = false;
                 self.failed = Some(why);
                 Vec::new()
             }
@@ -347,6 +354,17 @@ impl State {
                     return self.read(id);
                 }
                 if self.loading {
+                    return Vec::new();
+                }
+                self.loading = true;
+                vec![Effect::Load]
+            }
+            Message::Changed => {
+                if let Some(id) = self.duel.as_ref().filter(|duel| phase_of(&duel.state) != Phase::Result).map(|duel| duel.id.clone()) {
+                    return self.read(id);
+                }
+                if self.loading {
+                    self.behind = true;
                     return Vec::new();
                 }
                 self.loading = true;
@@ -1161,6 +1179,24 @@ mod tests {
         state.me = Some(Me { player: Some(2), ..Me::default() });
         state.open(Some(1));
         assert_eq!(state.player, Some(2));
+    }
+
+    #[test]
+    fn a_change_the_server_tells_during_a_load_is_loaded_again_and_never_lost() {
+        let snapshot = || Snapshot { queue: None, me: Me::default(), live: Live::default(), mine: Vec::new(), notices: Vec::new() };
+        let mut state = State::default();
+        assert_eq!(state.update(Message::Changed, 0), vec![Effect::Load]);
+        assert!(state.update(Message::Changed, 0).is_empty(), "one load at a time");
+        assert_eq!(state.update(Message::Loaded(Ok(snapshot())), 0), vec![Effect::Load], "the change that came meanwhile is asked for");
+        assert!(state.loading && !state.behind);
+        assert!(state.update(Message::Loaded(Ok(snapshot())), 0).is_empty());
+        assert!(!state.loading);
+        state.update(Message::Changed, 0);
+        state.update(Message::Changed, 0);
+        assert!(state.update(Message::Loaded(Err("offline".into())), 0).is_empty(), "a failed load is not repeated in a loop");
+        assert!(!state.behind);
+        state.duel = Some(duel("DRAFTING", &[]));
+        assert_eq!(state.update(Message::Changed, 0), vec![Effect::Read("d".into())], "an open duel is the one read again");
     }
 
     #[test]

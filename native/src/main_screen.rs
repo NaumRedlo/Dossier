@@ -188,6 +188,7 @@ pub enum Message {
     Polled(Result<Paired, Refused>),
     PresenceTick,
     PresenceAnswered(Result<Option<u32>, Refused>),
+    Events(u64, crate::events::Heard),
     EveryoneAgain,
     OpenTelegram,
     CopyLink,
@@ -504,6 +505,10 @@ pub struct Main {
     pub player: Option<std::rc::Rc<std::cell::RefCell<player::Player>>>,
     minimized: bool,
     presence_pending: bool,
+    events_link: Option<std::sync::Arc<crate::events::Link>>,
+    events_for: Option<(String, String)>,
+    events_turn: u64,
+    pub events_on: bool,
     hidden: bool,
     window_id: Option<window::Id>,
     resume_player: Option<std::rc::Weak<std::cell::RefCell<player::Player>>>,
@@ -820,6 +825,10 @@ impl Main {
             player: None,
             minimized: false,
             presence_pending: false,
+            events_link: None,
+            events_for: None,
+            events_turn: 0,
+            events_on: false,
             hidden: false,
             window_id: None,
             resume_player: None,
@@ -1616,7 +1625,7 @@ impl Main {
         }
         if !self.settings.token.is_empty() && !self.gallery {
             let here = self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels;
-            let every = if self.duels.polling() { Duration::from_secs(2) } else if here { Duration::from_secs(10) } else { Duration::from_secs(15) };
+            let every = crate::events::duel_poll(self.duels.polling(), self.events_on, here);
             parts.push(iced::time::every(every).map(|_| Message::Community(crate::community_screen::Message::Duels(crate::duels_screen::Message::Again))));
         }
         if self.pools.has_unsaved() {
@@ -3194,6 +3203,7 @@ impl Main {
             | Message::TelegramAsked(..)
             | Message::PresenceTick
             | Message::PresenceAnswered(..)
+            | Message::Events(..)
             | Message::Poll
             | Message::Polled(..)
             | Message::OpenTelegram

@@ -51,6 +51,50 @@ fn presence_keeps_running_in_the_tray_without_overlapping_requests() {
 }
 
 #[test]
+fn the_event_socket_takes_over_presence_and_slows_duel_polling_until_it_is_lost() {
+    use crate::events::{Heard, Topic};
+    let mut main = super::Main::staged(crate::lang::Words::new(crate::lang::Lang::En), crate::settings::Settings::default(), crate::library::Library::default(), None);
+    main.gallery = false;
+    main.settings.token = "token".into();
+    let _ = main.update(super::Message::PresenceTick);
+    assert!(main.events_link.is_some() && main.presence_pending, "until the socket answers presence is still posted");
+    let _ = main.update(super::Message::PresenceAnswered(Ok(Some(2))));
+    let turn = main.events_turn;
+    let _ = main.update(super::Message::Events(turn, Heard::Connected(4)));
+    assert!(main.events_on);
+    assert_eq!(main.online, Some(4));
+    assert!(main.duels.loading, "connecting catches up on what was missed");
+    let _ = main.update(super::Message::PresenceTick);
+    assert!(!main.presence_pending, "the socket keeps the player online");
+    assert_eq!(main.events_turn, turn, "the same account keeps its link");
+    let _ = main.update(super::Message::Events(turn, Heard::Online(9)));
+    assert_eq!(main.online, Some(9));
+    main.duels.loading = false;
+    let _ = main.update(super::Message::Events(turn, Heard::Changed(Topic::Live)));
+    assert!(!main.duels.loading, "the public list is not asked for while it is not on screen");
+    main.overlay = super::Overlay::Community;
+    main.community_section = crate::community_screen::Section::Duels;
+    let _ = main.update(super::Message::Events(turn, Heard::Changed(Topic::Live)));
+    assert!(main.duels.loading);
+    main.duels.loading = false;
+    main.overlay = super::Overlay::None;
+    let _ = main.update(super::Message::Events(turn, Heard::Changed(Topic::Duels)));
+    assert!(main.duels.loading, "the player's own duels are asked for wherever they are");
+    let _ = main.update(super::Message::Events(turn, Heard::Lost("closed".into())));
+    assert!(!main.events_on);
+    let _ = main.update(super::Message::PresenceTick);
+    assert!(main.presence_pending, "without the socket presence is posted again");
+    let _ = main.update(super::Message::Events(turn, Heard::Connected(4)));
+    main.settings.token = "another".into();
+    let _ = main.update(super::Message::PresenceTick);
+    assert!(main.events_turn > turn && !main.events_on, "another account gets its own link");
+    let _ = main.update(super::Message::Events(turn, Heard::Connected(4)));
+    assert!(!main.events_on, "a word from the old link is not taken for the new one");
+    let _ = main.update(super::Message::SignOut);
+    assert!(main.events_link.is_none() && main.events_for.is_none());
+}
+
+#[test]
 fn paste_shortcut_works_with_russian_layout_and_platform_modifiers() {
     use iced::keyboard::{key::{Code, Key, Physical}, Modifiers};
     for modifiers in [Modifiers::CTRL, Modifiers::COMMAND] {

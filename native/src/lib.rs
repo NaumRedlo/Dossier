@@ -18,6 +18,7 @@ pub mod duels;
 pub mod duels_screen;
 pub mod duel_view;
 pub mod duel_watch;
+pub mod events;
 pub mod desk;
 pub mod desk_screen;
 pub mod chime;

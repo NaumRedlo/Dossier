@@ -271,8 +271,9 @@ after a pool rating opened an empty duel:
   take the same proxy as every other request: an HTTP proxy is asked to
   connect, a SOCKS5 proxy from `ALL_PROXY` is given the host by name. A proxy
   of another kind is an error, never a silent direct connection, and a server
-  on the same machine is always reached directly. Before, a tester whose VPN
-  worked as the system proxy had the feed but no live duel.
+  on the same machine is always reached directly. Before, both sockets went
+  straight to the server past the proxy, so where the server was reachable only
+  through the proxy they never connected.
 
 Left for the connection: the lists of people, the desk and the duels home are
 sent whole every time, and each screen keeps its own idea of whether the

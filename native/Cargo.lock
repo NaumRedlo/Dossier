@@ -1166,6 +1166,7 @@ dependencies = [
  "dossier-witness",
  "flate2",
  "fluent-bundle",
+ "hyper-util",
  "iana-time-zone",
  "iced",
  "iced_test",

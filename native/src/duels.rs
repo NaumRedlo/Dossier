@@ -548,17 +548,6 @@ impl Drop for Link {
 
 pub(crate) type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
 
-fn reach(host: &str, port: u16) -> Result<TcpStream, String> {
-    let mut why = format!("{host}:{port} has no address");
-    for address in std::net::ToSocketAddrs::to_socket_addrs(&(host, port)).map_err(|why| why.to_string())? {
-        match TcpStream::connect_timeout(&address, CONNECT_PATIENCE) {
-            Ok(stream) => return Ok(stream),
-            Err(error) => why = error.to_string(),
-        }
-    }
-    Err(why)
-}
-
 fn open(account: &Account) -> Result<Socket, String> {
     open_at(account, "/render/duels/live")
 }
@@ -569,8 +558,9 @@ pub(crate) fn open_at(account: &Account, path: &str) -> Result<Socket, String> {
     headers.insert("Authorization", format!("Bearer {}", account.token).parse().map_err(|_| "bad token".to_owned())?);
     headers.insert("X-Render-Worker", crate::bot::worker(&account.device).parse().map_err(|_| "bad device name".to_owned())?);
     let host = request.uri().host().ok_or("no host")?.trim_matches(['[', ']']).to_owned();
-    let port = request.uri().port_u16().unwrap_or(if request.uri().scheme_str() == Some("wss") { 443 } else { 80 });
-    let stream = reach(&host, port)?;
+    let secure = request.uri().scheme_str() == Some("wss");
+    let port = request.uri().port_u16().unwrap_or(if secure { 443 } else { 80 });
+    let stream = crate::tunnel::reach(&host, port, secure, CONNECT_PATIENCE)?;
     stream.set_read_timeout(Some(CONNECT_PATIENCE)).map_err(|why| why.to_string())?;
     stream.set_write_timeout(Some(WRITE_PATIENCE)).map_err(|why| why.to_string())?;
     let _ = stream.set_nodelay(true);

@@ -925,6 +925,33 @@ impl Catalog {
         self.pictures_with(crate::chronicle::FEED_PAGE)
     }
 
+    pub fn front_pictures(&self, rows: usize) -> Vec<(String, u32)> {
+        let mut wanted: Vec<(String, u32)> = Vec::new();
+        let mut want = |url: &str, side: u32| {
+            if !url.is_empty() && !wanted.iter().any(|(kept, _)| kept == url) {
+                wanted.push((url.to_owned(), side));
+            }
+        };
+        if let Some(me) = &self.me {
+            want(&me.person.avatar, 256);
+            want(&me.person.cover, COVER);
+        }
+        for person in &self.people {
+            want(&person.avatar, 128);
+        }
+        for friend in &self.friends {
+            want(&friend.avatar, 128);
+        }
+        let mut newest: Vec<&LivePlay> = self.live.iter().collect();
+        newest.sort_by_key(|play| std::cmp::Reverse(play.at));
+        for play in newest.iter().take(rows) {
+            if let Some(card) = self.maps.get(play.map).and_then(MapRef::card) {
+                want(&card, 400);
+            }
+        }
+        wanted
+    }
+
     pub fn pictures_with(&self, rows: usize) -> Vec<(String, u32)> {
         let mut wanted: Vec<(String, u32)> = Vec::new();
         let mut want = |url: &str, side: u32| {
@@ -1732,7 +1759,17 @@ mod tests {
         let wanted: Vec<String> = catalog.pictures_with(1).into_iter().map(|(url, _)| url).collect();
         assert_eq!(wanted, [catalog.maps[3].card().expect("a picture")], "the feed opens on the newest play");
         let wanted: Vec<String> = catalog.pictures_with(2).into_iter().map(|(url, _)| url).collect();
-        assert_eq!(wanted, [catalog.maps[3].card().expect("a picture"), catalog.maps[2].card().expect("a picture")]);
+        assert_eq!(wanted, [catalog.maps[3].card().expect("a picture"), catalog.maps[2].card().expect("a picture")]);        assert_eq!(catalog.front_pictures(1), [(catalog.maps[3].card().expect("a picture"), 400)], "before the feed is opened only its first rows are fetched");
+        catalog.people = Catalog::staged(vec![shape.clone()], "someone", 2000).people;
+        for (at, person) in catalog.people.iter_mut().enumerate() {
+            person.avatar = format!("https://a.ppy.sh/{at}");
+            person.cover = format!("https://assets.ppy.sh/user-profile-covers/{at}.jpg");
+        }
+        let front = catalog.front_pictures(0);
+        assert!(!front.is_empty() && front.len() == catalog.people.len() && front.iter().all(|(url, side)| *side == 128 && url.starts_with("https://a.ppy.sh/")), "faces are fetched for everyone, covers wait until they are drawn: {front:?}");
+        assert!(catalog.pictures_with(0).iter().any(|(url, side)| *side == BACKDROP && url.contains("user-profile-covers")));
+        let every: Vec<String> = catalog.pictures_with(usize::MAX).into_iter().map(|(url, _)| url).collect();
+        assert!(front.iter().all(|(url, _)| every.contains(url)), "the front is a part of what the catalogue knows the size of");
     }
 
     #[test]

@@ -275,6 +275,13 @@ after a pool rating opened an empty duel:
   straight to the server past the proxy, so where the server was reachable only
   through the proxy they never connected.
 
+Memory, added on 10 November 2026 after the measurement debt P5 asked for:
+pictures of the Community are fetched when a screen draws them and no longer
+all at launch, the HUD's CJK face waits for its first character, and the
+balance desk keeps small covers for rows. The same twenty-minute walk through
+the application takes 1123 MB at the median where it took 1553 MB. The numbers
+and what is left are in `docs/debt.md`, P5.
+
 Left for the connection: the lists of people, the desk and the duels home are
 sent whole every time, and each screen keeps its own idea of whether the
 server is reachable.

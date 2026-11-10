@@ -1971,6 +1971,54 @@ fn a_page_leaves_nothing_behind_once_it_has_faded_out() {
 }
 
 #[test]
+fn a_picture_is_asked_for_when_a_screen_draws_it_and_only_if_its_size_is_known() {
+    let mut main = signed("main-menu-waiting");
+    main.gallery = false;
+    let (cover, stranger) = ("test://someone-cover".to_owned(), "test://never-heard-of".to_owned());
+    main.picture_sides.insert(cover.clone(), crate::community::BACKDROP);
+    let _ = main.update(super::Message::SoakRest);
+    assert!(!main.news_asked.contains(&cover), "nothing is fetched for a screen that is not shown");
+    assert!(main.shelf().get(&cover).is_none() && main.shelf().get(&stranger).is_none());
+    assert!(main.shelf().get("").is_none());
+    let _ = main.update(super::Message::SoakRest);
+    assert!(main.news_asked.contains(&cover), "the picture a screen missed is fetched");
+    assert!(!main.news_asked.contains(&stranger), "a picture of an unknown size is left to the code that knows it");
+    let _ = main.shelf().get(&cover);
+    assert!(main.pictures_seen.borrow().missed.is_empty(), "a picture on its way is not asked for twice");
+    let _ = main.update(super::Message::NewsPicture(cover.clone(), Some(iced::widget::image::Handle::from_rgba(1, 1, vec![255; 4]))));
+    assert!(main.shelf().get(&cover).is_some());
+    main.gallery = true;
+    main.news_pictures.remove(&cover);
+    main.pictures_seen.borrow_mut().at.clear();
+    assert!(main.shelf().get(&cover).is_none());
+    assert!(main.pictures_seen.borrow().at.is_empty(), "the gallery draws what it was given and asks for nothing");
+}
+
+#[test]
+fn a_picture_drawn_lately_outlives_a_full_cache_and_one_long_unseen_goes_and_comes_back() {
+    let mut main = signed("main-menu-waiting");
+    main.gallery = false;
+    let one = || iced::widget::image::Handle::from_rgba(1, 1, vec![255; 4]);
+    let (shown, left) = ("test://shown-cover".to_owned(), "test://left-cover".to_owned());
+    for url in [&shown, &left] {
+        main.picture_sides.insert(url.clone(), crate::community::BACKDROP);
+        let _ = main.update(super::Message::NewsPicture(url.clone(), Some(one())));
+    }
+    assert!(main.shelf().get(&shown).is_some() && main.shelf().get(&left).is_some());
+    let long_ago = std::time::Instant::now() - super::PICTURE_HELD_FOR - std::time::Duration::from_secs(1);
+    main.pictures_seen.borrow_mut().at.insert(left.clone(), long_ago);
+    for at in 0..3 {
+        let big = iced::widget::image::Handle::from_rgba(4096, 4096, vec![0; 4]);
+        let _ = main.update(super::Message::NewsPicture(format!("test://big-{at}"), Some(big)));
+    }
+    assert!(main.news_pictures.contains_key(&shown), "what the screen drew a moment ago stays");
+    assert!(!main.news_pictures.contains_key(&left), "what no screen drew for a while makes room");
+    assert!(main.shelf().get(&left).is_none());
+    let _ = main.update(super::Message::SoakRest);
+    assert!(main.news_asked.contains(&left), "and it is fetched again the next time a screen draws it");
+}
+
+#[test]
 fn regression_pictures_still_on_screen_survive_a_full_picture_cache() {
     let mut main = signed("main-menu-waiting");
     let avatar = "test://kept-avatar".to_owned();

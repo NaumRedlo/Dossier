@@ -65,9 +65,12 @@ pub const BRAND_WIDTH: f32 = 144.0;
 const CREST_HOME: (f32, f32) = (40.0, 24.0);
 const THUMB: (u32, u32) = (176, 100);
 const POOL_COVER: (u32, u32) = (768, 432);
+const DESK_ROW_COVER: (u32, u32) = (256, 144);
 const THUMB_CACHE_BYTES: usize = 96 * 1024 * 1024;
 const NEWS_PICTURE_CACHE_BYTES: usize = 128 * 1024 * 1024;
 const MOVING_CACHE_LIMIT: usize = 8;
+const PICTURE_HELD_FOR: Duration = Duration::from_secs(10);
+const PICTURES_SEEN_MOST: usize = 4096;
 const SCENE_WIDTH: u32 = 960;
 const REST_AFTER: Duration = Duration::from_secs(120);
 const REST_FADE: Duration = Duration::from_millis(800);
@@ -189,6 +192,9 @@ pub enum Message {
     PresenceTick,
     PresenceAnswered(Result<Option<u32>, Refused>),
     Events(u64, crate::events::Heard),
+    SoakRest,
+    SoakWeigh(u64, usize),
+    SoakOver,
     EveryoneAgain,
     OpenTelegram,
     CopyLink,
@@ -690,6 +696,8 @@ pub struct Main {
     news_picture_order: VecDeque<String>,
     news_picture_bytes: usize,
     kept_pictures: KeptPictures,
+    pictures_seen: std::cell::RefCell<crate::community_screen::Seen>,
+    picture_sides: HashMap<String, u32>,
     pub moving_pictures: HashMap<String, Moving>,
     moving_order: VecDeque<String>,
     pub news_frosts: HashMap<String, crate::community_screen::Frost>,
@@ -1010,6 +1018,8 @@ impl Main {
             news_picture_order: VecDeque::new(),
             news_picture_bytes: 0,
             kept_pictures: KeptPictures::default(),
+            pictures_seen: std::cell::RefCell::new(crate::community_screen::Seen::default()),
+            picture_sides: HashMap::new(),
             moving_pictures: HashMap::new(),
             moving_order: VecDeque::new(),
             news_frosts: HashMap::new(),
@@ -2025,7 +2035,7 @@ impl Main {
                 Effect::Cover(_) if self.gallery => Task::none(),
                 Effect::Cover(set) => ui::in_thread(move || {
                     let url = format!("https://assets.ppy.sh/beatmaps/{set}/covers/cover@2x.jpg");
-                    let handle = crate::news::picture(&url).and_then(|bytes| decoded_from(&bytes, POOL_COVER.0, Some(POOL_COVER)));
+                    let handle = crate::news::picture(&url).and_then(|bytes| decoded_from(&bytes, DESK_ROW_COVER.0, Some(DESK_ROW_COVER)));
                     K::Cover(set, handle)
                 }).map(wrap),
                 Effect::Hear(beatmap) => {
@@ -2504,6 +2514,38 @@ impl Main {
         })
     }
 
+    pub fn weigh(&self) -> Vec<(&'static str, usize, usize)> {
+        fn pictures<'a>(held: impl Iterator<Item = &'a image::Handle>) -> (usize, usize) {
+            held.fold((0, 0), |(count, bytes), handle| (count + 1, bytes + image_bytes(handle)))
+        }
+        let named = |name: &'static str, (count, bytes): (usize, usize)| (name, count, bytes);
+        let catalog = self.community.as_ref();
+        vec![
+            named("thumbs", pictures(self.thumbs.values())),
+            named("news_pictures", pictures(self.news_pictures.values())),
+            named("moving", (self.moving_pictures.len(), self.moving_pictures.values().map(|moving| pictures(moving.frames.iter()).1).sum())),
+            named("frosts", (self.news_frosts.len(), self.news_frosts.values().map(|frost| frost.pixels.len()).sum())),
+            named("scenes", pictures(self.scenes.values())),
+            named("banners", pictures(self.banners.values())),
+            named("cover_frames", (self.cover_frames.borrow().len(), self.cover_frames.borrow().values().map(crate::film::Frame::bytes).sum())),
+            named("skin_scenes", pictures(self.skin_scenes.values())),
+            named("skin_faces", pictures(self.skin_faces.values())),
+            named("chat_faces", pictures(self.chat_faces.values())),
+            named("pool_faces", pictures(self.pools.faces.values())),
+            named("duel_covers", pictures(self.duels.covers.values())),
+            named("desk_covers", pictures(self.desk.covers.values())),
+            named("desk_heroes", pictures(self.desk.heroes.values())),
+            named("flags", (self.flags.len(), 0)),
+            named("people_cards", (self.people_cards.len(), 0)),
+            named("people_dossiers", (self.people_dossiers.len(), 0)),
+            named("map_boards", (self.map_boards.len(), 0)),
+            named("feed", (catalog.map_or(0, |catalog| catalog.feed.len()), 0)),
+            named("people", (catalog.map_or(0, |catalog| catalog.people.len()), 0)),
+            named("replays", (self.entries().len(), 0)),
+            named("videos", (self.store.videos.len(), 0)),
+        ]
+    }
+
     fn cache_thumb(&mut self, hash: String, handle: image::Handle) {
         let new_pixels = image_pixels(&handle);
         if self.thumbs.get(&hash).is_some_and(|held| new_pixels < image_pixels(held)) {
@@ -2668,6 +2710,14 @@ impl Main {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         let task = self.handle(message);
+        let task = match self.missed_pictures_task() {
+            Some(missed) => Task::batch([task, missed]),
+            None => task,
+        };
+        let task = match self.missed_heroes_task() {
+            Some(missed) => Task::batch([task, missed]),
+            None => task,
+        };
         self.watch_pools();
         self.watch_side_choice();
         if self.own_cover_wanted() != self.own_cover_fade.value() {
@@ -3417,6 +3467,12 @@ impl Main {
                 }
                 Task::none()
             }
+            Message::SoakRest => Task::none(),
+            Message::SoakWeigh(seconds, turn) => {
+                eprintln!("{}", crate::soak::line(seconds, turn, &self.weigh()));
+                Task::none()
+            }
+            Message::SoakOver => iced::exit(),
             Message::Held(modifiers) => {
                 self.held = modifiers;
                 self.update(Message::PoolHeld(modifiers.shift()))
@@ -5401,7 +5457,8 @@ impl Main {
         let card = self.shown_card.as_ref().map(|card| card.cover_url.as_str());
         let you = catalog.you().map(|you| you.cover.as_str());
         let me = catalog.me.as_ref().map(|me| me.person.cover.as_str());
-        [card, you, me].into_iter().flatten().find_map(|url| self.news_pictures.get(url))
+        let shelf = self.shelf();
+        [card, you, me].into_iter().flatten().find_map(|url| shelf.get(url))
     }
 
     fn own_cover_wanted(&self) -> bool {
@@ -6494,7 +6551,7 @@ impl Main {
         let mut skipped = 0;
         while self.news_picture_bytes > NEWS_PICTURE_CACHE_BYTES && skipped < self.news_picture_order.len() {
             let Some(oldest) = self.news_picture_order.pop_front() else { break; };
-            if oldest == url || self.kept_pictures.holds(&oldest) {
+            if oldest == url || self.kept_pictures.holds(&oldest) || self.pictures_seen.borrow().lately(&oldest, Instant::now(), PICTURE_HELD_FOR) {
                 self.news_picture_order.push_back(oldest);
                 skipped += 1;
                 continue;
@@ -6511,6 +6568,9 @@ impl Main {
     }
 
     fn pictures_task(&mut self, wanted: Vec<(String, u32)>) -> Task<Message> {
+        for (url, side) in &wanted {
+            self.picture_sides.entry(url.clone()).or_insert(*side);
+        }
         let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| self.ask_picture(url, Instant::now())).collect();
         if wanted.is_empty() {
             return Task::none();
@@ -6540,23 +6600,70 @@ impl Main {
         let Some(catalog) = self.community.as_ref() else {
             return Task::none();
         };
-        let mut wanted: Vec<(String, u32)> = catalog.pictures_with(self.feed_rows);
+        let mut known: Vec<(String, u32)> = catalog.pictures_with(usize::MAX);
         for dossier in self.people_dossiers.values() {
-            if !dossier.person.avatar.is_empty() { wanted.push((dossier.person.avatar.clone(), 256)); }
-            if !dossier.person.cover.is_empty() { wanted.push((dossier.person.cover.clone(), crate::community::COVER)); }
+            if !dossier.person.avatar.is_empty() { known.push((dossier.person.avatar.clone(), 256)); }
+            if !dossier.person.cover.is_empty() { known.push((dossier.person.cover.clone(), crate::community::COVER)); }
         }
         if let Some(card) = self.shown_card.clone().or_else(|| catalog.card_of()) {
-            wanted.extend(card.pictures());
+            known.extend(card.pictures());
         }
+        let mut front: Vec<(String, u32)> = catalog.front_pictures(self.feed_rows);
         let mut sharing: Vec<&str> = self.entries().iter().filter(|entry| crate::mixed::is_shared(&entry.path)).map(|entry| entry.player.as_str()).collect();
         sharing.sort_unstable();
         sharing.dedup();
-        wanted.extend(sharing.into_iter().filter_map(|player| self.shared_avatar(player)).map(|avatar| (avatar.to_owned(), 128)));
-        self.kept_pictures.community = wanted.iter().map(|(url, _)| url.clone()).collect();
-        let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| self.ask_picture(url, Instant::now())).collect();
+        front.extend(sharing.into_iter().filter_map(|player| self.shared_avatar(player)).map(|avatar| (avatar.to_owned(), 128)));
+        for (url, side) in known.into_iter().chain(front.iter().cloned()) {
+            self.picture_sides.entry(url).or_insert(side);
+        }
+        self.kept_pictures.community = front.iter().map(|(url, _)| url.clone()).collect();
         let flag = self.flag_task();
+        Task::batch([self.fetch_pictures(front), flag])
+    }
+
+    pub fn shelf(&self) -> crate::community_screen::Shelf<'_> {
+        if self.gallery {
+            return crate::community_screen::Shelf::plain(&self.news_pictures);
+        }
+        crate::community_screen::Shelf::watched(&self.news_pictures, crate::community_screen::Watch { seen: &self.pictures_seen, known: &self.picture_sides, asked: &self.news_asked, now: Instant::now() })
+    }
+
+    fn missed_pictures_task(&mut self) -> Option<Task<Message>> {
+        let missed: Vec<String> = {
+            let mut seen = self.pictures_seen.borrow_mut();
+            if seen.at.len() > PICTURES_SEEN_MOST {
+                seen.forget_before(Instant::now(), PICTURE_HELD_FOR);
+            }
+            if seen.missed.is_empty() {
+                return None;
+            }
+            seen.missed.drain().collect()
+        };
+        let wanted: Vec<(String, u32)> = missed.into_iter().filter_map(|url| self.picture_sides.get(&url).map(|side| (url, *side))).collect();
+        Some(self.fetch_pictures(wanted))
+    }
+
+    fn missed_heroes_task(&mut self) -> Option<Task<Message>> {
+        if self.gallery {
+            return None;
+        }
+        let missed = self.desk.heroes_missed();
+        if missed.is_empty() {
+            return None;
+        }
+        Some(Task::batch(missed.into_iter().map(|set| {
+            ui::in_thread(move || {
+                let url = format!("https://assets.ppy.sh/beatmaps/{set}/covers/cover@2x.jpg");
+                let handle = crate::news::picture(&url).and_then(|bytes| decoded_from(&bytes, POOL_COVER.0, Some(POOL_COVER)));
+                Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::Hero(set, handle)))
+            })
+        })))
+    }
+
+    fn fetch_pictures(&mut self, wanted: Vec<(String, u32)>) -> Task<Message> {
+        let wanted: Vec<(String, u32)> = wanted.into_iter().filter(|(url, _)| self.ask_picture(url, Instant::now())).collect();
         if wanted.is_empty() {
-            return flag;
+            return Task::none();
         }
         let mut wanted = wanted;
         wanted.sort_by_key(|(_, side)| match *side {
@@ -6595,7 +6702,7 @@ impl Main {
                 }
             })
         });
-        Task::batch(pictures.chain(std::iter::once(flag)))
+        Task::batch(pictures)
     }
 
     fn wide_pictures_task(&mut self, urls: Vec<String>) -> Task<Message> {
@@ -6757,7 +6864,7 @@ impl Main {
             person_loading: self.community_person.and_then(|at| self.community.as_ref()?.people.get(at)).is_some_and(|person| self.people_asked.contains(&format!("card:{}", person.name.to_lowercase())) || self.dossier_cache.loading(person.id)),
             now_unix: self.now_unix,
             news: &self.news,
-            pictures: &self.news_pictures,
+            pictures: self.shelf(),
             frosts: &self.news_frosts,
             loading: &self.news_loading,
             failed: &self.news_failed,

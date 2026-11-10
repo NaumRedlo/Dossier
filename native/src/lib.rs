@@ -19,6 +19,7 @@ pub mod duels_screen;
 pub mod duel_view;
 pub mod duel_watch;
 pub mod events;
+pub mod soak;
 pub mod tunnel;
 pub mod desk;
 pub mod desk_screen;
@@ -189,6 +190,8 @@ pub struct Rehearsal {
     pub community: bool,
     pub read: bool,
     pub flood: Option<f64>,
+    pub soak: Option<u64>,
+    pub section: Option<String>,
 }
 
 impl Rehearsal {
@@ -219,7 +222,9 @@ impl Rehearsal {
         let community = args.iter().any(|a| a == "--community");
         let read = args.iter().any(|a| a == "--read");
         let flood = args.iter().position(|a| a == "--flood").and_then(|i| args.get(i + 1)).and_then(|s| s.parse::<f64>().ok()).filter(|hz| *hz > 0.0);
-        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, ask, pause, leave, swap, community, read, flood })
+        let section = args.iter().position(|a| a == "--section").and_then(|i| args.get(i + 1)).cloned();
+        let soak = args.iter().position(|a| a == "--soak").and_then(|i| args.get(i + 1)).and_then(|s| s.parse::<u64>().ok()).filter(|minutes| *minutes > 0);
+        Some(Rehearsal { folder, snap_to, after, render, get_map, look, step, hover, videos, play, menu, prefs, skin_room, ask, pause, leave, swap, community, read, flood, soak, section })
     }
 }
 
@@ -286,7 +291,20 @@ impl App {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Community)))
                     .chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::ReadFirst)))
             } else if rehearsal.community {
-                Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Community)))
+                let section = rehearsal.section.as_deref().and_then(|named| match named {
+                    "people" => Some(community_screen::Section::People),
+                    "profile" => Some(community_screen::Section::Profile),
+                    "boards" => Some(community_screen::Section::Boards),
+                    "titles" => Some(community_screen::Section::Titles),
+                    "duels" => Some(community_screen::Section::Duels),
+                    "balance" => Some(community_screen::Section::Balance),
+                    _ => None,
+                });
+                let shown = Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Community)));
+                match section {
+                    Some(section) => shown.chain(Task::perform(async { tokio_sleep(std::time::Duration::from_millis(600)).await }, move |_| Message::Main(main_screen::Message::Community(community_screen::Message::Go(section, None))))),
+                    None => shown,
+                }
             } else if rehearsal.prefs {
                 Task::perform(async { tokio_sleep(std::time::Duration::from_millis(1500)).await }, |_| Message::Main(main_screen::Message::Show(main_screen::Overlay::Settings)))
             } else if rehearsal.videos {
@@ -310,7 +328,11 @@ impl App {
                 }),
                 None => Task::none(),
             };
-            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true, intro: None }, Task::batch([task.map(Message::Main), snap, press, flood]));
+            let soak = match rehearsal.soak {
+                Some(minutes) => ui::streamed(move |push| soak::run(minutes, &mut |step| push(Message::Main(step)))),
+                None => Task::none(),
+            };
+            return (App { screen: Screen::Main(main), backdrop, viewport: WINDOW, measured: false, opened: false, tray: None, hidden: false, focused: true, intro: None }, Task::batch([task.map(Message::Main), snap, press, flood, soak]));
         }
         let intro = Some(intro::Intro::new(std::time::Instant::now()));
         if settings::first_run() {

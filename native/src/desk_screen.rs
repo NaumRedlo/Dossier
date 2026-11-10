@@ -15,6 +15,8 @@ mod occupancy;
 mod training;
 
 const TRAINING_WAIT: std::time::Duration = std::time::Duration::from_secs(240);
+const HEROES_MOST: usize = 8;
+const HERO_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
 
 const GOOD: Color = theme::GRADE_A;
 const UNSURE: Color = theme::GRADE_S;
@@ -310,6 +312,7 @@ pub enum Message {
     TrainingFocus,
     TrainingState(String, Result<desk::Job, String>),
     Cover(i64, Option<image::Handle>),
+    Hero(i64, Option<image::Handle>),
     Hear(i64),
     Heard,
     Year(i32),
@@ -401,6 +404,11 @@ pub struct State {
     pub reason: String,
     pub covers: HashMap<i64, image::Handle>,
     pub asked: HashSet<i64>,
+    pub heroes: HashMap<i64, image::Handle>,
+    pub(crate) hero_order: std::collections::VecDeque<i64>,
+    pub(crate) hero_asked: HashSet<i64>,
+    pub(crate) hero_missed: std::cell::RefCell<HashSet<i64>>,
+    pub(crate) hero_failed: HashMap<i64, std::time::Instant>,
     pub hearing: Option<i64>,
     pub silent: Option<i64>,
     pub year: Option<i32>,
@@ -578,6 +586,21 @@ impl State {
         }
         let tournament = self.tournaments().get(self.tournament.unwrap_or(0))?.clone();
         self.held_by(&tournament).into_iter().find(|(_, map)| !map.verified && !self.skipped.contains(&map.beatmap_id))
+    }
+
+    pub fn hero(&self, set: Option<i64>) -> Option<&image::Handle> {
+        let set = set?;
+        let sharp = self.heroes.get(&set);
+        if sharp.is_none() && !self.hero_asked.contains(&set) {
+            self.hero_missed.borrow_mut().insert(set);
+        }
+        sharp.or_else(|| self.covers.get(&set))
+    }
+
+    pub fn heroes_missed(&mut self) -> Vec<i64> {
+        let missed: Vec<i64> = self.hero_missed.borrow_mut().drain().collect();
+        self.hero_failed.retain(|_, at| at.elapsed() < HERO_RETRY);
+        missed.into_iter().filter(|set| !self.heroes.contains_key(set) && !self.hero_failed.contains_key(set) && self.hero_asked.insert(*set)).collect()
     }
 
     fn covered(&mut self, sets: impl IntoIterator<Item = Option<i64>>) -> Vec<Effect> {
@@ -1221,6 +1244,24 @@ impl State {
                 }
                 Vec::new()
             }
+            Message::Hero(set, handle) => {
+                self.hero_asked.remove(&set);
+                if handle.is_none() {
+                    self.hero_failed.insert(set, std::time::Instant::now());
+                }
+                if let Some(handle) = handle {
+                    self.hero_failed.remove(&set);
+                    if self.heroes.insert(set, handle).is_none() {
+                        self.hero_order.push_back(set);
+                    }
+                    while self.hero_order.len() > HEROES_MOST {
+                        if let Some(oldest) = self.hero_order.pop_front() {
+                            self.heroes.remove(&oldest);
+                        }
+                    }
+                }
+                Vec::new()
+            }
             Message::Heard => {
                 self.hearing = None;
                 Vec::new()
@@ -1747,12 +1788,20 @@ fn tile<'a>(fill: Color, frame: Option<(Color, f32)>, inside: Element<'a, Messag
 }
 
 fn cover<'a>(state: &State, set: Option<i64>, wide: f32, high: f32, radius: f32) -> Element<'a, Message> {
+    framed(set.and_then(|set| state.covers.get(&set)), wide, high, radius)
+}
+
+fn hero_cover<'a>(state: &State, set: Option<i64>, wide: f32, high: f32, radius: f32) -> Element<'a, Message> {
+    framed(state.hero(set), wide, high, radius)
+}
+
+fn framed<'a>(picture: Option<&image::Handle>, wide: f32, high: f32, radius: f32) -> Element<'a, Message> {
     let base = container(Space::new()).width(wide).height(high).style(move |_| container::Style {
         background: Some(Background::Color(ROW)),
         border: Border { radius: radius.into(), ..Border::default() },
         ..container::Style::default()
     });
-    match set.and_then(|set| state.covers.get(&set)) {
+    match picture {
         Some(handle) => stack![base, container(ui::inset_picture(handle.clone(), radius)).width(wide).height(high)].into(),
         None => base.into(),
     }
@@ -1853,7 +1902,7 @@ fn queue_view<'a>(w: &Words, state: &'a State, now: i64, k: f32, wide: f32) -> E
 fn task_detail<'a>(w: &Words, state: &'a State, task: &Task, k: f32, wide: f32) -> Element<'a, Message> {
     let map = &state.shown_map(&task.map);
     let card = stack![
-        cover(state, map.beatmapset_id, 280.0 * k, 160.0 * k, 14.0),
+        hero_cover(state, map.beatmapset_id, 280.0 * k, 160.0 * k, 14.0),
         container(column![
             row![task.slot.as_deref().filter(|_| task.kind != "unassigned").map(|slot| tag(slot, k)).unwrap_or_else(|| Space::new().into()), Space::new().width(Length::Fill), container(stars_of(map.stars, 12.0 * k)).id(iced::widget::Id::new("desk-map-stars"))].align_y(Alignment::Center),
             Space::new().height(Length::Fill),
@@ -2226,7 +2275,7 @@ fn label_view<'a>(w: &Words, state: &'a State, k: f32) -> Element<'a, Message> {
                 .height(Length::Fill)
                 .style(|_| container::Style { background: Some(crate::duel_view::veil_fill()), border: Border { radius: 18.0.into(), ..Border::default() }, ..container::Style::default() });
             let set = map.beatmapset_id.or_else(|| about.and_then(|found| found.set));
-            let picture: Element<'a, Message> = match set.and_then(|set| state.covers.get(&set)) {
+            let picture: Element<'a, Message> = match state.hero(set) {
                 Some(handle) => container(ui::inset_picture(handle.clone(), 18.0)).width(Length::Fill).height(Length::Fill).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 18.0.into(), ..Border::default() }, ..Default::default() }).into(),
                 None => container(Space::new()).width(Length::Fill).height(Length::Fill).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 18.0.into(), ..Border::default() }, ..container::Style::default() }).into(),
             };
@@ -2532,7 +2581,7 @@ fn gaps_view<'a>(w: &Words, state: &State, coverage: &desk::Coverage, k: f32) ->
 
 fn map_preview<'a>(w: &Words, state: &State, found: &desk::About, k: f32) -> Element<'a, Message> {
     let high = 150.0 * k;
-    let picture: Element<'a, Message> = match found.set.and_then(|set| state.covers.get(&set)) {
+    let picture: Element<'a, Message> = match state.hero(found.set) {
         Some(handle) => container(ui::inset_picture(handle.clone(), 12.0)).width(Length::Fill).height(high).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..Default::default() }).into(),
         None => container(Space::new()).width(Length::Fill).height(high).style(|_| container::Style { background: Some(Background::Color(ROW)), border: Border { radius: 12.0.into(), ..Border::default() }, ..container::Style::default() }).into(),
     };
@@ -4077,6 +4126,35 @@ mod tests {
         assert_eq!(state.shown_map(&changed).stars, None, "another revision needs its own calculation");
         changed.stars = Some(7.1);
         assert_eq!(state.shown_map(&changed).stars, Some(7.1), "preserve stars received from the server");
+    }
+
+    #[test]
+    fn the_open_map_gets_a_sharp_cover_while_rows_keep_small_ones_and_only_a_few_sharp_ones_are_held() {
+        let w = Words::new(crate::lang::Lang::En);
+        let one = |side: u32| image::Handle::from_rgba(side, side, vec![0; (side * side * 4) as usize]);
+        let mut state = State::default();
+        assert!(state.hero(None).is_none() && state.heroes_missed().is_empty());
+        state.covers.insert(7, one(2));
+        assert!(matches!(state.hero(Some(7)), Some(image::Handle::Rgba { width: 2, .. })), "until the sharp cover comes the row's one is shown");
+        assert_eq!(state.heroes_missed(), vec![7]);
+        let _ = state.hero(Some(7));
+        assert!(state.heroes_missed().is_empty(), "a cover on its way is not asked for twice");
+        state.update(Message::Hero(7, Some(one(4))), &w);
+        assert!(matches!(state.hero(Some(7)), Some(image::Handle::Rgba { width: 4, .. })));
+        assert!(state.heroes_missed().is_empty());
+        for set in 100..100 + HEROES_MOST as i64 {
+            state.update(Message::Hero(set, Some(one(4))), &w);
+        }
+        assert_eq!(state.heroes.len(), HEROES_MOST);
+        assert!(!state.heroes.contains_key(&7), "the oldest sharp cover makes room");
+        let _ = state.hero(Some(7));
+        assert_eq!(state.heroes_missed(), vec![7], "and is asked for again when its map is opened");
+        state.update(Message::Hero(7, None), &w);
+        let _ = state.hero(Some(7));
+        assert!(state.heroes_missed().is_empty(), "a cover that failed to load is not asked for on every frame");
+        state.hero_failed.insert(7, std::time::Instant::now() - HERO_RETRY - std::time::Duration::from_secs(1));
+        let _ = state.hero(Some(7));
+        assert_eq!(state.heroes_missed(), vec![7], "but it is asked for again after a while");
     }
 
     #[test]

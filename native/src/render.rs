@@ -300,15 +300,17 @@ const HUD_FACES: [&[u8]; 4] = [
     include_bytes!("../../assets/fonts/JetBrainsMono-Bold.ttf"),
 ];
 
+const HUD_WIDE_FACE: usize = 2;
+
+fn hud_chain() -> dossier_render::Font {
+    let mut faces = HUD_FACES.iter().enumerate().filter_map(|(at, bytes)| if at == HUD_WIDE_FACE { Some(dossier_render::Font::late(bytes)) } else { dossier_render::Font::from_bytes(bytes).ok() });
+    let front = faces.next().expect("the HUD's first face is built into the application");
+    faces.fold(front, |built, behind| built.behind(&behind))
+}
+
 pub fn hud_font() -> dossier_render::Font {
     static CHAIN: std::sync::OnceLock<dossier_render::Font> = std::sync::OnceLock::new();
-    CHAIN
-        .get_or_init(|| {
-            let mut faces = HUD_FACES.iter().filter_map(|bytes| dossier_render::Font::from_bytes(bytes).ok());
-            let front = faces.next().expect("the HUD's first face is built into the application");
-            faces.fold(front, |built, behind| built.behind(&behind))
-        })
-        .clone()
+    CHAIN.get_or_init(hud_chain).clone()
 }
 
 pub fn still(replay: &Path, map: &Path, map_hash: &str, skin_folder: Option<&Path>, hud: bool, at_ms: f64, size: (u32, u32)) -> Result<Vec<u8>, String> {
@@ -805,6 +807,19 @@ mod tests {
         assert!(font.width("1984", 24.0) > 0.0);
         assert!(font.width("Съешь", 24.0) > 0.0, "no width for Cyrillic");
         assert!(font.width("結界", 24.0) > 0.0, "no width for a CJK title");
+    }
+
+    #[test]
+    fn the_wide_hud_face_is_parsed_only_for_a_character_the_other_faces_lack() {
+        let font = hud_chain();
+        assert_eq!(font.faces(), HUD_FACES.len());
+        assert_eq!(font.parsed_faces(), HUD_FACES.len() - 1, "the wide face waits");
+        for usual in ["NaumRedlo 1,234,567 99.52% 1984x", "Съешь ещё этих булок", "xi - Blue Zenith [FOUR DIMENSIONS] +HDDT", "7.25 ~ 180bpm (4:32) <A&B> #1 @ 50% × …"] {
+            assert!(font.width(usual, 24.0) > 0.0);
+            assert_eq!(font.parsed_faces(), HUD_FACES.len() - 1, "{usual:?} woke the wide face");
+        }
+        assert!(font.width("結界", 24.0) > 0.0);
+        assert_eq!(font.parsed_faces(), HUD_FACES.len(), "a CJK title is the wide face's work");
     }
 
     #[test]

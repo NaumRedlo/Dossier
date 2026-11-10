@@ -270,6 +270,63 @@ pub enum Message {
     CompareSearch(String),
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Seen {
+    pub at: HashMap<String, std::time::Instant>,
+    pub missed: std::collections::HashSet<String>,
+}
+
+impl Seen {
+    pub fn lately(&self, url: &str, now: std::time::Instant, within: std::time::Duration) -> bool {
+        self.at.get(url).is_some_and(|at| now.saturating_duration_since(*at) < within)
+    }
+
+    pub fn forget_before(&mut self, now: std::time::Instant, within: std::time::Duration) {
+        self.at.retain(|_, at| now.saturating_duration_since(*at) < within);
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Watch<'a> {
+    pub seen: &'a std::cell::RefCell<Seen>,
+    pub known: &'a HashMap<String, u32>,
+    pub asked: &'a std::collections::HashSet<String>,
+    pub now: std::time::Instant,
+}
+
+#[derive(Clone, Copy)]
+pub struct Shelf<'a> {
+    held: &'a HashMap<String, image::Handle>,
+    watch: Option<Watch<'a>>,
+}
+
+impl<'a> Shelf<'a> {
+    pub fn plain(held: &'a HashMap<String, image::Handle>) -> Self {
+        Shelf { held, watch: None }
+    }
+
+    pub fn watched(held: &'a HashMap<String, image::Handle>, watch: Watch<'a>) -> Self {
+        Shelf { held, watch: Some(watch) }
+    }
+
+    pub fn get(&self, url: &str) -> Option<&'a image::Handle> {
+        let found = self.held.get(url);
+        if let Some(watch) = self.watch.filter(|_| !url.is_empty()) {
+            let mut seen = watch.seen.borrow_mut();
+            match seen.at.get_mut(url) {
+                Some(at) => *at = watch.now,
+                None => {
+                    seen.at.insert(url.to_owned(), watch.now);
+                }
+            }
+            if found.is_none() && watch.known.contains_key(url) && !watch.asked.contains(url) && !seen.missed.contains(url) {
+                seen.missed.insert(url.to_owned());
+            }
+        }
+        found
+    }
+}
+
 pub struct Ground<'a> {
     pub words: &'a Words,
     pub catalog: &'a Catalog,
@@ -284,7 +341,7 @@ pub struct Ground<'a> {
     pub compare: &'a [i64],
     pub compare_query: &'a str,
     pub news: &'a News,
-    pub pictures: &'a HashMap<String, image::Handle>,
+    pub pictures: Shelf<'a>,
     pub frosts: &'a HashMap<String, Frost>,
     pub loading: &'a std::collections::HashSet<String>,
     pub failed: &'a std::collections::HashSet<String>,

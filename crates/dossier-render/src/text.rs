@@ -2,7 +2,34 @@ use tiny_skia::{Color, Pixmap, PremultipliedColorU8};
 
 #[derive(Clone)]
 pub struct Font {
-    faces: Vec<std::sync::Arc<fontdue::Font>>,
+    faces: Vec<Face>,
+}
+
+#[derive(Clone)]
+enum Face {
+    Ready(std::sync::Arc<fontdue::Font>),
+    Late(std::sync::Arc<Late>),
+}
+
+struct Late {
+    bytes: &'static [u8],
+    parsed: std::sync::OnceLock<Option<fontdue::Font>>,
+}
+
+impl Face {
+    fn parsed(&self) -> Option<&fontdue::Font> {
+        match self {
+            Face::Ready(face) => Some(face),
+            Face::Late(late) => late.parsed.get_or_init(|| fontdue::Font::from_bytes(late.bytes, fontdue::FontSettings::default()).ok()).as_ref(),
+        }
+    }
+
+    fn is_parsed(&self) -> bool {
+        match self {
+            Face::Ready(_) => true,
+            Face::Late(late) => late.parsed.get().is_some(),
+        }
+    }
 }
 
 impl std::fmt::Debug for Font {
@@ -33,8 +60,18 @@ impl Font {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let face = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())?;
         Ok(Self {
-            faces: vec![std::sync::Arc::new(face)],
+            faces: vec![Face::Ready(std::sync::Arc::new(face))],
         })
+    }
+
+    pub fn late(bytes: &'static [u8]) -> Self {
+        Self {
+            faces: vec![Face::Late(std::sync::Arc::new(Late { bytes, parsed: std::sync::OnceLock::new() }))],
+        }
+    }
+
+    pub fn parsed_faces(&self) -> usize {
+        self.faces.iter().filter(|face| face.is_parsed()).count()
     }
 
     pub fn behind(mut self, other: &Self) -> Self {
@@ -49,8 +86,10 @@ impl Font {
     fn face_for(&self, ch: char) -> &fontdue::Font {
         self.faces
             .iter()
+            .filter_map(Face::parsed)
             .find(|face| face.lookup_glyph_index(ch) != 0)
-            .unwrap_or(&self.faces[0])
+            .or_else(|| self.faces.iter().find_map(Face::parsed))
+            .expect("a font has a face that parses")
     }
 
     pub fn width(&self, text: &str, size: f32) -> f32 {

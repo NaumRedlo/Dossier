@@ -10,7 +10,7 @@ impl Main {
             return Space::new().width(Length::Fill).height(Length::Fill).into();
         };
         let still = if let Some(clip) = &self.clip {
-            clip.thumb.as_deref().and_then(|url| self.news_pictures.get(&crate::community_screen::wide(url)).or_else(|| self.news_pictures.get(url)))
+            clip.thumb.as_deref().and_then(|url| self.shelf().get(&crate::community_screen::wide(url)).or_else(|| self.shelf().get(url)))
         } else if let Some(video) = self.open_video.and_then(|at| self.store.videos.get(at)) {
             self.thumbs.get(&video.map_hash)
         } else if let Some(got) = self.sharing.opened() {
@@ -217,7 +217,7 @@ impl Main {
         .spacing(6)
         .align_y(iced::Center);
         Bill {
-            still: clip.thumb.as_deref().and_then(|url| self.news_pictures.get(&crate::community_screen::wide(url)).or_else(|| self.news_pictures.get(url))),
+            still: clip.thumb.as_deref().and_then(|url| self.shelf().get(&crate::community_screen::wide(url)).or_else(|| self.shelf().get(url))),
             name: clip.from.clone(),
             mods: &[],
             line: clip.said.clone(),

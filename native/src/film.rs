@@ -40,6 +40,10 @@ impl Frame {
         Frame { reel, number: next(), width, height, pixels: Arc::new(pixels) }
     }
 
+    pub fn bytes(&self) -> usize {
+        self.pixels.len()
+    }
+
     pub fn still(&self) -> iced::widget::image::Handle {
         iced::widget::image::Handle::from_rgba(self.width, self.height, self.pixels.as_ref().clone())
     }

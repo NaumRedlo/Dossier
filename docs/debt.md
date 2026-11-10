@@ -77,8 +77,45 @@ it. Tests now hold both caches: a picture still on screen survives a full
 Community picture cache, and the frame cache draws one frame shown twice in a
 frame and more reels than it keeps.
 
-Left: a long session memory measurement on a signed-in account (feed, people,
-replays, videos for an hour) and limits chosen from it.
+Measured on 10 November 2026 with `dossier --soak <minutes> --open`: the
+application walks the feed, people, the other sections, replays and videos by
+itself and prints what every cache holds, while the process's footprint is
+sampled from outside. Twenty minutes, seven rounds, a signed-in account with 43
+people, 138 friends, 600 replays and 16 videos on an Apple Silicon Mac at
+1960×1440:
+
+| | Median | Lowest | Highest | 15 s after launch |
+|---|---|---|---|---|
+| Before | 1553 MB | 1252 MB | 2017 MB | 1023 MB |
+| After | 1123 MB | 946 MB | 1615 MB | 741 MB |
+
+What the measurement found and what was done:
+
+- The Community picture cache held 298 MB against its 128 MB limit. Every
+  picture the catalogue names (512 map cards, 181 covers of people) was
+  fetched at launch and counted as on screen, so the limit could evict
+  nothing. Now only faces and the first rows of the feed are fetched ahead; a
+  screen that draws a picture it does not have asks for it, and a picture is
+  held while a screen drew it in the last 10 seconds. The cache stays at its
+  128 MB. The limit itself is kept: the heaviest screen, *People*, draws 123 MB
+  at once.
+- The HUD's wide face (M PLUS, for CJK titles) took 98 MB as soon as the live
+  scene started, because the rasteriser builds every glyph on loading. It is
+  now parsed on the first character the other faces lack.
+- The balance desk kept a 768×432 cover for every row, 109 MB for 84 maps.
+  Rows now keep 256×144 covers (12 MB), and the open map gets a sharp one, of
+  which the last 8 are held.
+
+Left:
+
+- About 450 MB are GPU textures. The renderer's image atlas (33 MB) and the
+  antialiasing targets (79 MB) are ruled out by counting them; the frame cache
+  is capped at 128 MB. The rest is not attributed yet and needs a Metal
+  capture.
+- The feed and *People* draw every row they have, so a community of several
+  hundred people will again hold more than the limit while that screen is
+  open. Drawing only the visible rows fixes both memory and frame time.
+- The hour-long run of the same script on the final build.
 
 Pay off: 0.98.3.
 

@@ -106,17 +106,74 @@ What the measurement found and what was done:
   Rows now keep 256×144 covers (12 MB), and the open map gets a sharp one, of
   which the last 8 are held.
 
+Attributed on 13 November 2026 by logging every buffer and texture the
+renderer creates in the Metal layer of wgpu, and by sampling `footprint -v`
+twice a second. An idle main screen with the library open and the live scene
+playing, 980×720 points at 2×, holds about 520 MB:
+
+| Part | Size | What it is |
+|---|---|---|
+| Metal driver pool | 164 MB | 41 blocks of 4 MB the driver keeps while a program draws |
+| Antialiasing targets | 56 MB | one 4× attachment (45 MB) and its resolve target (11 MB), 14 MB per megapixel of window |
+| Drawables | 44 MB | the window's own surfaces |
+| Image atlas and frames | about 70 MB | one 2048×2048 layer is 16 MB; the live scene's frames |
+| Heap | about 170 MB | thumbnails 62 MB, skin sprites 22 MB, banners 15 MB, rasterised fonts 15 MB, the interface 14 MB |
+
+The driver pool is not the engine's. A forty-line Metal program that clears a
+window twice a second gets 24 such blocks (96 MB), and 41 (164 MB) once it also
+copies into a buffer, which the renderer does every frame to upload vertices.
+The graphics process of a Chromium application held 44 when it was looked
+at, WebKit's 24. The driver returns the blocks about a second after the last
+frame. All the buffers and textures the renderer creates itself add up to
+80 MB. An empty window on the same engine is 52 MB while it draws nothing and
+228 MB while it redraws.
+
+So the cost of the pool is the cost of drawing a frame nobody needs, and the
+application drew them: the engine redraws the window after every message, and
+four timers sent one whether or not anything changed. What was done:
+
+- The check for the rest screen came every second; it now comes once, when the
+  two minutes are over.
+- The folders were read for changes on a timer that woke the interface every
+  4 seconds and again with the answer. A thread reads them now and speaks only
+  when the signature changes.
+- The search for maps to fetch came every 3 seconds; it comes once a minute
+  after it found nothing, and at the old pace again with a new library.
+- The presence mark came every 5 seconds; it stops while the event socket is
+  connected, since the socket marks presence itself.
+- The tide on the rank tile, a wave of five and six seconds, asked for every
+  frame of the display. Alone on the screen it asks for 30 a second.
+
+With no library the idle application went from 340 MB and two frames a second
+to 166 MB and one frame in thirty seconds. With a library and the live scene
+off it went from 124 frames a second to 31; the pool stays, because the tile
+still moves. With the live scene on nothing changes: the scene is drawn at
+the display's pace by design.
+
+An earlier reading that the allocator kept 200 MB of freed memory was wrong:
+`malloc_zone_pressure_relief` returns 0 KB, and the heap is live data. It came
+from a run under `MallocStackLogging`, which inflates the empty regions.
+
 Left:
 
-- About 450 MB are GPU textures. The renderer's image atlas (33 MB) and the
-  antialiasing targets (79 MB) are ruled out by counting them; the frame cache
-  is capped at 128 MB. The rest is not attributed yet and needs a Metal
-  capture.
 - The feed and *People* draw every row they have, so a community of several
   hundred people will again hold more than the limit while that screen is
   open. Drawing only the visible rows fixes both memory and frame time.
+- Nothing in the application stops the live scene, the tile or the rest
+  screen when its window loses focus, to a game for one. Stopping them returns
+  the 164 MB and the processor time, and is a decision about behaviour that
+  has not been made. Whether the system itself holds back frames of a fully
+  covered window was not measured.
+- 68 MB of the pool come from the per-frame copy into buffers. Writing
+  vertices through mapped buffers instead would need the vendored renderer
+  rewritten around `MAPPABLE_PRIMARY_BUFFERS`; not worth it for one system.
+- Antialiasing at 2× instead of 4× halves its attachment: 45 MB at this
+  window, 133 MB at 3840×2160. It changes how canvas shapes look and needs an
+  eye.
+- Windows and Linux were not measured: there is no such machine here. The
+  timers are the same code on every system; the driver pool is Metal's.
 
-The hour-long run of the same script on the final build (20 rounds) shows no
+The hour-long run of the same script on the build of 10 November (20 rounds) shows no
 growth: the median of each ten minutes after the first is 984, 946, 935, 937
 and 932 MB, and the last sample is 936 MB. The first ten minutes are left out
 because unit and golden tests ran on the same machine then and the starved
@@ -130,8 +187,8 @@ Pay off: 0.98.3.
 
 ### C1. Big screen files (low, growing)
 
-`main_screen.rs` 7998 lines (10 November 2026, after its picture loading moved
-to `main_screen/pictures.rs`), `ui.rs` 6364, `desk_screen.rs` 4100,
+`main_screen.rs` 8057 lines (13 November 2026; its picture loading moved to
+`main_screen/pictures.rs` on the 10th), `ui.rs` 6364, `desk_screen.rs` 4100,
 `gallery.rs` 2715, `pools_screen.rs` 2100. Every change in them touches other
 screens, and parallel changes collide.
 

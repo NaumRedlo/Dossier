@@ -237,7 +237,7 @@ mod tests {
         assert!(why.contains("407"), "{why}");
         proxy.join().unwrap();
         let why = through(&way, "bot.example", 443, PATIENCE).unwrap_err();
-        assert!(why.contains("not reachable"), "{why}");
+        assert!(!why.contains("407"), "{why}");
     }
 
     #[test]

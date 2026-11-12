@@ -53,6 +53,10 @@ const NOTICE_FADE: Duration = Duration::from_millis(200);
 const COMMUNITY_EVERY: Duration = Duration::from_secs(30);
 const BOARD_FRESH: Duration = Duration::from_secs(60);
 const HISTORY_EVERY: Duration = Duration::from_secs(600);
+const HISTORY_FIRST: Duration = Duration::from_secs(4);
+const GLOW_EVERY: Duration = Duration::from_millis(33);
+const AUTO_FETCH_EVERY: Duration = Duration::from_secs(3);
+const AUTO_FETCH_QUIET: Duration = Duration::from_secs(60);
 const NEWS_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
 const CARD_EVERY: Duration = Duration::from_secs(300);
@@ -149,6 +153,7 @@ pub enum Message {
     Reading(library::Reading),
     Refreshed(Library),
     WatchTick,
+    HistoryTick,
     AutoNext,
     Watched(u64),
     Thumb(String, image::Handle),
@@ -501,6 +506,7 @@ pub struct Main {
     thumb_bytes: usize,
     pub scenes: HashMap<String, image::Handle>,
     pub auto_fetched: std::collections::HashSet<String>,
+    pub auto_fetch_quiet: bool,
     pub missed: maps::Missed,
     pub online: Option<u32>,
     everyone_tries: u8,
@@ -667,6 +673,7 @@ pub struct Main {
     flip_from: HashMap<String, f32>,
     flip_at: Option<Instant>,
     watch_sig: u64,
+    watch_seen: u64,
     pub(crate) update_wanted: bool,
     update_told: Option<String>,
     pub now: Instant,
@@ -823,6 +830,7 @@ impl Main {
             thumb_bytes: 0,
             scenes: HashMap::new(),
             auto_fetched: std::collections::HashSet::new(),
+            auto_fetch_quiet: false,
             missed: maps::Missed::default(),
             online: None,
             everyone_tries: 0,
@@ -989,6 +997,7 @@ impl Main {
             flip_from: HashMap::new(),
             flip_at: None,
             watch_sig: 0,
+            watch_seen: 0,
             update_wanted: false,
             update_told: None,
             now: Instant::now(),
@@ -1208,18 +1217,25 @@ impl Main {
         self.settings.sources.iter().find(|source| source.kind == crate::sources::Kind::Stable && source.on).map(|source| source.root.clone())
     }
 
+    fn history_wanted(&self) -> bool {
+        self.settings.history_share && !self.settings.token.is_empty() && !self.gallery
+    }
+
+    fn history_from(&self) -> Option<(std::path::PathBuf, String)> {
+        let root = self.stable_root()?;
+        let player = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone()).filter(|name| !name.trim().is_empty())?;
+        Some((root, player))
+    }
+
     fn history_task(&mut self, force: bool) -> Task<Message> {
-        if !self.settings.history_share || self.settings.token.is_empty() || self.gallery || self.history_running {
+        if !self.history_wanted() || self.history_running {
             return Task::none();
         }
         let now = Instant::now();
         if !force && self.history_at.is_some_and(|at| now.saturating_duration_since(at) < HISTORY_EVERY) {
             return Task::none();
         }
-        let Some(root) = self.stable_root() else {
-            return Task::none();
-        };
-        let Some(player) = self.community.as_ref().and_then(|catalog| catalog.people.iter().find(|person| person.you)).map(|you| you.name.clone()).filter(|name| !name.trim().is_empty()) else {
+        let Some((root, player)) = self.history_from() else {
             return Task::none();
         };
         self.history_running = true;
@@ -1469,6 +1485,10 @@ impl Main {
     }
 
     pub fn moving(&self) -> bool {
+        self.stirring() || (!self.resting.value() && self.glowing())
+    }
+
+    pub fn stirring(&self) -> bool {
         if self.minimized { return false; }
         if self.resting.value() {
             return self.resting.is_animating(self.now) || self.reel.fading(self.now)
@@ -1537,7 +1557,6 @@ impl Main {
             || self.error_fade.is_animating(self.now)
             || self.sending.as_ref().is_some_and(|s| s.over.is_none())
             || self.gliding()
-            || self.glowing()
             || (self.banners_waiting && self.overlay == Overlay::None && !self.gallery)
     }
 
@@ -1605,7 +1624,9 @@ impl Main {
             if self.billing.waiting() {
                 parts.push(iced::time::every(crate::billing::EVERY).map(|_| Message::Billing(crate::billing::Message::Poll)));
             }
-            parts.push(iced::time::every(PRESENCE_EVERY).map(|_| Message::PresenceTick));
+            if !self.events_on {
+                parts.push(iced::time::every(PRESENCE_EVERY).map(|_| Message::PresenceTick));
+            }
             parts.push(iced::time::every(sharing::EVERY).map(|_| Message::Sharing(sharing::Message::Tick)));
             if self.witness_delivery.pending() > 0 {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
@@ -1650,15 +1671,25 @@ impl Main {
             return Subscription::batch(parts);
         }
         if self.can_rest() != self.resting.value() {
-            parts.push(iced::time::every(Duration::from_secs(1)).map(Message::RestCheck));
+            parts.push(iced::time::every(self.rest_check_in(Instant::now())).map(Message::RestCheck));
         }
         if !matches!(self.update, UpdateState::Source | UpdateState::Unknown) {
             parts.push(iced::time::every(crate::updates::EVERY).map(|_| Message::UpdateTick));
         }
+        if self.library.is_some() {
+            parts.push(Subscription::run_with(crate::sources::Watch::of(&self.settings.sources), crate::sources::watching).map(Message::Watched));
+        }
         if self.library.is_some() && !self.refreshing {
-            parts.push(iced::time::every(Duration::from_secs(4)).map(|_| Message::WatchTick));
+            if self.watch_behind() {
+                parts.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::WatchTick));
+            }
             if self.settings.auto_fetch_maps && !self.gallery {
-                parts.push(iced::time::every(Duration::from_secs(3)).map(|_| Message::AutoFetch));
+                let every = if self.auto_fetch_quiet { AUTO_FETCH_QUIET } else { AUTO_FETCH_EVERY };
+                parts.push(iced::time::every(every).map(|_| Message::AutoFetch));
+            }
+            if self.history_wanted() {
+                let every = if self.history_at.is_none() && self.history_from().is_some() { HISTORY_FIRST } else { HISTORY_EVERY };
+                parts.push(iced::time::every(every).map(|_| Message::HistoryTick));
             }
         }
         if self.settings.auto_flip && self.library.is_some() && self.overlay == Overlay::None && self.player.is_none() {
@@ -1668,8 +1699,10 @@ impl Main {
             parts.push(iced::time::every(Duration::from_secs(5)).map(|_| Message::UpdateIdle));
         }
         let moving = self.moving();
-        if moving || (self.resting.value() && self.reel.running()) {
+        if self.stirring() || (self.resting.value() && self.reel.running()) {
             parts.push(window::frames().map(Message::Tick));
+        } else if moving {
+            parts.push(iced::time::every(GLOW_EVERY).map(Message::Tick));
         }
         if !moving && self.toasts.iter().any(|toast| toast.shown.value() && !toast.hovered) {
             parts.push(iced::time::every(Duration::from_millis(250)).map(Message::Tick));
@@ -2653,6 +2686,37 @@ impl Main {
         for lift in self.lifts.values_mut() { lift.go_mut(false, now); }
     }
 
+    fn rest_check_in(&self, now: Instant) -> Duration {
+        let second = Duration::from_secs(1);
+        if self.resting.value() || self.rest_waiting {
+            return second;
+        }
+        let left = REST_AFTER.saturating_sub(now.saturating_duration_since(self.last_input));
+        Duration::from_secs(left.as_secs() + 1).max(second)
+    }
+
+    fn watch_behind(&self) -> bool {
+        self.watch_seen != 0 && self.watch_sig != 0 && self.watch_seen != self.watch_sig
+    }
+
+    fn watch_settle(&mut self) -> Task<Message> {
+        let seen = self.watch_seen;
+        if self.refreshing || self.library.is_none() || seen == 0 {
+            return Task::none();
+        }
+        if self.watch_sig == 0 || seen == self.watch_sig {
+            self.watch_sig = seen;
+            return Task::none();
+        }
+        if self.refreshed_at.elapsed() < REFRESH_AT_MOST {
+            return Task::none();
+        }
+        self.watch_sig = seen;
+        self.refreshing = true;
+        self.refreshed_at = Instant::now();
+        read_library(self.settings.sources.clone(), Message::Refreshed)
+    }
+
     fn check_rest(&mut self, now: Instant) -> Task<Message> {
         if !self.resting.value() && !self.rest_waiting && !self.resting.is_animating(now) {
             self.reel_stop();
@@ -2740,7 +2804,7 @@ impl Main {
 
     fn handle(&mut self, message: Message) -> Task<Message> {
         if self.minimized && matches!(&message,
-            Message::Tick(_) | Message::RestCheck(_) | Message::WatchTick | Message::AutoNext
+            Message::Tick(_) | Message::RestCheck(_) | Message::WatchTick | Message::HistoryTick | Message::AutoNext
             | Message::UpdateTick | Message::UpdateIdle | Message::Poll | Message::CommunityTick
             | Message::NewsTick | Message::FarmTick | Message::LiveArrive)
         {
@@ -2824,24 +2888,16 @@ impl Main {
                 };
                 self.choose(next)
             }
-            Message::WatchTick => {
+            Message::WatchTick => self.watch_settle(),
+            Message::HistoryTick => {
                 if self.refreshing || self.library.is_none() {
                     return Task::none();
                 }
-                Task::batch([self.watch_task(), self.history_task(false)])
+                self.history_task(false)
             }
             Message::Watched(sig) => {
-                if self.refreshing || self.watch_sig == 0 || sig == self.watch_sig {
-                    self.watch_sig = if self.refreshing { self.watch_sig } else { sig };
-                    return Task::none();
-                }
-                if self.refreshed_at.elapsed() < REFRESH_AT_MOST {
-                    return Task::none();
-                }
-                self.watch_sig = sig;
-                self.refreshing = true;
-                self.refreshed_at = Instant::now();
-                read_library(self.settings.sources.clone(), Message::Refreshed)
+                self.watch_seen = sig;
+                self.watch_settle()
             }
             Message::Refreshed(library) => {
                 self.refreshing = false;
@@ -2851,6 +2907,7 @@ impl Main {
                 let fresh: Vec<Entry> = library.entries.iter().filter(|e| !before.contains(&e.replay_hash) && !crate::mixed::is_shared(&e.path)).cloned().collect();
                 let picked: std::collections::HashSet<PathBuf> = self.picked.iter().filter_map(|at| self.entries().get(*at)).map(|e| e.path.clone()).collect();
                 self.library = Some(library);
+                self.auto_fetch_quiet = false;
                 self.picked = self.entries().iter().enumerate().filter(|(_, e)| picked.contains(&e.path)).map(|(at, _)| at).collect();
                 self.pick_anchor = None;
                 self.chosen = was.and_then(|path| self.entries().iter().position(|e| e.path == path)).or_else(|| self.visible().first().copied());
@@ -2887,6 +2944,7 @@ impl Main {
                 self.refreshing = false;
                 self.watch_sig = 0;
                 self.library = Some(library);
+                self.auto_fetch_quiet = false;
                 self.picked.clear();
                 self.pick_anchor = None;
                 self.now_unix = unix_now();
@@ -4573,6 +4631,7 @@ impl Main {
                 }
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
                 let wanted = self.entries().iter().find(|entry| entry.map.is_none() && !entry.map_hash.is_empty() && !self.auto_fetched.contains(&entry.map_hash) && !self.missed.rests(&entry.map_hash, now) && self.fetch_of(&entry.map_hash).is_none()).map(|entry| entry.map_hash.clone());
+                self.auto_fetch_quiet = wanted.is_none();
                 match wanted {
                     Some(hash) => {
                         self.auto_fetched.insert(hash.clone());

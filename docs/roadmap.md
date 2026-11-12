@@ -282,6 +282,13 @@ balance desk keeps small covers for rows. The same twenty-minute walk through
 the application takes 1123 MB at the median where it took 1553 MB. The numbers
 and what is left are in `docs/debt.md`, P5.
 
+Added on 13 November 2026: the application no longer redraws its window when
+nothing changed. Four timers woke the interface every one to five seconds, and
+on macOS a program that draws is charged 164 MB by the graphics driver until a
+second after its last frame. An idle window without a library takes 166 MB
+where it took 340 MB; the tide on the rank tile is drawn 30 times a second
+where it was drawn at the display's rate.
+
 Left for the connection: the lists of people, the desk and the duels home are
 sent whole every time, and each screen keeps its own idea of whether the
 server is reachable.

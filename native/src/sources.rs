@@ -395,6 +395,55 @@ pub fn signature(sources: &[Source]) -> u64 {
     hash
 }
 
+pub const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(4);
+
+#[derive(Debug, Clone)]
+pub struct Watch(Vec<Source>);
+
+impl Watch {
+    pub fn of(sources: &[Source]) -> Self {
+        Self(sources.iter().filter(|source| source.on).cloned().collect())
+    }
+}
+
+impl std::hash::Hash for Watch {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for source in &self.0 {
+            watched(source).hash(state);
+        }
+    }
+}
+
+pub fn fresh(told: &mut Option<u64>, seen: u64) -> bool {
+    if *told == Some(seen) {
+        return false;
+    }
+    *told = Some(seen);
+    true
+}
+
+pub fn watching(watch: &Watch) -> impl iced::futures::Stream<Item = u64> {
+    watching_every(watch, WATCH_EVERY)
+}
+
+fn watching_every(watch: &Watch, pause: std::time::Duration) -> impl iced::futures::Stream<Item = u64> {
+    let sources = watch.0.clone();
+    iced::stream::channel(4, async move |out: iced::futures::channel::mpsc::Sender<u64>| {
+        std::thread::spawn(move || {
+            let mut out = out;
+            let mut told = None;
+            while !out.is_closed() {
+                let seen = signature(&sources);
+                let mut next = told;
+                if fresh(&mut next, seen) && out.try_send(seen).is_ok() {
+                    told = next;
+                }
+                std::thread::sleep(pause);
+            }
+        });
+    })
+}
+
 pub fn counted(source: &Source) -> Source {
     let mut out = source.clone();
     if source.kind == Kind::Lazer {
@@ -547,6 +596,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_folder_signature_is_told_once_and_again_only_when_it_changes() {
+        let mut told = None;
+        assert!(fresh(&mut told, 5));
+        assert!(!fresh(&mut told, 5));
+        assert!(fresh(&mut told, 6));
+        assert!(fresh(&mut told, 5));
+    }
+
+    #[test]
+    fn the_watcher_speaks_when_a_folder_changes_and_keeps_quiet_otherwise() {
+        use iced::futures::StreamExt;
+        let root = scratch("watcher");
+        let watch = Watch::of(&[kept_in(root.clone(), true)]);
+        let mut heard = Box::pin(watching_every(&watch, std::time::Duration::from_millis(20)));
+        let first = iced::futures::executor::block_on(heard.next()).unwrap();
+        assert_eq!(first, signature(&watch.0));
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        std::fs::write(root.join("new.osr"), b"replay").unwrap();
+        let second = iced::futures::executor::block_on(heard.next()).unwrap();
+        assert_ne!(second, first, "ten silent readings came before the change and none of them was told");
+        assert_eq!(second, signature(&watch.0));
+    }
+
+    #[test]
+    fn folders_watched_alike_share_one_watcher_and_a_switched_off_source_is_not_watched() {
+        use std::hash::{Hash, Hasher};
+        let key = |watch: &Watch| {
+            let mut state = std::collections::hash_map::DefaultHasher::new();
+            watch.hash(&mut state);
+            state.finish()
+        };
+        let mut sources = vec![witnessed(true)];
+        let on = key(&Watch::of(&sources));
+        sources[0].replay_count += 1;
+        assert_eq!(key(&Watch::of(&sources)), on, "a count that changed does not restart the watcher");
+        sources[0].on = false;
+        assert_ne!(key(&Watch::of(&sources)), on);
     }
 
     #[test]

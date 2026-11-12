@@ -2134,3 +2134,78 @@ fn picked_replays_follow_their_files_when_the_library_is_read_again() {
     let now: Vec<std::path::PathBuf> = main.picked.iter().map(|at| main.entries()[*at].path.clone()).collect();
     assert_eq!(now, vec![kept], "a file that left the library leaves the selection and the rest keep theirs");
 }
+
+#[test]
+fn the_rest_check_waits_for_the_moment_it_is_due_instead_of_waking_every_second() {
+    use super::REST_AFTER;
+    use std::time::Duration;
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+    let began = std::time::Instant::now();
+    main.last_input = began;
+    let wait = main.rest_check_in(began + Duration::from_secs(10));
+    assert!(wait >= REST_AFTER - Duration::from_secs(10), "the check must not come before the screen may rest");
+    assert!(wait <= REST_AFTER - Duration::from_secs(9), "and no more than a second after it");
+    assert_eq!(main.rest_check_in(began + REST_AFTER * 2), Duration::from_secs(1));
+    main.rest_waiting = true;
+    assert_eq!(main.rest_check_in(began), Duration::from_secs(1), "a screen waiting for its first scene frame is checked every second");
+}
+
+#[test]
+fn a_folder_change_seen_during_a_refresh_is_read_once_the_refresh_is_over() {
+    use super::{Message, REFRESH_AT_MOST};
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+    let library = main.library.clone().unwrap();
+    main.refreshing = false;
+    main.watch_sig = 0;
+    main.refreshed_at = std::time::Instant::now() - REFRESH_AT_MOST * 2;
+    let _ = main.update(Message::Watched(7));
+    assert_eq!(main.watch_sig, 7, "the first signature is the baseline");
+    assert!(!main.refreshing && !main.watch_behind());
+    let _ = main.update(Message::Watched(7));
+    assert!(!main.refreshing, "the same signature reads nothing");
+    let _ = main.update(Message::Watched(8));
+    assert!(main.refreshing, "a changed folder is read again");
+    let _ = main.update(Message::Watched(9));
+    assert_eq!(main.watch_sig, 8, "a change during the read waits");
+    let _ = main.update(Message::Refreshed(library));
+    assert!(!main.refreshing && main.watch_behind(), "the timer that settles it runs only now");
+    let _ = main.update(Message::WatchTick);
+    assert!(!main.refreshing, "a library read a moment ago is not read again at once");
+    main.refreshed_at = std::time::Instant::now() - REFRESH_AT_MOST * 2;
+    let _ = main.update(Message::WatchTick);
+    assert!(main.refreshing && !main.watch_behind());
+    assert_eq!(main.watch_sig, 9);
+}
+
+#[test]
+fn the_search_for_maps_to_fetch_slows_down_when_nothing_is_wanted_and_speeds_up_with_a_new_library() {
+    use super::Message;
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+    main.settings.auto_fetch_maps = true;
+    let mut library = main.library.clone().unwrap();
+    for entry in &mut library.entries {
+        entry.map_hash.clear();
+    }
+    let _ = main.update(Message::Refreshed(library.clone()));
+    assert!(!main.auto_fetch_quiet);
+    let _ = main.update(Message::AutoFetch);
+    assert!(main.auto_fetch_quiet, "no replay lacks a map that can be asked for");
+    let _ = main.update(Message::Refreshed(library));
+    assert!(!main.auto_fetch_quiet, "a new library is looked through at the usual pace");
+}
+
+#[test]
+fn a_rank_tile_glowing_alone_does_not_ask_for_every_frame_of_the_display() {
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+    main.gallery = false;
+    main.banners_waiting = false;
+    main.live = None;
+    main.settings.live_scene = false;
+    let began = std::time::Instant::now();
+    for frame in 0..600u32 {
+        let _ = main.update(super::Message::Tick(began + std::time::Duration::from_millis(16) * frame));
+    }
+    assert!(main.glowing(), "the chosen replay has a rank tile");
+    assert!(main.moving(), "its tide keeps moving");
+    assert!(!main.stirring(), "but nothing else on the screen needs the display's own pace");
+}

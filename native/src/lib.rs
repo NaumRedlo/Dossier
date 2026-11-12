@@ -454,6 +454,9 @@ impl App {
             Message::Focus(focused) => {
                 self.focused = focused;
                 frames::mark("window", std::time::Instant::now(), if focused { "in front" } else { "behind" });
+                if let Screen::Main(main) = &mut self.screen {
+                    main.set_focused(focused, std::time::Instant::now());
+                }
                 if !focused {
                     return Task::none();
                 }

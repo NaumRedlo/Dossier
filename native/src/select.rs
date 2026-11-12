@@ -1084,7 +1084,7 @@ impl Main {
     }
 
     pub(super) fn glowing(&self) -> bool {
-        self.overlay == Overlay::None && !self.minimized && !self.gallery && self.chosen_entry().is_some_and(|entry| pulses(entry.grade))
+        self.overlay == Overlay::None && !self.minimized && !self.gallery && !self.away() && self.chosen_entry().is_some_and(|entry| pulses(entry.grade))
     }
 }
 

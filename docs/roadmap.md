@@ -289,6 +289,10 @@ second after its last frame. An idle window without a library takes 166 MB
 where it took 340 MB; the tide on the rank tile is drawn 30 times a second
 where it was drawn at the display's rate.
 
+A window left without focus for five seconds eases its live scene and rest
+screen into a pause and stops drawing, so a game in front gets the graphics
+card and those 164 MB back. Coming back resumes them.
+
 Left for the connection: the lists of people, the desk and the duels home are
 sent whole every time, and each screen keeps its own idea of whether the
 server is reachable.

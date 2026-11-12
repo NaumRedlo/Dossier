@@ -2209,3 +2209,73 @@ fn a_rank_tile_glowing_alone_does_not_ask_for_every_frame_of_the_display() {
     assert!(main.moving(), "its tide keeps moving");
     assert!(!main.stirring(), "but nothing else on the screen needs the display's own pace");
 }
+
+#[test]
+fn a_window_left_without_focus_eases_its_scenes_to_a_stop_and_picks_them_up_on_return() {
+    use super::{Message, AWAY_AFTER};
+    use std::time::{Duration, Instant};
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+    main.gallery = false;
+    let make_live = || super::Live {
+        control: std::sync::Arc::new(crate::live::Control::default()),
+        for_path: "sample.osr".into(), frame: None, at_ms: 0.0,
+        fade: iced::Animation::new(true), rest: iced::Animation::new(false),
+    };
+    main.live = Some(make_live());
+    main.reel.now = Some((0, make_live()));
+    let left = Instant::now() - AWAY_AFTER - Duration::from_secs(1);
+    let epoch = main.glow_epoch;
+    main.set_focused(false, left);
+    assert!(!main.away() && main.glowing(), "nothing stops the moment the window is left");
+    assert!(!main.live.as_ref().unwrap().control.paused());
+    let _ = main.update(Message::AwayCheck);
+    assert!(main.away());
+    assert!(main.live.as_ref().unwrap().control.paused(), "the scene is paused the way a hand pauses it, with its ease");
+    assert!(main.reel.now.as_ref().unwrap().1.control.paused());
+    assert!(!main.glowing(), "the tile's tide stands still");
+    let back = Instant::now();
+    main.set_focused(true, back);
+    assert!(!main.away());
+    assert!(!main.live.as_ref().unwrap().control.paused());
+    assert!(!main.reel.now.as_ref().unwrap().1.control.paused());
+    assert!(main.glow_epoch > epoch, "the tide goes on from where it stood");
+    assert_eq!(main.last_input, back, "the two minutes before the rest screen start again");
+}
+
+#[test]
+fn a_glance_at_another_window_stops_nothing_and_a_scene_paused_by_hand_stays_paused() {
+    use super::{Message, AWAY_AFTER};
+    use std::time::{Duration, Instant};
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().next().unwrap();
+    main.gallery = false;
+    main.live = Some(super::Live {
+        control: std::sync::Arc::new(crate::live::Control::default()),
+        for_path: "sample.osr".into(), frame: None, at_ms: 0.0,
+        fade: iced::Animation::new(true), rest: iced::Animation::new(false),
+    });
+    main.set_focused(false, Instant::now());
+    let _ = main.update(Message::AwayCheck);
+    assert!(!main.away(), "the check that comes too early changes nothing");
+    main.set_focused(true, Instant::now());
+    assert!(!main.live.as_ref().unwrap().control.paused());
+    main.paused_by_hand = true;
+    main.live.as_ref().unwrap().control.pause(true);
+    main.set_focused(false, Instant::now() - AWAY_AFTER - Duration::from_secs(1));
+    let _ = main.update(Message::AwayCheck);
+    main.set_focused(true, Instant::now());
+    assert!(main.live.as_ref().unwrap().control.paused(), "coming back does not start what the player stopped");
+}
+
+#[test]
+fn the_rest_screen_does_not_begin_behind_another_window() {
+    use super::{Message, AWAY_AFTER, REST_AFTER};
+    use std::time::{Duration, Instant};
+    let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-rest").unwrap();
+    main.gallery = false;
+    let now = Instant::now();
+    main.last_input = now - REST_AFTER;
+    main.set_focused(false, now - AWAY_AFTER - Duration::from_secs(1));
+    let _ = main.update(Message::AwayCheck);
+    let _ = main.update(Message::RestCheck(now));
+    assert!(!main.rest_waiting && !main.resting.value());
+}

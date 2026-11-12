@@ -55,6 +55,7 @@ const BOARD_FRESH: Duration = Duration::from_secs(60);
 const HISTORY_EVERY: Duration = Duration::from_secs(600);
 const HISTORY_FIRST: Duration = Duration::from_secs(4);
 const GLOW_EVERY: Duration = Duration::from_millis(33);
+pub const AWAY_AFTER: Duration = Duration::from_secs(5);
 const AUTO_FETCH_EVERY: Duration = Duration::from_secs(3);
 const AUTO_FETCH_QUIET: Duration = Duration::from_secs(60);
 const NEWS_EVERY: Duration = Duration::from_secs(60);
@@ -153,6 +154,7 @@ pub enum Message {
     Reading(library::Reading),
     Refreshed(Library),
     WatchTick,
+    AwayCheck,
     HistoryTick,
     AutoNext,
     Watched(u64),
@@ -561,6 +563,8 @@ pub struct Main {
     pub(crate) focus: Option<select::Focus>,
     pub(crate) reel: reel::Reel,
     live_rested: bool,
+    focus_lost: Option<Instant>,
+    away: Option<Instant>,
     laid_cache: std::cell::RefCell<Option<(select::LaidKey, std::rc::Rc<crate::carousel::Laid>)>>,
     glow_epoch: Instant,
     share_open: bool,
@@ -885,6 +889,8 @@ impl Main {
             focus: None,
             reel: reel::Reel::default(),
             live_rested: false,
+            focus_lost: None,
+            away: None,
             laid_cache: std::cell::RefCell::new(None),
             glow_epoch: Instant::now(),
             share_open: false,
@@ -1632,7 +1638,7 @@ impl Main {
                 parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::WitnessDeliveryTick));
             }
         }
-        if !self.moving_pictures.is_empty() && !self.gallery && !self.hidden && !self.minimized && self.overlay == Overlay::Community {
+        if !self.moving_pictures.is_empty() && !self.gallery && !self.hidden && !self.minimized && self.away.is_none() && self.overlay == Overlay::Community {
             parts.push(iced::time::every(MOVING_EVERY).map(|_| Message::PicturesMove));
         }
         if crate::mapper_faces::waiting() && self.overlay == Overlay::Community {
@@ -1670,8 +1676,11 @@ impl Main {
             parts.push(iced::time::every(MINIMIZED_POLL).map(|_| Message::PollMinimized));
             return Subscription::batch(parts);
         }
-        if self.can_rest() != self.resting.value() {
+        if self.can_rest() != self.resting.value() && self.away.is_none() {
             parts.push(iced::time::every(self.rest_check_in(Instant::now())).map(Message::RestCheck));
+        }
+        if self.focus_lost.is_some() && self.away.is_none() && !self.gallery {
+            parts.push(iced::time::every(AWAY_AFTER).map(|_| Message::AwayCheck));
         }
         if !matches!(self.update, UpdateState::Source | UpdateState::Unknown) {
             parts.push(iced::time::every(crate::updates::EVERY).map(|_| Message::UpdateTick));
@@ -1692,14 +1701,14 @@ impl Main {
                 parts.push(iced::time::every(every).map(|_| Message::HistoryTick));
             }
         }
-        if self.settings.auto_flip && self.library.is_some() && self.overlay == Overlay::None && self.player.is_none() {
+        if self.settings.auto_flip && self.library.is_some() && self.overlay == Overlay::None && self.player.is_none() && self.away.is_none() {
             parts.push(iced::time::every(AUTO_EVERY).map(|_| Message::AutoNext));
         }
         if matches!(self.update, UpdateState::Ready { .. }) && (self.update_wanted || self.settings.quiet_updates) {
             parts.push(iced::time::every(Duration::from_secs(5)).map(|_| Message::UpdateIdle));
         }
         let moving = self.moving();
-        if self.stirring() || (self.resting.value() && self.reel.running()) {
+        if self.stirring() || (self.resting.value() && self.reel.running() && !self.reel_held()) {
             parts.push(window::frames().map(Message::Tick));
         } else if moving {
             parts.push(iced::time::every(GLOW_EVERY).map(Message::Tick));
@@ -1820,6 +1829,9 @@ impl Main {
         };
         let control = std::sync::Arc::new(live::Control::default());
         control.suspend(self.minimized);
+        if self.away.is_some() {
+            control.pause(true);
+        }
         self.live = Some(Live {
             control: control.clone(),
             for_path: ask.replay.clone(),
@@ -2656,6 +2668,44 @@ impl Main {
         }
     }
 
+    pub fn set_focused(&mut self, focused: bool, now: Instant) {
+        if !focused {
+            self.focus_lost.get_or_insert(now);
+            return;
+        }
+        self.focus_lost = None;
+        let Some(since) = self.away.take() else {
+            return;
+        };
+        self.glow_epoch += now.saturating_duration_since(since);
+        self.last_input = now;
+        if let Some((_, live)) = &self.reel.now {
+            live.control.pause(false);
+        }
+        if !self.resting.value() && !self.rest_waiting {
+            self.rest_live(self.overlay != Overlay::None);
+        }
+    }
+
+    pub fn away(&self) -> bool {
+        self.away.is_some()
+    }
+
+    fn go_away(&mut self, now: Instant) {
+        if self.away.is_some() || self.focus_lost.is_none_or(|at| now.saturating_duration_since(at) < AWAY_AFTER) {
+            return;
+        }
+        self.away = Some(now);
+        self.rest_live(true);
+        if let Some((_, live)) = &self.reel.now {
+            live.control.pause(true);
+        }
+    }
+
+    fn reel_held(&self) -> bool {
+        self.away.is_some() && self.reel.now.as_ref().is_some_and(|(_, live)| live.control.paused() && live.control.settled())
+    }
+
     fn wake(&mut self, now: Instant) {
         self.last_input = now;
         self.rest_waiting = false;
@@ -2724,7 +2774,7 @@ impl Main {
         }
         if !self.can_rest() {
             self.wake(now);
-        } else if !self.resting.value() && !self.rest_waiting && now.saturating_duration_since(self.last_input) >= REST_AFTER {
+        } else if !self.resting.value() && !self.rest_waiting && self.away.is_none() && now.saturating_duration_since(self.last_input) >= REST_AFTER {
             self.rest_waiting = true;
             let task = self.reel_next();
             if !self.reel.running() { self.begin_rest(now); }
@@ -2889,6 +2939,10 @@ impl Main {
                 self.choose(next)
             }
             Message::WatchTick => self.watch_settle(),
+            Message::AwayCheck => {
+                self.go_away(Instant::now());
+                Task::none()
+            }
             Message::HistoryTick => {
                 if self.refreshing || self.library.is_none() {
                     return Task::none();

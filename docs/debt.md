@@ -150,6 +150,15 @@ off it went from 124 frames a second to 31; the pool stays, because the tile
 still moves. With the live scene on nothing changes: the scene is drawn at
 the display's pace by design.
 
+Since 13 November a window left without focus for five seconds stops
+drawing: the live scene and the rest screen ease into a pause the way a hand
+pauses them, the tile's tide and the moving pictures of the Community stand
+still, the next replay is not flipped to and the rest screen does not begin.
+Coming back picks everything up where it stood. A replay opened in the player
+keeps playing, and so does a duel being watched. Measured with the window
+behind Finder: 121 frames a second become 6 frames in 70 seconds, the driver's
+blocks are returned, and the footprint in one run went from 710 MB to 317 MB.
+
 An earlier reading that the allocator kept 200 MB of freed memory was wrong:
 `malloc_zone_pressure_relief` returns 0 KB, and the heap is live data. It came
 from a run under `MallocStackLogging`, which inflates the empty regions.
@@ -159,11 +168,6 @@ Left:
 - The feed and *People* draw every row they have, so a community of several
   hundred people will again hold more than the limit while that screen is
   open. Drawing only the visible rows fixes both memory and frame time.
-- Nothing in the application stops the live scene, the tile or the rest
-  screen when its window loses focus, to a game for one. Stopping them returns
-  the 164 MB and the processor time, and is a decision about behaviour that
-  has not been made. Whether the system itself holds back frames of a fully
-  covered window was not measured.
 - 68 MB of the pool come from the per-frame copy into buffers. Writing
   vertices through mapped buffers instead would need the vendored renderer
   rewritten around `MAPPABLE_PRIMARY_BUFFERS`; not worth it for one system.
@@ -187,7 +191,7 @@ Pay off: 0.98.3.
 
 ### C1. Big screen files (low, growing)
 
-`main_screen.rs` 8057 lines (13 November 2026; its picture loading moved to
+`main_screen.rs` 8111 lines (13 November 2026; its picture loading moved to
 `main_screen/pictures.rs` on the 10th), `ui.rs` 6364, `desk_screen.rs` 4100,
 `gallery.rs` 2715, `pools_screen.rs` 2100. Every change in them touches other
 screens, and parallel changes collide.

@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
-use iced::widget::{button, column, container, row, scrollable, stack, text, Space};
+use crate::button::{self, button};
+use iced::widget::{column, container, row, scrollable, stack, text, Space};
 use iced::{mouse, Background, Border, Color, Element, Length, Padding, Rectangle, Shadow, Theme, Vector};
 
 use crate::community::{Board, Catalog, Happening, Kind, LivePlay, Person};
@@ -19,7 +20,7 @@ pub(crate) struct Arrivals {
     started: std::collections::HashMap<String, Instant>,
 }
 
-pub const PICTURE_FADE: f32 = 0.34;
+pub const PICTURE_FADE: f32 = ui::APPEAR;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Pictures {
@@ -316,7 +317,7 @@ pub(crate) fn event_keys(catalog: &Catalog, news: &News, channels: &[String], li
 }
 
 pub fn card<'a>(inside: impl Into<Element<'a, Message>>, padding: impl Into<Padding>) -> container::Container<'a, Message> {
-    container(inside).padding(padding).width(Length::Fill).style(ui::box_faded(|theme: &Theme| container::Style { border: Border { radius: 14.0.into(), ..theme::slab(theme).border }, ..theme::slab(theme) }))
+    container(inside).padding(padding).width(Length::Fill).style(ui::box_faded(theme::workspace::panel))
 }
 
 fn caption<'a>(words: String) -> Element<'a, Message> {
@@ -909,8 +910,8 @@ fn empty_card<'a>(ground: &Ground<'a>, icon: Icon, title: String, said: String, 
         container(inside)
             .padding([28, 36])
             .style(move |_| container::Style {
-                background: Some(Background::Color(Color { a: theme::GLASS.a * k, ..theme::GLASS })),
-                border: Border { color: crate::theme::outline(Color { a: theme::GLASS_EDGE.a * k, ..theme::GLASS_EDGE }), width: 1.0, radius: 16.0.into() },
+                background: Some(Background::Color(Color { a: theme::workspace::PANEL.a * k, ..theme::workspace::PANEL })),
+                border: Border { color: crate::theme::outline(Color { a: theme::GLASS_EDGE.a * k, ..theme::GLASS_EDGE }), width: 1.0, radius: theme::CARD_RADIUS.into() },
                 ..container::Style::default()
             }),
     )
@@ -1012,8 +1013,8 @@ fn timeline<'a>(ground: &Ground<'a>, wide: f32) -> Element<'a, Message> {
         .center_y(36.0)
         .width(if wide < 640.0 { 140.0 } else { 220.0 })
         .style(ui::box_faded(|_| container::Style {
-            background: Some(Background::Color(theme::GLASS)),
-            border: Border { color: crate::theme::outline(theme::GLASS_EDGE), width: 1.0, radius: 12.0.into() },
+            background: Some(Background::Color(theme::workspace::PANEL)),
+            border: Border { color: crate::theme::outline(theme::GLASS_EDGE), width: 1.0, radius: theme::CARD_RADIUS.into() },
             ..container::Style::default()
         })),
     );

@@ -814,7 +814,7 @@ pub(crate) fn bold<'a, M: 'a>(said: String, size: f32, colour: Color) -> Element
 }
 
 const FACES: [Color; 8] = [color!(0x4f72c4), color!(0x2f8a8a), color!(0xa04878), color!(0xb0682c), color!(0x7a5ac8), color!(0x4a8a3a), color!(0x8a6a2a), color!(0xc0504a)];
-pub(crate) const ROW: Color = Color::from_rgba(0.085, 0.078, 0.082, 0.88);
+pub(crate) const ROW: Color = theme::workspace::TILE;
 pub(crate) const OUTLINE: Color = Color { a: 0.45, ..FAINT };
 
 fn face_colour(name: &str) -> Color {
@@ -857,8 +857,8 @@ fn face<'a, M: 'a>(name: &str, side: f32, ring: f32) -> Element<'a, M> {
 pub(crate) fn slab_faded() -> impl Fn(&iced::Theme) -> container::Style + 'static {
     let k = ui::fade();
     move |theme| {
-        let mut style = theme::slab(theme);
-        let fill = theme::workspace::SURFACE;
+        let mut style = theme::workspace::panel(theme);
+        let fill = theme::workspace::PANEL;
         style.background = Some(iced::Background::Color(Color { a: fill.a * k, ..fill }));
         style.border.color.a *= k;
         style
@@ -888,7 +888,7 @@ pub(crate) fn outlined<'a, M: Clone + 'a>(inside: Element<'a, M>, on: Option<M>)
 
 pub(crate) fn outlined_wide<'a, M: Clone + 'a>(inside: Element<'a, M>, on: Option<M>) -> Element<'a, M> {
     let (row_fill, edge) = (fa(ROW), fa(OUTLINE));
-    let made = iced::widget::button(inside).padding([0, 12]).style(move |_, status| {
+    let made = crate::button::button(inside).padding([0, 12]).style(move |_, status| {
         let lit = matches!(status, iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed);
         iced::widget::button::Style {
             background: Some(iced::Background::Color(if lit { row_fill } else { Color::TRANSPARENT })),
@@ -905,7 +905,7 @@ pub(crate) fn outlined_wide<'a, M: Clone + 'a>(inside: Element<'a, M>, on: Optio
 
 fn find_button<'a>(w: &Words, on: Option<Message>) -> Element<'a, Message> {
     let inside = row![glyph(Icon::Swords, 16.0, Color::WHITE), strong(w.t("duels-find"), theme::BODY, Color::WHITE)].spacing(8).align_y(Alignment::Center);
-    let made = iced::widget::button(container(inside).center_y(theme::CONTROL_HEIGHT - 2.0)).padding([0, 14]).style(ui::button_faded(theme::primary));
+    let made = crate::button::button(container(inside).center_y(theme::CONTROL_HEIGHT - 2.0)).padding([0, 14]).style(ui::button_faded(theme::primary));
     match on {
         Some(message) => made.on_press(message).into(),
         None => made.into(),
@@ -1028,7 +1028,7 @@ fn ago(w: &Words, seconds: Option<i64>) -> String {
 fn watch_button<'a>(duel: &Running) -> Element<'a, Message> {
     let inside = row![glyph(Icon::Eye, 14.0, MUTED), words(duel.watching.to_string(), 13.0, MUTED)].spacing(5).align_y(Alignment::Center);
     let row_fill = fa(ROW);
-    iced::widget::button(container(inside).center_y(28.0)).padding([0, 8]).style(move |_, status| {
+    crate::button::button(container(inside).center_y(28.0)).padding([0, 8]).style(move |_, status| {
         let lit = matches!(status, iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed);
         iced::widget::button::Style {
             background: Some(iced::Background::Color(if lit { row_fill } else { Color::TRANSPARENT })),

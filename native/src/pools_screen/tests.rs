@@ -384,8 +384,8 @@ fn a_closed_panel_stays_while_it_fades_takes_no_clicks_and_is_gone_when_the_fade
     let mut tile = iced_test::Simulator::with_size(crate::settings(), size, view(&state, &words, &thumbs, size.width, 1.0, &at(0.1)));
     tile.click("Glass Orchard").unwrap();
     assert!(matches!(tile.into_messages().collect::<Vec<_>>().as_slice(), [Message::Select(Some(0))]));
-    let early = picture(&state, &words, size, iced::Point::new(6.0, 6.0), &at(0.02), "leaving-early");
-    let late = picture(&state, &words, size, iced::Point::new(6.0, 6.0), &at(0.25), "leaving-late");
+    let early = picture(&state, &words, size, iced::Point::new(6.0, 6.0), &at(ui::APPEAR * 0.06), "leaving-early");
+    let late = picture(&state, &words, size, iced::Point::new(6.0, 6.0), &at(ui::APPEAR * 0.75), "leaving-late");
     let done = picture(&state, &words, size, iced::Point::new(6.0, 6.0), &at(ui::APPEAR), "leaving-done");
     let differs = |a: &::image::RgbaImage, b: &::image::RgbaImage| a.pixels().zip(b.pixels()).filter(|(x, y)| x != y).count();
     assert!(differs(&early, &done) > differs(&late, &done) && differs(&late, &done) > 0);

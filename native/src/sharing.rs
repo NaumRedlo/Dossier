@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use iced::animation::Easing;
-use iced::widget::{button, column, container, image, mouse_area, row, scrollable, stack, text, Space};
+use crate::button::button;
+use iced::widget::{column, container, image, mouse_area, row, scrollable, stack, text, Space};
 use iced::{Animation, ContentFit, Element, Length, Padding, Task};
 
 use super::{
@@ -291,7 +291,7 @@ impl Main {
         let now = Instant::now();
         self.stirred = now;
         self.over_controls = false;
-        self.controls = Animation::new(true).duration(CONTROLS_IN).easing(Easing::EaseOutCubic);
+        self.controls = Animation::new(true).duration(CONTROLS_IN).easing(crate::motion::CURVE);
         let manner = player::Manner { level: self.settings.player_level, muted: self.settings.player_muted, rate: self.settings.player_rate };
         self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(&ffmpeg, &path, media, manner))));
         self.open_video = None;
@@ -399,7 +399,7 @@ impl Main {
                 self.leaving_player = false;
                 self.mini_player = false;
                 self.sharing.open = Some(id);
-                self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic).go(true, now);
+                self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(crate::motion::CURVE).go(true, now);
                 self.cinema.go_mut(true, now);
                 if !got.seen {
                     if let Some(video) = self.sharing.videos.iter_mut().find(|video| video.id == id) {
@@ -1001,12 +1001,12 @@ impl Main {
         let w = &self.words;
         let mut buttons = row![ui::grow()].spacing(6).align_y(iced::Center);
         if self.player.is_some() {
-            buttons = buttons.push(ui::springy(ui::quiet(w.t("in-folder"), Some(Outer::RevealVideo)), 0.04));
+            buttons = buttons.push(ui::quiet(w.t("in-folder"), Some(Outer::RevealVideo)));
         }
-        buttons = buttons.push(ui::springy(ui::quiet(w.t("received-remove"), Some(Outer::Sharing(Message::Remove))), 0.04));
+        buttons = buttons.push(ui::quiet(w.t("received-remove"), Some(Outer::Sharing(Message::Remove))));
         if got.replay {
             let free = self.sharing.drawing.is_none();
-            buttons = buttons.push(ui::springy(ui::quiet(w.t("received-draw"), free.then_some(Outer::Sharing(Message::Draw))), 0.04));
+            buttons = buttons.push(ui::quiet(w.t("received-draw"), free.then_some(Outer::Sharing(Message::Draw))));
         }
         if !self.has_telegram() || got.storage == "app" {
             return buttons.into();
@@ -1016,7 +1016,7 @@ impl Main {
             (false, true) => ui::primary(w.t("received-telegram"), None),
             (false, false) => ui::primary(w.t("received-telegram"), Some(Outer::Sharing(Message::ToTelegram))),
         };
-        buttons.push(ui::springy(telegram, 0.03)).into()
+        buttons.push(telegram).into()
     }
 
     fn sender_aside<'a>(&'a self, got: &'a Received) -> Element<'a, Outer> {

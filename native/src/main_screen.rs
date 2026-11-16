@@ -40,16 +40,16 @@ pub(crate) mod select;
 pub mod reel;
 
 pub const ENTER: Duration = Duration::from_millis(1200);
-pub const ARRIVE: Duration = Duration::from_millis(450);
-pub const SWAP: Duration = Duration::from_millis(450);
-pub const LIFT: Duration = Duration::from_millis(200);
+pub const ARRIVE: Duration = crate::motion::PAGE;
+pub const SWAP: Duration = crate::motion::PAGE;
+pub const LIFT: Duration = crate::motion::STATE;
 const LIVE_FIRST: usize = 6;
 const FETCHES_AT_ONCE: usize = 3;
 const LIVE_EVERY: Duration = Duration::from_secs(6);
 const PRESENCE_EVERY: Duration = Duration::from_secs(5);
-const PANEL_SHOW: Duration = Duration::from_millis(420);
-const FOLD: Duration = Duration::from_millis(280);
-const NOTICE_FADE: Duration = Duration::from_millis(200);
+const PANEL_SHOW: Duration = crate::motion::PAGE;
+const FOLD: Duration = crate::motion::ENTER;
+const NOTICE_FADE: Duration = crate::motion::STATE;
 const COMMUNITY_EVERY: Duration = Duration::from_secs(30);
 const BOARD_FRESH: Duration = Duration::from_secs(60);
 const HISTORY_EVERY: Duration = Duration::from_secs(600);
@@ -62,7 +62,7 @@ const NEWS_EVERY: Duration = Duration::from_secs(60);
 const FRIENDS_EVERY: Duration = Duration::from_secs(120);
 const CARD_EVERY: Duration = Duration::from_secs(300);
 const COMMUNITY_SCALE: f32 = 0.84;
-const SIDE_OPEN: Duration = Duration::from_millis(200);
+const SIDE_OPEN: Duration = crate::motion::STATE;
 const FEED_MORE_GAP: Duration = Duration::from_millis(250);
 const SIDE_STAYS: Duration = Duration::from_millis(110);
 const HOVER_REST: Duration = Duration::from_millis(160);
@@ -626,7 +626,8 @@ pub struct Main {
     pub slid_at: HashMap<String, Instant>,
     pub lang_swap: bool,
     pub paused_by_hand: bool,
-    pub turning: Option<Overlay>,
+    pub overlay_leaving: Option<Overlay>,
+    pub overlay_swap: Animation<bool>,
     pub side_fade: Animation<bool>,
     pub side_open: Animation<bool>,
     side_leaving: Option<Instant>,
@@ -695,6 +696,7 @@ pub struct Main {
     strip_aim: Option<(u64, f32)>,
     pub community: Option<crate::community::Catalog>,
     pub community_section: crate::community_screen::Section,
+    pub community_was: Option<(crate::community_screen::Section, Instant)>,
     pub community_board: crate::community::Board,
     pub community_person: Option<usize>,
     pub person_fade: Animation<bool>,
@@ -882,8 +884,8 @@ impl Main {
             star_drag: false,
             filters_open: false,
             search_open: false,
-            search_fade: Animation::new(false).duration(Duration::from_millis(150)).easing(Easing::EaseOutCubic),
-            filters_fade: Animation::new(false).duration(Duration::from_millis(150)).easing(Easing::EaseOutCubic),
+            search_fade: Animation::new(false).duration(crate::motion::QUICK).easing(crate::motion::CURVE),
+            filters_fade: Animation::new(false).duration(crate::motion::QUICK).easing(crate::motion::CURVE),
             folding: Vec::new(),
             spring_at: None,
             focus: None,
@@ -901,18 +903,18 @@ impl Main {
             banners_at: Instant::now(),
             banners_waiting: true,
             cover_frames: std::cell::RefCell::new(HashMap::new()),
-            room_fade: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
+            room_fade: Animation::new(false).duration(CINEMA).easing(crate::motion::CURVE),
             skin_scenes: HashMap::new(),
-            cinema: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
+            cinema: Animation::new(false).duration(CINEMA).easing(crate::motion::CURVE),
             resting: Animation::new(false).duration(REST_FADE).easing(Easing::EaseInOutCubic),
             rest_waiting: false,
             last_input: Instant::now(),
             input_pointer: None,
-            widened: Animation::new(false).duration(WIDEN).easing(Easing::EaseOutCubic),
+            widened: Animation::new(false).duration(WIDEN).easing(crate::motion::CURVE),
             scrubbing: None,
-            controls: Animation::new(true).duration(CONTROLS_FADE).easing(Easing::EaseOutCubic),
-            ask_fade: Animation::new(false).duration(CINEMA).easing(Easing::EaseOutCubic),
-            stage_open: Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic),
+            controls: Animation::new(true).duration(CONTROLS_FADE).easing(crate::motion::CURVE),
+            ask_fade: Animation::new(false).duration(CINEMA).easing(crate::motion::CURVE),
+            stage_open: Animation::new(false).duration(STAGE_OPEN).easing(crate::motion::CURVE),
             mini_player: false,
             leaving_player: false,
             pointer: None,
@@ -925,14 +927,14 @@ impl Main {
             avatar: None,
             menu: None,
             error_shown: None,
-            error_fade: Animation::new(false).duration(crate::billing::FADE).easing(Easing::EaseOutCubic),
+            error_fade: Animation::new(false).duration(crate::billing::FADE).easing(crate::motion::CURVE),
             arrivals: HashMap::new(),
             scenes_due: false,
             leaving: HashMap::new(),
-            overlay_fade: Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic),
-            ground_fade: Animation::new(false).duration(GROUND_UP).easing(Easing::EaseOutCubic),
-            behind_fade: Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic),
-            own_cover_fade: Animation::new(false).duration(GROUND_UP).easing(Easing::EaseOutCubic),
+            overlay_fade: Animation::new(false).duration(OVERLAY_FADE).easing(crate::motion::CURVE),
+            ground_fade: Animation::new(false).duration(GROUND_UP).easing(crate::motion::CURVE),
+            behind_fade: Animation::new(false).duration(SWAP).easing(crate::motion::CURVE),
+            own_cover_fade: Animation::new(false).duration(GROUND_UP).easing(crate::motion::CURVE),
             overlay_drawn: Overlay::None,
             side: Side::App,
             renaming: None,
@@ -952,7 +954,8 @@ impl Main {
             slid_at: HashMap::new(),
             lang_swap: false,
             paused_by_hand: false,
-            turning: None,
+            overlay_leaving: None,
+            overlay_swap: Animation::new(true).duration(OVERLAY_FADE).easing(crate::motion::CURVE),
             side_fade: Animation::new(true),
             side_open: Animation::new(false).duration(SIDE_OPEN).easing(Easing::Linear),
             side_leaving: None,
@@ -963,12 +966,12 @@ impl Main {
             storage: prefs::Storage::default(),
             ffmpeg_version: None,
             retype: Animation::new(true),
-            menu_open: Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic),
+            menu_open: Animation::new(false).duration(MENU_OPEN).easing(crate::motion::CURVE),
             billing: crate::billing::State::new(billing_email, billing_currency),
             billing_epoch: 0,
             billing_status_pending: false,
             billing_plans_pending: false,
-            bell_flash: Animation::new(false).duration(BELL_FLASH).easing(Easing::EaseOutCubic),
+            bell_flash: Animation::new(false).duration(BELL_FLASH).easing(crate::motion::CURVE),
             pairing: Pairing::Idle,
             qr: None,
             sending: None,
@@ -1009,11 +1012,11 @@ impl Main {
             now: Instant::now(),
             started: Instant::now(),
             now_unix: unix_now(),
-            enter: Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic),
-            arrive: Animation::new(false).duration(ARRIVE).easing(Easing::EaseOutCubic).go(true, Instant::now()),
-            swap: Animation::new(true).duration(SWAP).easing(Easing::EaseOutCubic),
+            enter: Animation::new(false).duration(ENTER).easing(crate::motion::CURVE),
+            arrive: Animation::new(false).duration(ARRIVE).easing(crate::motion::CURVE).go(true, Instant::now()),
+            swap: Animation::new(true).duration(SWAP).easing(crate::motion::CURVE),
             swap_waits: false,
-            told: Animation::new(true).duration(SWAP).easing(Easing::EaseOutCubic),
+            told: Animation::new(true).duration(SWAP).easing(crate::motion::CURVE),
             lifts: HashMap::new(),
             width: crate::WINDOW.width,
             height: crate::WINDOW.height,
@@ -1021,6 +1024,7 @@ impl Main {
             strip_aim: None,
             community: None,
             community_section: crate::community_screen::Section::Feed,
+            community_was: None,
             community_board: crate::community::Board::Pp,
             community_person: None,
             person_fade: Animation::new(false),
@@ -1117,7 +1121,7 @@ impl Main {
             pool_covers_asked: std::collections::HashSet::new(),
             refresh_asked: false,
             refresh_answered: None,
-            notice_fade: Animation::new(false).duration(NOTICE_FADE).easing(Easing::EaseOutCubic),
+            notice_fade: Animation::new(false).duration(NOTICE_FADE).easing(crate::motion::CURVE),
             notice_kept: None,
             friends_asked: None,
         };
@@ -1534,7 +1538,7 @@ impl Main {
             || self.map_behind() != self.behind_fade.value()
             || self.own_cover_fade.is_animating(self.now)
             || self.own_cover_wanted() != self.own_cover_fade.value()
-            || self.turning.is_some()
+            || self.overlay_swap.is_animating(self.now)
             || self.retype.is_animating(self.now)
             || self.side_fade.is_animating(self.now)
             || self.side_open.is_animating(self.now)
@@ -1794,10 +1798,10 @@ impl Main {
             }
             self.swap_waits = self.chosen_entry().is_some_and(|e| e.map.is_some() && !self.scenes.contains_key(&e.map_hash));
             if !self.swap_waits {
-                self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                self.swap = Animation::new(false).duration(SWAP).easing(crate::motion::CURVE).go(true, Instant::now());
             }
         }
-        self.told = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
+        self.told = Animation::new(false).duration(SWAP).easing(crate::motion::CURVE).go(true, Instant::now());
         Task::batch([self.fetch_for_chosen(), self.start_live()])
     }
 
@@ -1837,8 +1841,8 @@ impl Main {
             for_path: ask.replay.clone(),
             frame: None,
             at_ms: 0.0,
-            fade: Animation::new(false).duration(LIVE_FADE).easing(Easing::EaseOutCubic),
-            rest: Animation::new(false).duration(LIVE_FADE).easing(Easing::EaseOutCubic),
+            fade: Animation::new(false).duration(LIVE_FADE).easing(crate::motion::CURVE),
+            rest: Animation::new(false).duration(LIVE_FADE).easing(crate::motion::CURVE),
         });
         live::play(ask, control).map(Message::Live)
     }
@@ -2650,7 +2654,7 @@ impl Main {
     fn can_rest(&self) -> bool {
         self.library.is_some() && self.overlay == Overlay::None && self.player.is_none()
             && !self.cinema.value() && !self.cinema.is_animating(self.now)
-            && !self.overlay_fade.is_animating(self.now) && self.turning.is_none()
+            && !self.overlay_fade.is_animating(self.now) && !self.overlay_swap.is_animating(self.now)
             && self.menu.is_none() && !self.menu_open.is_animating(self.now)
             && !self.skin_room && !self.room_fade.is_animating(self.now) && self.skin_delete.is_none()
             && !self.asking_delete && !self.ask_fade.is_animating(self.now) && self.error_shown.is_none()
@@ -2662,9 +2666,9 @@ impl Main {
     }
 
     pub fn unveil(&mut self, now: Instant) {
-        self.arrive = Animation::new(false).duration(ARRIVE).easing(Easing::EaseOutCubic).go(true, now);
+        self.arrive = Animation::new(false).duration(ARRIVE).easing(crate::motion::CURVE).go(true, now);
         if self.library.is_some() {
-            self.enter = Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic).go(true, now);
+            self.enter = Animation::new(false).duration(ENTER).easing(crate::motion::CURVE).go(true, now);
         }
     }
 
@@ -3004,7 +3008,7 @@ impl Main {
                 self.now_unix = unix_now();
                 let entries = self.entries().to_vec();
                 self.store.marry(&entries);
-                self.enter = Animation::new(false).duration(ENTER).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                self.enter = Animation::new(false).duration(ENTER).easing(crate::motion::CURVE).go(true, Instant::now());
                 let first = self.visible().first().copied();
                 self.chosen = first;
                 Task::batch([self.fetch_for_chosen(), self.thumbs_task(), self.covers_task(), self.start_live(), self.watch_task(), self.donate_task(), self.replays_give_task(), self.shared_faces_task(), self.ratings_task()])
@@ -3032,7 +3036,7 @@ impl Main {
                 }
                 if self.swap_waits && self.chosen_entry().is_some_and(|e| e.map_hash == hash) {
                     self.swap_waits = false;
-                    self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                    self.swap = Animation::new(false).duration(SWAP).easing(crate::motion::CURVE).go(true, Instant::now());
                 }
                 Task::none()
             }
@@ -3332,7 +3336,7 @@ impl Main {
                 if self.menu == Some(tab) && self.menu_open.value() {
                     return self.update(Message::MenuClose);
                 }
-                self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic).go(true, now);
+                self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(crate::motion::CURVE).go(true, now);
                 self.menu = Some(tab);
                 for toast in self.toasts.iter_mut().filter(|toast| toast.shown.value()) {
                     toast.shown.go_mut(false, now);
@@ -3347,7 +3351,7 @@ impl Main {
             | Message::BillingReply(..) => self.handle_billing(message),
             Message::MenuClose => {
                 if self.menu_open.value() {
-                    self.menu_open = Animation::new(true).duration(MENU_CLOSE).easing(Easing::EaseInCubic).go(false, Instant::now());
+                    self.menu_open = Animation::new(true).duration(MENU_CLOSE).easing(crate::motion::CURVE).go(false, Instant::now());
                 }
                 Task::none()
             }
@@ -3732,7 +3736,7 @@ impl Main {
                 if let Some(at) = at {
                     self.lifts
                         .entry(at)
-                        .or_insert_with(|| Animation::new(false).duration(LIFT).easing(Easing::EaseOutCubic))
+                        .or_insert_with(|| Animation::new(false).duration(LIFT).easing(crate::motion::CURVE))
                         .go_mut(true, now);
                 }
                 self.lifts.retain(|_, lift| lift.value() || lift.is_animating(now));
@@ -3854,7 +3858,7 @@ impl Main {
                         self.community_reading = Some(reading);
                         self.read_over_person = self.community_person.is_some() && self.person_fade.value();
                         self.panel_from = if self.read_over_person { None } else { self.community_tap };
-                        self.read_fade = Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic).go(true, now);
+                        self.read_fade = Animation::new(false).duration(PANEL_SHOW).easing(crate::motion::CURVE).go(true, now);
                         let pictures = self.wide_pictures_task(wanted);
                         return match board {
                             Some(beatmap) => Task::batch([pictures, self.map_board_task(beatmap, false)]),
@@ -3990,7 +3994,7 @@ impl Main {
                         if self.community_person.is_some() && self.person_fade.value() {
                             self.person_fade.go_mut(false, now);
                         }
-                        self.community_section = section;
+                        self.enter_section(section, now);
                         if section == crate::community_screen::Section::Pools {
                             let effects = self.pools.open();
                             return self.pools_work(effects);
@@ -4041,7 +4045,7 @@ impl Main {
                             self.shift_at = now;
                         }
                         self.community_board = board;
-                        self.community_section = crate::community_screen::Section::Boards;
+                        self.enter_section(crate::community_screen::Section::Boards, now);
                     }
                     C::Person(Some(at)) => {
                         if self.read_over_person && self.community_reading.is_some() && self.read_fade.value() {
@@ -4051,7 +4055,7 @@ impl Main {
                         self.community_person = Some(at);
                         self.panel_from = self.community_tap;
                         self.person_from = self.community_tap;
-                        self.person_fade = Animation::new(false).duration(PANEL_SHOW).easing(Easing::EaseOutCubic).go(true, now);
+                        self.person_fade = Animation::new(false).duration(PANEL_SHOW).easing(crate::motion::CURVE).go(true, now);
                         return self.person_task(at);
                     }
                     C::Person(None) => {
@@ -4072,7 +4076,7 @@ impl Main {
                         if self.community_section != crate::community_screen::Section::Compare {
                             self.section_at = now;
                         }
-                        self.community_section = crate::community_screen::Section::Compare;
+                        self.enter_section(crate::community_screen::Section::Compare, now);
                         self.pool_players();
                         return self.everyone_task();
                     }
@@ -4775,7 +4779,7 @@ impl Main {
                     let mut restart = Task::none();
                     if self.chosen_entry().is_some_and(|e| e.map_hash == hash) {
                         self.scene_before = Some(None);
-                        self.swap = Animation::new(false).duration(SWAP).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                        self.swap = Animation::new(false).duration(SWAP).easing(crate::motion::CURVE).go(true, Instant::now());
                         restart = self.start_live();
                     }
                     let background = map.background.clone();
@@ -5036,12 +5040,12 @@ impl Main {
                     if let Some((_, live)) = &self.reel.now { live.control.request(); }
                 }
                 match self.progress_target() {
-                    Some(target) => self.progress_shown = ui::toward(self.progress_shown, target, 0.12, dt),
+                    Some(target) => self.progress_shown = ui::toward(self.progress_shown, target, crate::motion::SLOW, dt),
                     None => self.progress_shown = 0.0,
                 }
                 for fetching in &mut self.fetching {
                     if let Some(target) = fetching.target() {
-                        fetching.shown = ui::toward(fetching.shown, target, 0.12, dt);
+                        fetching.shown = ui::toward(fetching.shown, target, crate::motion::SLOW, dt);
                     }
                 }
                 self.marks_now = self.marks.iter().map(|(id, mark)| (id.clone(), mark.interpolate(0.0, 1.0, now))).collect();
@@ -5056,16 +5060,12 @@ impl Main {
                     }
                 }
                 self.toasts.retain(|t| t.shown.value() || t.shown.is_animating(now));
-                if let Some(next) = self.turning {
-                    if !self.overlay_fade.value() && !self.overlay_fade.is_animating(now) {
-                        self.turning = None;
-                        self.overlay_drawn = next;
-                        self.overlay_fade = Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic).go(true, now);
-                    }
+                if self.overlay_leaving.is_some() && !self.overlay_swap.is_animating(now) {
+                    self.overlay_leaving = None;
                 }
                 if self.lang_swap && !self.overlay_fade.value() && !self.overlay_fade.is_animating(now) {
                     self.lang_swap = false;
-                    self.overlay_fade = Animation::new(false).duration(LANG_FADE).easing(Easing::EaseOutCubic).go(true, now);
+                    self.overlay_fade = Animation::new(false).duration(LANG_FADE).easing(crate::motion::CURVE).go(true, now);
                 }
                 if self.menu.is_some() && !self.menu_open.value() && !self.menu_open.is_animating(now) {
                     self.menu = None;
@@ -5506,12 +5506,19 @@ impl Main {
         } else {
             blank()
         };
-        let overlay: Element<'_, Message> = if showing { ui::fading(sheet, || self.overlay_view()) } else { blank() };
+        let overlay: Element<'_, Message> = if showing {
+            let slot = |which: Overlay| match self.overlay_share(which) {
+                Some(share) => ui::inert(ui::fading(sheet * share, || self.overlay_view(which)), self.overlay_leaving == Some(which)),
+                None => blank(),
+            };
+            stack![slot(Overlay::Videos), slot(Overlay::Community), slot(Overlay::Settings)].width(Length::Fill).height(Length::Fill).into()
+        } else { blank() };
         let own_cover = self.own_cover_layer(sheet);
         let bubble = blank();
-        let person = if self.overlay_drawn == Overlay::Community && showing {
-            ui::fading(sheet * awake, || self.community_view(true).unwrap_or_else(blank))
-        } else { blank() };
+        let person = match self.overlay_share(Overlay::Community).filter(|_| showing) {
+            Some(share) => ui::inert(ui::fading(sheet * share * awake, || self.community_view(true).unwrap_or_else(blank)), self.overlay_leaving == Some(Overlay::Community)),
+            None => blank(),
+        };
         let toasts = self.toast_layer();
         let in_duels = self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Duels;
         let wrap = |message: crate::duels_screen::Message| Message::Community(crate::community_screen::Message::Duels(message));
@@ -6034,8 +6041,31 @@ impl Main {
         })])
     }
 
-    fn overlay_view(&self) -> Element<'_, Message> {
-        let which = self.overlay_drawn;
+    fn enter_section(&mut self, section: crate::community_screen::Section, now: Instant) {
+        if section != self.community_section {
+            self.community_was = Some((self.community_section, now));
+            self.community_section = section;
+        }
+    }
+
+    fn section_leaving(&self) -> Option<(crate::community_screen::Section, f32)> {
+        let (was, at) = self.community_was?;
+        let k = self.now.saturating_duration_since(at).as_secs_f32() / crate::motion::STATE.as_secs_f32();
+        (k < 1.0 && was != self.community_section).then(|| (was, crate::motion::curve(k)))
+    }
+
+    fn overlay_share(&self, which: Overlay) -> Option<f32> {
+        let swap = self.overlay_swap.interpolate(0.0, 1.0, self.now);
+        if which == self.overlay_drawn {
+            Some(if self.overlay_leaving.is_some() { swap } else { 1.0 })
+        } else if self.overlay_leaving == Some(which) {
+            Some(1.0 - swap)
+        } else {
+            None
+        }
+    }
+
+    fn overlay_view(&self, which: Overlay) -> Element<'_, Message> {
         if which == Overlay::Videos {
             return self.videos_view();
         }
@@ -6070,8 +6100,8 @@ impl Main {
 }
 
 pub const RETYPE: Duration = Duration::from_millis(900);
-pub const MARK: Duration = Duration::from_millis(200);
-pub const LANG_FADE: Duration = Duration::from_millis(150);
+pub const MARK: Duration = crate::motion::STATE;
+pub const LANG_FADE: Duration = crate::motion::QUICK;
 
 impl Main {
     fn rest_live(&mut self, away: bool) {
@@ -6101,24 +6131,24 @@ impl Main {
         let was = self.ground_fade.interpolate(0.0, 1.0, now);
         if self.ground_fade.value() != up {
             let span = if up { GROUND_UP } else { OVERLAY_FADE };
-            self.ground_fade = Animation::new(!up).duration(span).easing(Easing::EaseOutCubic).go(up, now);
+            self.ground_fade = Animation::new(!up).duration(span).easing(crate::motion::CURVE).go(up, now);
             let _ = was;
         }
         let shown = self.overlay != Overlay::None;
         match (shown, overlay) {
-            (_, Overlay::None) => {
-                self.turning = None;
-                self.overlay_fade.go_mut(false, now);
-            }
+            (_, Overlay::None) => self.overlay_fade.go_mut(false, now),
             (false, _) => {
-                self.turning = None;
+                self.overlay_leaving = None;
+                self.overlay_swap = Animation::new(true).duration(OVERLAY_FADE).easing(crate::motion::CURVE);
                 self.overlay_drawn = overlay;
-                self.overlay_fade = Animation::new(false).duration(OVERLAY_FADE).easing(Easing::EaseOutCubic).go(true, now);
+                self.overlay_fade = Animation::new(false).duration(OVERLAY_FADE).easing(crate::motion::CURVE).go(true, now);
             }
-            (true, _) => {
-                self.turning = Some(overlay);
-                self.overlay_fade = Animation::new(true).duration(OVERLAY_FADE / 2).easing(Easing::EaseOutCubic).go(false, now);
+            (true, _) if overlay != self.overlay_drawn => {
+                self.overlay_leaving = Some(self.overlay_drawn);
+                self.overlay_drawn = overlay;
+                self.overlay_swap = Animation::new(false).duration(OVERLAY_FADE).easing(crate::motion::CURVE).go(true, now);
             }
+            (true, _) => {}
         }
     }
 
@@ -6158,9 +6188,9 @@ impl Main {
                 .map(|at| self.now.saturating_duration_since(*at).as_millis() > 160)
                 .unwrap_or(true);
             let (shown, snap) = self.slides.entry(id).or_insert((target, 1.0));
-            *shown = ui::toward(*shown, target, 0.28, dt);
+            *shown = ui::toward(*shown, target, crate::motion::RESPONSE, dt);
             let want = if settled && (target - *shown).abs() < 0.01 { 1.0 } else { 0.0 };
-            *snap = ui::toward(*snap, want, 0.25, dt);
+            *snap = ui::toward(*snap, want, crate::motion::RESPONSE, dt);
         }
     }
 
@@ -6220,7 +6250,7 @@ impl Main {
         let now = Instant::now();
         self.marks
             .entry(id.to_owned())
-            .or_insert_with(|| Animation::new(!on).duration(MARK).easing(Easing::EaseOutCubic))
+            .or_insert_with(|| Animation::new(!on).duration(MARK).easing(crate::motion::CURVE))
             .go_mut(on, now);
     }
 
@@ -6742,6 +6772,8 @@ impl Main {
             catalog,
             thumbs: &self.thumbs,
             section: self.community_section,
+            section_was: self.section_leaving().map(|(was, _)| was),
+            section_k: self.section_leaving().map_or(1.0, |(_, k)| k),
             board: self.community_board,
             person: self.community_person.filter(|_| self.person_fade.value() || self.person_fade.is_animating(self.now)),
             person_k: self.person_fade.interpolate(0.0, 1.0, self.now),
@@ -6913,7 +6945,7 @@ impl Main {
                 };
                 if side != self.side {
                     self.side_swap = if order(side) > order(self.side) { 1.0 } else { -1.0 };
-                    self.side_fade = Animation::new(false).duration(TAB_FADE).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                    self.side_fade = Animation::new(false).duration(TAB_FADE).easing(crate::motion::CURVE).go(true, Instant::now());
                 }
                 self.side = side;
                 let name = match side {
@@ -6956,7 +6988,7 @@ impl Main {
                 self.words = Words::new(lang);
                 self.retype = Animation::new(true);
                 let now = Instant::now();
-                self.overlay_fade = Animation::new(true).duration(LANG_FADE).easing(Easing::EaseOutCubic).go(false, now);
+                self.overlay_fade = Animation::new(true).duration(LANG_FADE).easing(crate::motion::CURVE).go(false, now);
                 self.lang_swap = true;
                 Task::none()
             }
@@ -7539,7 +7571,7 @@ const BILLING_GROWTH: f32 = 1.3;
 const MENU_W: f32 = 420.0;
 const BELL_W: f32 = 432.0;
 const BELL_BADGE: f32 = 18.0;
-const CLEAR_LEAVE: Duration = Duration::from_millis(180);
+const CLEAR_LEAVE: Duration = crate::motion::STATE;
 const CLEAR_STEP: Duration = Duration::from_millis(28);
 const CLEAR_STEPS: usize = 8;
 const BELL_FLASH: Duration = Duration::from_millis(900);
@@ -7930,22 +7962,22 @@ fn image_bytes(handle: &image::Handle) -> usize {
 const TOAST_W: f32 = 340.0;
 const TOAST_MAX_H: f32 = 112.0;
 const TOAST_TOP: f32 = 92.0;
-pub const TOAST_IN: Duration = Duration::from_millis(180);
-pub const MENU_OPEN: Duration = Duration::from_millis(320);
-pub const MENU_CLOSE: Duration = Duration::from_millis(170);
-pub const TAB_FADE: Duration = Duration::from_millis(180);
-pub const NOTICE_LEAVE: Duration = Duration::from_millis(200);
-pub const NOTICE_ARRIVE: Duration = Duration::from_millis(260);
-pub const CINEMA: Duration = Duration::from_millis(220);
-pub const WIDEN: Duration = Duration::from_millis(260);
+pub const TOAST_IN: Duration = crate::motion::STATE;
+pub const MENU_OPEN: Duration = crate::motion::ENTER;
+pub const MENU_CLOSE: Duration = crate::motion::STATE;
+pub const TAB_FADE: Duration = crate::motion::STATE;
+pub const NOTICE_LEAVE: Duration = crate::motion::STATE;
+pub const NOTICE_ARRIVE: Duration = crate::motion::ENTER;
+pub const CINEMA: Duration = crate::motion::STATE;
+pub const WIDEN: Duration = crate::motion::ENTER;
 pub const HINT_SHOWN: Duration = Duration::from_millis(900);
-pub const CONTROLS_FADE: Duration = Duration::from_millis(260);
-pub const CONTROLS_IN: Duration = Duration::from_millis(180);
-pub const CONTROLS_OUT: Duration = Duration::from_millis(460);
-pub const STAGE_OPEN: Duration = Duration::from_millis(280);
+pub const CONTROLS_FADE: Duration = crate::motion::ENTER;
+pub const CONTROLS_IN: Duration = crate::motion::STATE;
+pub const CONTROLS_OUT: Duration = crate::motion::PAGE;
+pub const STAGE_OPEN: Duration = crate::motion::ENTER;
 pub const CONTROLS_STAY: Duration = Duration::from_secs(3);
-pub const OVERLAY_FADE: Duration = Duration::from_millis(220);
-pub const GROUND_UP: Duration = Duration::from_millis(110);
+pub const OVERLAY_FADE: Duration = crate::motion::STATE;
+pub const GROUND_UP: Duration = crate::motion::STATE;
 pub fn latin(letter: &str) -> Option<char> {
     let sign = letter.chars().next()?.to_lowercase().next()?;
     Some(match sign {
@@ -7986,7 +8018,7 @@ const PICTURE_INSET: f32 = 14.0;
 const PICTURE_RADIUS: f32 = 10.0;
 
 const REFRESH_AT_MOST: Duration = Duration::from_secs(20);
-const FLIP: Duration = Duration::from_millis(320);
+const FLIP: Duration = crate::motion::ENTER;
 const MINIMIZED_POLL: Duration = Duration::from_secs(15);
 const AUTO_EVERY: Duration = Duration::from_secs(20);
 const AUTO_IDLE: Duration = Duration::from_secs(12);

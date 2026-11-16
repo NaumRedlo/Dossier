@@ -10,11 +10,22 @@ pub const SPLIT_MIN: f32 = 1200.0;
 pub const SURFACE: Color = Color::from_rgba(0.051, 0.02, 0.031, 0.88);
 pub const ITEM: Color = Color::from_rgba(0.075, 0.039, 0.051, 0.9);
 pub const HOVER: Color = Color::from_rgba(0.13, 0.08, 0.095, 0.95);
+pub const PANEL: Color = Color::from_rgba(0.024, 0.01, 0.014, 0.62);
+pub const TILE: Color = PANEL;
+pub const TILE_HOVER: Color = Color::from_rgba(0.085, 0.036, 0.048, 0.7);
 
 pub fn surface(_: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(SURFACE)),
         text_color: Some(INK),
+        border: Border { radius: CARD_RADIUS.into(), ..Border::default() },
+        ..container::Style::default()
+    }
+}
+
+pub fn panel(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(PANEL)),
         border: Border { radius: CARD_RADIUS.into(), ..Border::default() },
         ..container::Style::default()
     }

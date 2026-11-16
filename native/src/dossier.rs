@@ -1,5 +1,6 @@
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
-use iced::widget::{button, column, container, mouse_area, row, stack, text, Space};
+use crate::button::{self, button};
+use iced::widget::{column, container, mouse_area, row, stack, text, Space};
 use iced::{mouse, Background, Border, Color, Element, Length, Padding, Point, Rectangle, Renderer, Shadow, Theme, Vector};
 
 use crate::chronicle::{self, card as slab};
@@ -584,7 +585,7 @@ fn backdrop_picture(handle: &iced::widget::image::Handle, wide: f32, round: f32)
 }
 
 const WINDOW_STEP: f32 = 320.0;
-const CARD_ROUND: f32 = 14.0;
+const CARD_ROUND: f32 = theme::CARD_RADIUS;
 const CARD_SHADE_TOP: f32 = 0.5;
 const CARD_SHADE_MID: f32 = 0.9;
 const CARD_SHADE_FOOT: f32 = 0.98;
@@ -784,9 +785,9 @@ fn metric_style(on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     move |_, status| {
         let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
         button::Style {
-            background: Some(Background::Color(if on { Color::from_rgba(0.886, 0.282, 0.282, 0.1) } else if lit { Color { a: 0.8, ..theme::GLASS } } else { theme::RAISED })),
+            background: Some(Background::Color(if on { Color::from_rgba(0.886, 0.282, 0.282, 0.1) } else if lit { theme::workspace::TILE_HOVER } else { theme::workspace::TILE })),
             text_color: INK,
-            border: Border { color: crate::theme::outline(if on { Color::from_rgba(0.886, 0.282, 0.282, 0.55) } else if lit { Color::from_rgba(1.0, 1.0, 1.0, 0.045) } else { theme::LINE }), width: 1.0, radius: 12.0.into() },
+            border: Border { color: crate::theme::outline(if on { Color::from_rgba(0.886, 0.282, 0.282, 0.55) } else { Color::TRANSPARENT }), width: 1.0, radius: 12.0.into() },
             shadow: if on { Shadow { color: Color::from_rgba(0.886, 0.282, 0.282, 0.07), offset: Vector::ZERO, blur_radius: 8.0 } } else { Shadow::default() },
             snap: true,
         }

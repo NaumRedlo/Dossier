@@ -9,7 +9,7 @@ use iced::{mouse, window, Background, Border, Color, Element, Event, Font, Lengt
 use crate::theme;
 
 pub const DELAY: Duration = Duration::from_millis(350);
-pub const FADE: Duration = Duration::from_millis(120);
+pub const FADE: Duration = crate::motion::QUICK;
 pub const NEIGHBOUR: Duration = Duration::from_millis(400);
 
 const GAP: f32 = 7.0;

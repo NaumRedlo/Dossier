@@ -187,10 +187,10 @@ impl Main {
         };
         let buttons = row![
             ui::grow(),
-            ui::springy(ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)), 0.04),
-            ui::springy(ui::quiet(w.t("delete"), Some(Message::AskDelete)), 0.04),
-            ui::springy(ui::quiet(w.t("to-player"), sending_this.is_none_or(|s| s.over.is_some()).then_some(Message::Sharing(sharing::Message::Pick))), 0.04),
-            ui::springy(telegram, 0.03),
+            ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)),
+            ui::quiet(w.t("delete"), Some(Message::AskDelete)),
+            ui::quiet(w.t("to-player"), sending_this.is_none_or(|s| s.over.is_some()).then_some(Message::Sharing(sharing::Message::Pick))),
+            telegram,
         ]
         .spacing(6)
         .align_y(iced::Center);
@@ -211,8 +211,8 @@ impl Main {
         let w = &self.words;
         let buttons = row![
             ui::grow(),
-            ui::springy(ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)), 0.04),
-            ui::springy(ui::primary(w.t("act-telegram"), Some(Message::Community(crate::community_screen::Message::Open(clip.link.clone())))), 0.03),
+            ui::quiet(w.t("in-folder"), Some(Message::RevealVideo)),
+            ui::primary(w.t("act-telegram"), Some(Message::Community(crate::community_screen::Message::Open(clip.link.clone())))),
         ]
         .spacing(6)
         .align_y(iced::Center);

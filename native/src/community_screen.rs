@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use iced::widget::{button, column, container, image, row, scrollable, stack, text, text_input, Space};
+use crate::button::{self, button};
+use iced::widget::{column, container, image, row, scrollable, stack, text, text_input, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme};
 
 use crate::community::{Board, Catalog, Friend, Friends, Person, Rarity, Title};
@@ -327,11 +328,14 @@ impl<'a> Shelf<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct Ground<'a> {
     pub words: &'a Words,
     pub catalog: &'a Catalog,
     pub thumbs: &'a HashMap<String, image::Handle>,
     pub section: Section,
+    pub section_was: Option<Section>,
+    pub section_k: f32,
     pub board: Board,
     pub person: Option<usize>,
     pub now_unix: i64,
@@ -436,8 +440,10 @@ pub(crate) fn sheet_seen(k: f32) -> f32 {
     smooth(0.2, 1.0, k).powf(2.2)
 }
 
-pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
-    let body = match ground.section {
+const SECTIONS: [Section; 9] = [Section::Profile, Section::Feed, Section::People, Section::Boards, Section::Titles, Section::Compare, Section::Pools, Section::Duels, Section::Balance];
+
+fn body_of<'a>(ground: &Ground<'a>, section: Section) -> Element<'a, Message> {
+    match section {
         Section::Profile => crate::dossier::view(ground),
         Section::Feed => crate::chronicle::view(ground),
         Section::People => people(ground),
@@ -447,7 +453,28 @@ pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
         Section::Pools => crate::pools_screen::view(ground.pools, ground.words, ground.thumbs, ground.width - 80.0, ground.section_t, &ground.pools_clocks).map(Message::Pools),
         Section::Duels => crate::duels_screen::view(ground.duels, ground.words, ground.now_unix, ground.width - 80.0).map(Message::Duels),
         Section::Balance => crate::desk_screen::view(ground.desk, &ground.duels.roles, ground.words, ground.now_unix, ground.width).map(Message::Desk),
-    };
+    }
+}
+
+fn entering<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    match ground.section {
+        Section::Compare | Section::Duels | Section::Balance => ui::appearing(ui::appear(ground.section_t, 0), || body_of(ground, ground.section)),
+        section => body_of(ground, section),
+    }
+}
+
+pub fn view<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
+    let left = Ground { section_t: 60.0, shift_t: 60.0, ..ground.clone() };
+    let slots = SECTIONS.map(|section| {
+        if section == ground.section {
+            ui::inert(entering(ground), false)
+        } else if ground.section_was == Some(section) {
+            ui::inert(ui::fading(1.0 - ground.section_k, || body_of(&left, section)), true)
+        } else {
+            Space::new().width(Length::Fill).height(Length::Fill).into()
+        }
+    });
+    let body = iced::widget::Stack::with_children(slots).width(Length::Fill).height(Length::Fill);
     let mut page = column![].width(Length::Fill).height(Length::Fill);
     if let Some(banner) = notice_banner(ground) {
         page = page.push(banner);
@@ -1249,7 +1276,7 @@ fn someone_card<'a>(ground: &Ground<'a>, one: &Someone<'a>, place: Option<usize>
         .style(move |_: &Theme, status: button::Status| {
             let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
             button::Style {
-                background: Some(Background::Color({ let glass = if lit { theme::GLASS_LIT } else { theme::GLASS }; Color { a: glass.a * k, ..glass } })),
+                background: Some(Background::Color({ let glass = if lit { theme::workspace::TILE_HOVER } else { theme::workspace::PANEL }; Color { a: glass.a * k, ..glass } })),
                 text_color: INK,
                 border: Border { color: crate::theme::outline({ let edge = if lit { theme::GLASS_EDGE_LIT } else { theme::GLASS_EDGE }; Color { a: edge.a * k, ..edge } }), width: 1.0, radius: 18.0.into() },
                 shadow: Shadow::default(),
@@ -1774,7 +1801,7 @@ fn comparing<'a>(ground: &Ground<'a>) -> Element<'a, Message> {
             let value = column![text(cell).font(theme::SANS_SEMI).size(15.0).color(ui::faded(colour)).wrapping(text::Wrapping::None), bar].spacing(5).align_x(iced::Center);
             line = line.push(container(value).width(Length::FillPortion(2)).center_x(Length::FillPortion(2)));
         }
-        table = table.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at + 1), || container(line).padding([10, 16]).style(ui::box_faded(theme::slab)).into()));
+        table = table.push(ui::appearing(ui::appear(ground.section_t.min(ground.shift_t), at + 1), || container(line).padding([10, 16]).style(ui::box_faded(theme::workspace::panel)).into()));
     }
     page = page.push(table);
     rolled(page.into())
@@ -1814,7 +1841,7 @@ fn title_card<'a>(ground: &Ground<'a>, title: &Title) -> Element<'a, Message> {
     )
     .padding([16, 18])
     .width(Length::Fill)
-    .style(ui::box_faded(theme::slab));
+    .style(ui::box_faded(theme::workspace::panel));
     let pressed = button(card).padding(0).width(Length::Fill).style(|_, _| button::Style { background: None, text_color: INK, border: Border::default(), shadow: Shadow::default(), snap: true });
     ui::hover(pressed.on_press(Message::Read(Reading::Title { code: title.code.clone(), who: None })), ui::Glow::tile(16.0))
 }

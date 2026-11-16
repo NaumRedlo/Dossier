@@ -20,7 +20,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use iced::widget::{button, column, container, image, pick_list, row, scrollable, text, text_input, Space};
+use crate::button::{self, button};
+use iced::widget::{column, container, image, pick_list, row, scrollable, text, text_input, Space};
 use iced::{Background, Border, Color, Element, Length, Padding};
 use md5::{Digest, Md5};
 

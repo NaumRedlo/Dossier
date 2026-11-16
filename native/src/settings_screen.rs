@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use iced::widget::{button, column, container, row, text, text_input, Space};
+use crate::button::{self, button};
+use iced::widget::{column, container, row, text, text_input, Space};
 use crate::glyphs::{glyph, Icon};
 use iced::{Element, Length, Padding};
 

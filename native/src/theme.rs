@@ -613,8 +613,8 @@ pub const GROUND_VEIL: Color = Color::from_rgba(0.051, 0.02, 0.031, 0.88);
 pub fn slab(_: &Theme) -> container::Style {
     container::Style {
         text_color: None,
-        background: Some(Background::Color(GLASS)),
-        border: border(GLASS_EDGE, 16.0),
+        background: Some(Background::Color(workspace::PANEL)),
+        border: border(Color::TRANSPARENT, CARD_RADIUS),
         shadow: Shadow::default(),
         snap: true,
     }

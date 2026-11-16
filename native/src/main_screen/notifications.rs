@@ -10,7 +10,7 @@ impl Main {
         self.scenes_due = true;
         self.bell_flash = Animation::new(true).duration(BELL_FLASH).easing(Easing::Linear).go(false, Instant::now());
         if self.menu == Some(Tab::Bell) {
-            self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(Easing::EaseOutCubic).go(true, Instant::now()));
+            self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(crate::motion::CURVE).go(true, Instant::now()));
         }
         id
     }
@@ -21,7 +21,7 @@ impl Main {
         self.bell_flash = Animation::new(true).duration(BELL_FLASH).easing(Easing::Linear).go(false, Instant::now());
         let now = Instant::now();
         if self.menu == Some(Tab::Bell) {
-            self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(Easing::EaseOutCubic).go(true, now));
+            self.arrivals.insert(id, Animation::new(false).duration(NOTICE_ARRIVE).easing(crate::motion::CURVE).go(true, now));
             return;
         }
         while self.toasts.iter().filter(|t| t.shown.value()).count() >= self.toast_capacity() {
@@ -33,7 +33,7 @@ impl Main {
         }
         self.toasts.push(Toast {
             id,
-            shown: Animation::new(false).duration(TOAST_IN).easing(Easing::EaseOutCubic).go(true, now),
+            shown: Animation::new(false).duration(TOAST_IN).easing(crate::motion::CURVE).go(true, now),
             born: now,
             hovered: false,
             paused_at: None,
@@ -353,7 +353,7 @@ impl Main {
                 let ids: Vec<u64> = self.notices.notices.iter().map(|notice| notice.id).collect();
                 for (at, id) in ids.into_iter().enumerate() {
                     let wait = CLEAR_STEP * at.min(CLEAR_STEPS) as u32;
-                    self.leaving.insert(id, Animation::new(true).duration(CLEAR_LEAVE).delay(wait).easing(Easing::EaseOutCubic).go(false, now));
+                    self.leaving.insert(id, Animation::new(true).duration(CLEAR_LEAVE).delay(wait).easing(crate::motion::CURVE).go(false, now));
                 }
                 self.arrivals.clear();
                 Task::none()
@@ -380,12 +380,12 @@ impl Main {
                     toast.shown.go_mut(false, now);
                 }
                 let arrival = self.arrivals.get(&id).cloned();
-                self.leaving.entry(id).or_insert_with(|| arrival.unwrap_or_else(|| Animation::new(true).duration(NOTICE_LEAVE).easing(Easing::EaseOutCubic))).go_mut(false, now);
+                self.leaving.entry(id).or_insert_with(|| arrival.unwrap_or_else(|| Animation::new(true).duration(NOTICE_LEAVE).easing(crate::motion::CURVE))).go_mut(false, now);
                 Task::none()
             }
             Message::ShowError(id) => {
                 self.error_shown = Some(id);
-                self.error_fade = Animation::new(false).duration(crate::billing::FADE).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                self.error_fade = Animation::new(false).duration(crate::billing::FADE).easing(crate::motion::CURVE).go(true, Instant::now());
                 Task::none()
             }
             Message::HideError => {

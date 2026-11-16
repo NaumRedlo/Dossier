@@ -1,5 +1,6 @@
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
-use iced::widget::{button, column, container, image, row, scrollable, stack, text, Space};
+use crate::button::{self, button};
+use iced::widget::{column, container, image, row, scrollable, stack, text, Space};
 use iced::{mouse, Background, Border, Color, Element, Length, Padding, Point, Radians, Rectangle, Renderer, Shadow, Theme};
 
 use crate::community::{wire, Person, Title};

@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
-use iced::animation::Easing;
-use iced::widget::{button, column, container, row, text, text_input, Space};
+use crate::button::{self, button};
+use iced::widget::{column, container, row, text, text_input, Space};
 use iced::{Animation, Background, Border, Color, Element, Length, Padding};
 
 use crate::bot::{Badge, Plan, Subscription, Trouble};
@@ -9,7 +9,7 @@ use crate::lang::Words;
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
 use crate::ui;
 
-pub const FADE: Duration = Duration::from_millis(180);
+pub const FADE: Duration = crate::motion::STATE;
 pub const EVERY: Duration = Duration::from_secs(4);
 
 #[derive(Debug, Clone)]
@@ -117,7 +117,7 @@ impl State {
     pub fn new(email: String, currency: &str) -> State {
         State {
             shown: false,
-            fade: Animation::new(false).duration(FADE).easing(Easing::EaseOutCubic),
+            fade: Animation::new(false).duration(FADE).easing(crate::motion::CURVE),
             plans: None,
             plans_failed: false,
             held: None,
@@ -210,7 +210,7 @@ impl State {
         match message {
             Message::Open => {
                 self.shown = true;
-                self.fade = Animation::new(self.fade.value() && self.shown).duration(FADE).easing(Easing::EaseOutCubic).go(true, now);
+                self.fade = Animation::new(self.fade.value() && self.shown).duration(FADE).easing(crate::motion::CURVE).go(true, now);
                 self.fault = None;
                 self.asking = false;
                 self.again = false;

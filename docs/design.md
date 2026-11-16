@@ -78,7 +78,12 @@ radial-gradient(115% 95% at 50% -18%,
 It gives the screen a top and a bottom the way a lit room does, and the
 accent has somewhere to come from. Cards are glass on it — `raised` is a white
 tint, not a paint — so the burgundy shows through them and nothing on the
-screen is a grey slab. The *Background* setting keeps its four levels: the
+screen is a grey slab. A panel is dark glass (2026-11-16): a near-black fill
+at 62 % with no outline, `theme::workspace::PANEL`, drawn by
+`workspace::panel` and `theme::slab`; a tile that lights up under the
+pointer goes to `TILE_HOVER`. Being darker than the ground is what makes the
+glass read when no map is behind it. The *Background* setting keeps its four
+levels: the
 slow drift of colour behind the content for *rich* and *live*, a still
 gradient for *quiet*, and a flat `#0d0508` for *still*, which computes nothing.
 The gradient is the only one in the application besides that drift; nothing
@@ -118,12 +123,27 @@ Numbers are tabular everywhere.
 
 ### Motion
 
-- One curve, `cubic-bezier(0.22, 0.9, 0.28, 1)`; **200 ms** for a state
-  change, **320 ms** for something entering or leaving, **450 ms** for the
-  ledger advancing.
+- One curve, `cubic-bezier(0.22, 0.9, 0.28, 1)`; **120 ms** for a quick
+  answer (a tip, a language swap), **200 ms** for a state change, **320 ms**
+  for something entering or leaving, **450 ms** for the ledger advancing or a
+  page arriving. The curve and the four durations live in
+  `native/src/motion.rs` (2026-11-16); a screen names its own constant and
+  points it at one of the four instead of writing a number. Long ambient
+  motion (the first launch, the rest screen, the breath of a waiting page,
+  the typewriter) keeps its own length. A value eased by hand, frame by
+  frame, uses `motion::RESPONSE`, or `motion::SLOW` for a progress bar.
+- Every button answers the same way (`native/src/button.rs`): the light of a
+  hover eases in and out, a press darkens at once and lets go softly, and
+  nothing changes size. A style that draws its own pressed look keeps it. A
+  style that does not is darkened with the ground colour, and a button with
+  no fill and no change of its words gets a dark pad under it.
 - A line that finishes fades to `muted` and the list slides up; a new line
   fades in from below. Nothing pops in at full opacity.
-- A change of screen crossfades; the sidebar and the headline never move.
+- A change of screen is a dissolve: the screen that leaves and the one that
+  comes are both drawn for 200 ms, one fading out as the other fades in, and
+  the leaving one takes no clicks. The same holds between Replays and a
+  section, between the sections, and between the parts of the Community. The
+  sidebar and the headline never move.
 - A panel that closes leaves the way it came, backwards, over the same 340 ms:
   the screen remembers what the panel showed, draws it fading and takes no
   clicks on it, while what lies under it answers again at once. A scrim under
@@ -731,10 +751,10 @@ in `docs/witness.md`.
   another part starts that part's clock; choosing a stream, a filter, a
   source, a board, a standing, *The chat · From the game* or a poster starts the
   clock of what they change. Whatever the clock governs comes in by fading
-  from nothing while it rises 10–16 px into place over 340 ms (ease-out),
-  one after another 40 ms apart, counting at most sixteen before the rest
-  come together: the side cards, the stream's head, its highlights, the
-  journal's days and rows, the news cards; the people's cards; the titles;
+  from nothing over 200 ms, all together and without moving (2026-11-16;
+  it used to rise and come one after another 40 ms apart): the side cards,
+  the stream's head, its highlights, the journal's days and rows, the news
+  cards; the people's cards; the titles;
   the podium third, second, first and then the rows; the dossier's blocks
   column by column, for oneself when the part opens and in another's panel
   when it unfolds; the chosen play's particulars when a poster is chosen.

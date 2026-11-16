@@ -1,4 +1,5 @@
-use iced::widget::{button, column, container, mouse_area, row, text, Space};
+use crate::button::{self, button};
+use iced::widget::{column, container, mouse_area, row, text, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme, Vector};
 
 use crate::glyphs::{glyph, Icon};

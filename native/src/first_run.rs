@@ -1,7 +1,8 @@
 use std::time::{Duration, Instant};
 
 use iced::animation::Easing;
-use iced::widget::{button, column, container, row, text, text_input, toggler};
+use crate::button::button;
+use iced::widget::{column, container, row, text, text_input, toggler};
 use iced::{window, Animation, Element, Length, Subscription, Task};
 
 use crate::bot::{self, Paired, Refused};
@@ -15,9 +16,9 @@ use crate::ui::{self, Glyph, Line, Mood, Sign};
 
 pub const STEPS: u64 = 4;
 const POLL: Duration = Duration::from_secs(3);
-pub const REVEAL: Duration = Duration::from_millis(320);
+pub const REVEAL: Duration = crate::motion::ENTER;
 pub const RETYPE: Duration = Duration::from_millis(640);
-pub const SETTLE: Duration = Duration::from_millis(450);
+pub const SETTLE: Duration = crate::motion::PAGE;
 pub const BREATH: Duration = Duration::from_millis(1600);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,7 +117,7 @@ pub struct FirstRun {
 }
 
 fn reveal_from(now: Instant) -> Animation<bool> {
-    Animation::new(false).duration(REVEAL).easing(Easing::EaseOutCubic).go(true, now)
+    Animation::new(false).duration(REVEAL).easing(crate::motion::CURVE).go(true, now)
 }
 
 fn settled() -> Animation<bool> {
@@ -228,7 +229,7 @@ impl FirstRun {
         self.turn_page(Step::Checks);
         self.fetch = Fetch::Idle;
         self.checks = CHECKS.iter().map(|c| (*c, None)).collect();
-        self.settles = CHECKS.iter().map(|_| Animation::new(false).duration(SETTLE).easing(Easing::EaseOutCubic)).collect();
+        self.settles = CHECKS.iter().map(|_| Animation::new(false).duration(SETTLE).easing(crate::motion::CURVE)).collect();
         let sources = self.live_sources();
         let server = self.settings.server.clone();
         let token = self.settings.token.clone();
@@ -417,7 +418,7 @@ impl FirstRun {
                     if let Some(at) = self.checks.iter().position(|(c, _)| *c == Check::Ffmpeg) {
                         self.checks[at].1 = None;
                         if let Some(settle) = self.settles.get_mut(at) {
-                            *settle = Animation::new(false).duration(SETTLE).easing(Easing::EaseOutCubic);
+                            *settle = Animation::new(false).duration(SETTLE).easing(crate::motion::CURVE);
                         }
                     }
                     Task::perform(async { checks::ffmpeg() }, |o| Message::Checked(Check::Ffmpeg, o))

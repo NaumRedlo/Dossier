@@ -1,7 +1,8 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use iced::widget::canvas;
-use iced::widget::{button, column, container, mouse_area, row, stack, Space};
+use crate::button::{self, button};
+use iced::widget::{column, container, mouse_area, row, stack, Space};
 use iced::{color, Alignment, Background, Border, Color, Element, Length, Padding};
 
 use crate::duels::{Duel, Entry, Participant};

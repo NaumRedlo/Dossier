@@ -374,7 +374,7 @@ fn dismissing_an_arriving_notification_keeps_the_visible_opacity() {
     let (_, mut main) = crate::gallery::main_states(crate::lang::Lang::En).into_iter().find(|(name, _)| name == "main-menu-feed").unwrap();
     let id = main.notices.notices[0].id;
     let now = std::time::Instant::now();
-    main.arrivals.insert(id, iced::Animation::new(false).duration(super::NOTICE_ARRIVE).easing(iced::animation::Easing::EaseOutCubic).go(true, now - std::time::Duration::from_millis(50)));
+    main.arrivals.insert(id, iced::Animation::new(false).duration(super::NOTICE_ARRIVE).easing(crate::motion::CURVE).go(true, now - std::time::Duration::from_millis(50)));
     let before = main.arrivals[&id].interpolate(0.0_f32, 1.0, now);
     let _ = main.update(super::Message::DismissNotice(id));
     let after = main.leaving[&id].interpolate(0.0_f32, 1.0, std::time::Instant::now());
@@ -2278,4 +2278,46 @@ fn the_rest_screen_does_not_begin_behind_another_window() {
     let _ = main.update(Message::AwayCheck);
     let _ = main.update(Message::RestCheck(now));
     assert!(!main.rest_waiting && !main.resting.value());
+}
+
+#[test]
+fn a_change_of_screen_draws_the_leaving_one_until_the_dissolve_is_over() {
+    use super::Overlay;
+    let mut main = feed_at_rest();
+    assert_eq!(main.overlay_share(Overlay::Community), Some(1.0));
+    assert_eq!(main.overlay_share(Overlay::Settings), None);
+    let at = happen(&mut main, super::Message::Show(Overlay::Settings));
+    let _ = main.update(super::Message::Tick(at));
+    assert_eq!(main.overlay_drawn, Overlay::Settings);
+    assert_eq!(main.overlay_leaving, Some(Overlay::Community));
+    let (leaving, coming) = (main.overlay_share(Overlay::Community).unwrap(), main.overlay_share(Overlay::Settings).unwrap());
+    assert!(leaving > 0.9 && coming < 0.1, "the dissolve starts from the screen that leaves: {leaving} and {coming}");
+    assert!(main.moving(), "frames keep coming while two screens are drawn");
+    std::thread::sleep(super::OVERLAY_FADE / 2);
+    let _ = main.update(super::Message::Tick(std::time::Instant::now()));
+    let (leaving, coming) = (main.overlay_share(Overlay::Community).unwrap(), main.overlay_share(Overlay::Settings).unwrap());
+    assert!((leaving + coming - 1.0).abs() < 1e-4, "one fades out as the other fades in: {leaving} and {coming}");
+    assert!(coming > 0.5, "the curve is ahead of the clock: {coming}");
+    std::thread::sleep(super::OVERLAY_FADE);
+    let _ = main.update(super::Message::Tick(std::time::Instant::now()));
+    assert_eq!(main.overlay_leaving, None);
+    assert_eq!(main.overlay_share(Overlay::Community), None);
+    assert_eq!(main.overlay_share(Overlay::Settings), Some(1.0));
+}
+
+#[test]
+fn a_change_of_part_in_the_community_dissolves_and_then_forgets_the_part_it_left() {
+    use crate::community_screen::{Message as C, Section};
+    let mut main = feed_at_rest();
+    assert!(main.section_leaving().is_none());
+    let _ = happen(&mut main, super::Message::Community(C::Section(Section::People)));
+    let _ = main.update(super::Message::Tick(std::time::Instant::now()));
+    let (was, k) = main.section_leaving().expect("the feed is still drawn");
+    assert_eq!(was, Section::Feed);
+    assert!(k < 0.9, "it has only begun: {k}");
+    let _ = happen(&mut main, super::Message::Community(C::Section(Section::People)));
+    assert_eq!(main.section_leaving().map(|(was, _)| was), Some(Section::Feed), "choosing the same part again changes nothing");
+    std::thread::sleep(crate::motion::STATE + std::time::Duration::from_millis(40));
+    let _ = main.update(super::Message::Tick(std::time::Instant::now()));
+    assert!(main.section_leaving().is_none());
 }

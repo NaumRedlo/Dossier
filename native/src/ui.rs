@@ -1,5 +1,6 @@
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke};
-use iced::widget::{button, column, container, image, row, text, Space};
+use crate::button::{self, button};
+use iced::widget::{column, container, image, row, text, Space};
 use iced::{mouse, Color, ContentFit, Element, Length, Point, Rectangle, Renderer, Size, Theme};
 
 use crate::theme::{self, ACCENT, FAINT, INK, MUTED};
@@ -1841,152 +1842,6 @@ impl<'a, Message: 'a> From<Grown<'a, Message>> for Element<'a, Message> {
     }
 }
 
-pub struct Springy<'a, Message> {
-    content: Element<'a, Message>,
-    reach: f32,
-}
-
-#[derive(Debug, Default)]
-struct SpringState {
-    hover: f32,
-    press: f32,
-    over: bool,
-    held: bool,
-    last: Option<std::time::Instant>,
-}
-
-pub fn springy<'a, Message: 'a>(content: impl Into<Element<'a, Message>>, reach: f32) -> Springy<'a, Message> {
-    Springy { content: content.into(), reach }
-}
-
-impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Springy<'_, Message> {
-    fn tag(&self) -> iced::advanced::widget::tree::Tag {
-        iced::advanced::widget::tree::Tag::of::<SpringState>()
-    }
-
-    fn state(&self) -> iced::advanced::widget::tree::State {
-        iced::advanced::widget::tree::State::new(SpringState::default())
-    }
-
-    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
-        vec![iced::advanced::widget::Tree::new(&self.content)]
-    }
-
-    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
-        tree.diff_children(std::slice::from_ref(&self.content));
-    }
-
-    fn size(&self) -> Size<Length> {
-        self.content.as_widget().size()
-    }
-
-    fn layout(
-        &mut self,
-        tree: &mut iced::advanced::widget::Tree,
-        renderer: &Renderer,
-        limits: &iced::advanced::layout::Limits,
-    ) -> iced::advanced::layout::Node {
-        self.content.as_widget_mut().layout(&mut tree.children[0], renderer, limits)
-    }
-
-    fn operate(
-        &mut self,
-        tree: &mut iced::advanced::widget::Tree,
-        layout: iced::advanced::Layout<'_>,
-        renderer: &Renderer,
-        operation: &mut dyn iced::advanced::widget::Operation,
-    ) {
-        self.content.as_widget_mut().operate(&mut tree.children[0], layout, renderer, operation);
-    }
-
-    fn update(
-        &mut self,
-        tree: &mut iced::advanced::widget::Tree,
-        event: &iced::Event,
-        layout: iced::advanced::Layout<'_>,
-        cursor: mouse::Cursor,
-        renderer: &Renderer,
-        clipboard: &mut dyn iced::advanced::Clipboard,
-        shell: &mut iced::advanced::Shell<'_, Message>,
-        viewport: &Rectangle,
-    ) {
-        self.content.as_widget_mut().update(&mut tree.children[0], event, layout, cursor, renderer, clipboard, shell, viewport);
-        let state = tree.state.downcast_mut::<SpringState>();
-        let over = cursor.is_over(layout.bounds());
-        match event {
-            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) if over != state.over => {
-                state.over = over;
-                shell.request_redraw();
-            }
-            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if over => {
-                state.held = true;
-                shell.request_redraw();
-            }
-            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.held => {
-                state.held = false;
-                shell.request_redraw();
-            }
-            iced::Event::Window(iced::window::Event::RedrawRequested(now)) => {
-                let (hover, press) = (if state.over { 1.0 } else { 0.0 }, if state.held { 1.0 } else { 0.0 });
-                let settled = (state.hover - hover).abs() < 0.002 && (state.press - press).abs() < 0.002;
-                if settled {
-                    state.hover = hover;
-                    state.press = press;
-                    state.last = None;
-                } else {
-                    let dt = elapsed(&mut state.last, *now);
-                    state.hover = toward(state.hover, hover, 0.28, dt);
-                    state.press = toward(state.press, press, 0.4, dt);
-                    shell.request_redraw();
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn mouse_interaction(
-        &self,
-        tree: &iced::advanced::widget::Tree,
-        layout: iced::advanced::Layout<'_>,
-        cursor: mouse::Cursor,
-        viewport: &Rectangle,
-        renderer: &Renderer,
-    ) -> mouse::Interaction {
-        self.content.as_widget().mouse_interaction(&tree.children[0], layout, cursor, viewport, renderer)
-    }
-
-    fn draw(
-        &self,
-        tree: &iced::advanced::widget::Tree,
-        renderer: &mut Renderer,
-        theme: &Theme,
-        style: &iced::advanced::renderer::Style,
-        layout: iced::advanced::Layout<'_>,
-        cursor: mouse::Cursor,
-        viewport: &Rectangle,
-    ) {
-        let state = tree.state.downcast_ref::<SpringState>();
-        let scale = 1.0 + self.reach * state.hover - self.reach * 1.4 * state.press;
-        if (scale - 1.0).abs() < 0.001 {
-            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
-            return;
-        }
-        use iced::advanced::Renderer as _;
-        renderer.with_transformation(about(layout.bounds(), Point::new(0.5, 0.5), 0.0, scale), |renderer| {
-            self.content.as_widget().draw(&tree.children[0], renderer, theme, style, layout, cursor, viewport);
-        });
-    }
-    fn overlay<'b>(&'b mut self, tree: &'b mut iced::advanced::widget::Tree, layout: iced::advanced::Layout<'b>, renderer: &Renderer, viewport: &Rectangle, translation: iced::Vector) -> Option<iced::advanced::overlay::Element<'b, Message, Theme, Renderer>> {
-        self.content.as_widget_mut().overlay(&mut tree.children[0], layout, renderer, viewport, translation)
-    }
-}
-
-impl<'a, Message: 'a> From<Springy<'a, Message>> for Element<'a, Message> {
-    fn from(springy: Springy<'a, Message>) -> Element<'a, Message> {
-        Element::new(springy)
-    }
-}
-
 pub fn trailing<'a, Message: 'a>(line: Element<'a, Message>, wide: f32, high: f32, under: Color) -> Element<'a, Message> {
     let k = fade();
     let veil = container(Space::new().width(FADE_TAIL).height(high)).style(move |_: &Theme| {
@@ -2273,10 +2128,7 @@ pub fn control_button<'a, Message: Clone + 'a>(kind: Control, side: f32, on: Opt
     )
         .padding(0)
         .style(dimmed(theme::glyph, fade()));
-    match on {
-        Some(message) => springy(made.on_press(message), 0.09).into(),
-        None => made.into(),
-    }
+    made.on_press_maybe(on).into()
 }
 
 pub struct Seek<'a, Message> {
@@ -2310,7 +2162,7 @@ impl<Message> canvas::Program<Message> for Seek<'_, Message> {
                 return None;
             }
             let dt = elapsed(&mut state.last, *now);
-            state.knob = toward(state.knob, want, 0.3, dt);
+            state.knob = toward(state.knob, want, crate::motion::RESPONSE, dt);
             return Some(canvas::Action::request_redraw());
         }
         match event {
@@ -2452,8 +2304,8 @@ impl<Message> canvas::Program<Message> for Speed<'_, Message> {
                     state.last = None;
                 } else {
                     let dt = elapsed(&mut state.last, *at);
-                    state.shown = Some(toward(now, want, 0.26, dt));
-                    state.glow = toward(state.glow, lit, 0.3, dt);
+                    state.shown = Some(toward(now, want, crate::motion::RESPONSE, dt));
+                    state.glow = toward(state.glow, lit, crate::motion::RESPONSE, dt);
                 }
                 (!still).then(canvas::Action::request_redraw)
             }
@@ -2576,7 +2428,7 @@ impl<Message> canvas::Program<Message> for Level<'_, Message> {
                 return None;
             }
             let dt = elapsed(&mut state.last, *now);
-            state.knob = toward(state.knob, want, 0.3, dt);
+            state.knob = toward(state.knob, want, crate::motion::RESPONSE, dt);
             return Some(canvas::Action::request_redraw());
         }
         match event {
@@ -2885,7 +2737,7 @@ impl<Message> canvas::Program<Message> for Steps<'_, Message> {
             let dt = elapsed(&mut state.last, *now);
             for (side, want) in [(&mut state.label_side, want_label), (&mut state.value_side, want_value)] {
                 if (want - *side).abs() > 0.002 {
-                    *side = toward(*side, want, 0.3, dt);
+                    *side = toward(*side, want, crate::motion::RESPONSE, dt);
                     moving = true;
                 } else {
                     *side = want;
@@ -5024,8 +4876,8 @@ impl<'a, M: 'a> From<Marquee> for Element<'a, M> {
     }
 }
 
-pub const APPEAR: f32 = 0.34;
-pub const STAGGER: f32 = 0.04;
+pub const APPEAR: f32 = 0.2;
+pub const STAGGER: f32 = 0.0;
 pub const APPEAR_ALL: f32 = 1.4;
 pub const TALLY: f32 = 0.8;
 
@@ -5036,7 +4888,7 @@ pub fn tally(t: f32, delay: f32) -> f64 {
 
 pub fn appear(t: f32, index: usize) -> f32 {
     let x = ((t - index.min(16) as f32 * STAGGER) / APPEAR).clamp(0.0, 1.0);
-    1.0 - (1.0 - x).powi(3)
+    crate::motion::curve(x)
 }
 
 pub fn appearing<'a, M: 'a>(k: f32, build: impl FnOnce() -> Element<'a, M>) -> Element<'a, M> {
@@ -5758,7 +5610,7 @@ impl<Message> iced::advanced::Widget<Message, Theme, Renderer> for Hover<'_, Mes
                     state.last = None;
                 } else {
                     let dt = elapsed(&mut state.last, *now);
-                    state.lit = toward(state.lit, target, 0.2, dt);
+                    state.lit = toward(state.lit, target, crate::motion::RESPONSE, dt);
                     shell.request_redraw();
                 }
             }

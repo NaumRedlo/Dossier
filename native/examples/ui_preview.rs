@@ -22,6 +22,9 @@ fn main() -> Result<(), String> {
     }).unwrap_or(Size::new(980.0, 720.0));
     main.width = size.width;
     main.height = size.height;
+    if std::env::var("DOSSIER_PREVIEW_FREE").is_ok() {
+        main.behind_fade = iced::Animation::new(false);
+    }
     let action = args.next();
     let shot = if let Some(action) = action {
         use iced::{Event, Point, mouse, window};

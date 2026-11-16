@@ -911,7 +911,7 @@ mod tests {
     enum Action { Click(u8), Move(u8, Option<u8>) }
 
     fn rows() -> Board<'static, Action, u8> {
-        let pieces = (0..3).map(|key| (key, iced::widget::button(iced::widget::Space::new().width(Length::Fill).height(56)).padding(4).on_press(Action::Click(key)).into())).collect();
+        let pieces = (0..3).map(|key| (key, crate::button::button(iced::widget::Space::new().width(Length::Fill).height(56)).padding(4).on_press(Action::Click(key)).into())).collect();
         board(pieces, 4.0, Action::Move).across(1).anywhere()
     }
 

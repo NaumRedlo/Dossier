@@ -11,7 +11,7 @@ impl Main {
         let left = if shown { 1.0 - at } else { at };
         self.controls = Animation::new(!shown)
             .duration(span.mul_f32(left.clamp(0.2, 1.0)))
-            .easing(if shown { Easing::EaseOutCubic } else { Easing::EaseInOutCubic })
+            .easing(if shown { crate::motion::CURVE } else { Easing::EaseInOutCubic })
             .go(shown, now);
     }
 
@@ -36,11 +36,11 @@ impl Main {
         self.mini_player = false;
         let now = Instant::now();
         if fresh {
-            self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic).go(true, now);
+            self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(crate::motion::CURVE).go(true, now);
         }
         self.stirred = now;
         self.over_controls = false;
-        self.controls = Animation::new(true).duration(CONTROLS_IN).easing(Easing::EaseOutCubic);
+        self.controls = Animation::new(true).duration(CONTROLS_IN).easing(crate::motion::CURVE);
         let manner = player::Manner { level: self.settings.player_level, muted: self.settings.player_muted, rate: self.settings.player_rate };
         self.player = Some(std::rc::Rc::new(std::cell::RefCell::new(player::Player::open(&ffmpeg, &path, media, manner))));
         self.open_video = None;
@@ -107,11 +107,11 @@ impl Main {
                 self.asking_delete = false;
                 self.scrubbing = None;
                 self.hint = None;
-                self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic).go(true, Instant::now());
+                self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(crate::motion::CURVE).go(true, Instant::now());
                 self.cinema.go_mut(true, Instant::now());
                 self.stirred = Instant::now();
                 self.over_controls = false;
-                self.controls = Animation::new(true).duration(CONTROLS_IN).easing(Easing::EaseOutCubic);
+                self.controls = Animation::new(true).duration(CONTROLS_IN).easing(crate::motion::CURVE);
                 let manner = player::Manner { level: self.settings.player_level, muted: self.settings.player_muted, rate: self.settings.player_rate };
                 ui::in_thread(move || {
                     let media = videos::probe(&ffmpeg, &path);
@@ -175,7 +175,7 @@ impl Main {
                 let shown = if self.overlay != home { self.update(Message::Show(home)) } else { Task::none() };
                 self.mini_player = false;
                 let now = Instant::now();
-                self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(Easing::EaseOutCubic).go(true, now);
+                self.stage_open = Animation::new(false).duration(STAGE_OPEN).easing(crate::motion::CURVE).go(true, now);
                 self.cinema.go_mut(true, now);
                 self.stirred = now;
                 shown

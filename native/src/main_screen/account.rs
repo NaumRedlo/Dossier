@@ -183,7 +183,7 @@ impl Main {
         match message {
             Message::SignIn => {
                 self.menu = None;
-                self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic);
+                self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(crate::motion::CURVE);
                 if self.signed_in() || matches!(self.pairing, Pairing::Waiting { .. }) {
                     return Task::none();
                 }
@@ -328,7 +328,7 @@ impl Main {
                 self.avatar = None;
                 self.sharing = sharing::State::default();
                 self.menu = None;
-                self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(Easing::EaseOutCubic);
+                self.menu_open = Animation::new(false).duration(MENU_OPEN).easing(crate::motion::CURVE);
                 Task::none()
             }
             Message::Known(Ok(me)) => {

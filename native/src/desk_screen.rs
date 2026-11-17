@@ -533,10 +533,6 @@ impl State {
         slots
     }
 
-    pub fn presence_animating(&self) -> bool {
-        self.presence.iter().any(|person| !person.mine)
-    }
-
     pub fn presence_context(&self) -> (String, Option<i64>) {
         let map = match self.tab {
             Tab::Queue => self.inspecting.or_else(|| self.task().map(|task| task.map.beatmap_id)),

@@ -780,6 +780,8 @@ fn a_batch_in_flight_shows_progress_and_cannot_be_submitted_twice() {
 }
 
 
+const CATALOG_TABLE_WIDEST: f32 = 1240.0 - 320.0 - 16.0;
+
 #[test]
 fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
     let backdrop = dossier_native::ui::backdrop_handle();
@@ -803,7 +805,7 @@ fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
         let tabs = ui.find(iced::widget::Id::new("desk-tabs")).unwrap().bounds();
         assert!((tabs.center_x() - work.center_x()).abs() < 1.0, "tabs must be centered: {tabs:?}, {work:?}");
         assert!((area.center_x() - work.center_x()).abs() < 1.0, "workspace must be centered: {area:?}, {work:?}");
-        if width == 1600.0 { assert!(table.width <= 900.0, "table background stretched: {table:?}"); }
+        if width == 1600.0 { assert!(table.width <= CATALOG_TABLE_WIDEST + 0.5, "table background stretched: {table:?}"); }
         if width == 1600.0 { assert!(table.height < 650.0, "table background stretched downward: {table:?}"); }
         assert!(ui.find(catalog.words.t("desk-gaps-title")).is_ok(), "without a cell the side panel points at the gaps");
         drop(ui);
@@ -812,7 +814,7 @@ fn balance_back_and_catalogue_panels_do_not_stretch_across_empty_space() {
         adding.height = 1000.0;
         let mut ui = Simulator::with_size(dossier_native::settings(), Size::new(width, adding.height), gallery::main_frame(&adding, &backdrop));
         let table = ui.find(iced::widget::Id::new("desk-catalog-table")).unwrap().bounds();
-        if width == 1600.0 { assert!(table.width <= 900.0, "the add panel must not widen the table: {table:?}"); }
+        if width == 1600.0 { assert!(table.width <= CATALOG_TABLE_WIDEST + 0.5, "the add panel must not widen the table: {table:?}"); }
         assert!(ui.find(adding.words.t("desk-add-map-model")).is_ok());
         assert!(ui.find(adding.words.t("desk-map-unranked-note")).is_ok(), "a graveyard map warns while Kamerton would decide");
         drop(ui);
@@ -904,7 +906,7 @@ fn balance_journal_restores_names_for_maps_removed_from_batches() {
 
 
 #[test]
-fn balance_presence_animates_on_gpu_and_keeps_cells_clickable() {
+fn balance_presence_holds_still_and_keeps_cells_clickable() {
     use dossier_native::{community_screen, desk_screen, main_screen, Message};
     let (_, mut main) = gallery::main_states(Lang::Ru).into_iter().find(|(name, _)| name == "main-community-balance-catalog-workers").unwrap();
     main.width = 1600.0;
@@ -924,7 +926,7 @@ fn balance_presence_animates_on_gpu_and_keeps_cells_clickable() {
         ui.simulate(iced_test::simulator::click());
         assert!(ui.into_messages().any(|message| matches!(message, Message::Main(main_screen::Message::Community(community_screen::Message::Desk(desk_screen::Message::Band(slot, 2)))) if slot == "NM2")), "the dashed border must not capture cell clicks");
     }
-    assert_ne!(captures[0], captures[1], "presence dashes must move between frames");
+    assert!(captures[0] == captures[1], "a presence mark is laid out from its corners and stays where it is, so it asks for no frames");
 }
 
 

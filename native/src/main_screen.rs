@@ -1650,7 +1650,7 @@ impl Main {
         }
         if !self.gallery && !self.hidden && !self.minimized && self.overlay == Overlay::Community && self.community_section == crate::community_screen::Section::Balance && !self.duels.roles.is_empty() {
             parts.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::PresenceTick))));
-            if self.desk.posting || self.desk.loading || self.desk.inspecting.is_some() || self.desk.presence_animating() {
+            if self.desk.posting || self.desk.loading || self.desk.inspecting.is_some() {
                 parts.push(iced::time::every(Duration::from_millis(60)).map(|_| Message::Community(crate::community_screen::Message::Desk(crate::desk_screen::Message::BusyFrame))));
             }
         }

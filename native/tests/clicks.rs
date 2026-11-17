@@ -84,7 +84,7 @@ fn the_three_words_and_the_frames_answer_to_clicks() {
     let mut ui = Simulator::with_size(dossier_native::settings(), iced::Size::new(980.0, 720.0), gallery::main_frame(&staged, &backdrop));
     let _ = ui.click("FREEDOM DiVE").expect("clicked");
     let messages: Vec<_> = ui.into_messages().collect();
-    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Choose(_)))), "a click on a map set produced {messages:?}");
+    assert!(messages.iter().any(|m| matches!(m, dossier_native::Message::Main(M::Head(_)))), "a click on a map set produced {messages:?}");
 }
 
 #[test]

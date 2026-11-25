@@ -119,6 +119,14 @@ pub struct Settings {
     pub overlay_pp: bool,
     #[serde(default = "yes")]
     pub overlay_rate: bool,
+    #[serde(default = "yes")]
+    pub overlay_maxpp: bool,
+    #[serde(default = "yes")]
+    pub overlay_maxcombo: bool,
+    #[serde(default = "yes")]
+    pub overlay_profile: bool,
+    #[serde(default = "yes")]
+    pub overlay_duel: bool,
     #[serde(default)]
     pub history_share: bool,
     #[serde(default)]
@@ -985,6 +993,10 @@ impl Settings {
             card: self.overlay_card,
             pp: self.overlay_pp,
             rate: self.overlay_rate,
+            maxpp: self.overlay_maxpp,
+            maxcombo: self.overlay_maxcombo,
+            profile: self.overlay_profile,
+            duel: self.overlay_duel,
         }
     }
 
@@ -1061,6 +1073,10 @@ impl Default for Settings {
             overlay_card: true,
             overlay_pp: true,
             overlay_rate: true,
+            overlay_maxpp: true,
+            overlay_maxcombo: true,
+            overlay_profile: true,
+            overlay_duel: true,
             history_share: false,
             history_sent: 0,
             worker_done: 0,

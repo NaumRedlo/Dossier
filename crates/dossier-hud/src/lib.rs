@@ -20,6 +20,8 @@ pub const TICK_SECONDS: f32 = 0.45;
 pub const RATE_HALF_LIFE: f32 = 0.12;
 pub const METER_HIGH: f32 = 30.0;
 pub const HOLD_SECONDS: f32 = 0.5;
+pub const GLIDE_SECONDS: f32 = 0.22;
+pub const SLIDE: f32 = 22.0;
 pub const SCALES: [u16; 6] = [70, 80, 90, 100, 115, 130];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -101,6 +103,19 @@ pub struct Notice {
     pub tone: Tone,
 }
 
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Profile {
+    pub name: String,
+    pub pp: f64,
+    pub rank: u64,
+    pub country: String,
+    pub country_rank: u64,
+    pub accuracy: f64,
+    pub plays: u64,
+    pub level: f64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Look {
@@ -109,6 +124,10 @@ pub struct Look {
     pub card: bool,
     pub pp: bool,
     pub rate: bool,
+    pub maxpp: bool,
+    pub maxcombo: bool,
+    pub profile: bool,
+    pub duel: bool,
 }
 
 impl Default for Look {
@@ -119,6 +138,10 @@ impl Default for Look {
             card: true,
             pp: true,
             rate: true,
+            maxpp: true,
+            maxcombo: true,
+            profile: true,
+            duel: true,
         }
     }
 }
@@ -147,6 +170,7 @@ pub fn scale_step(scale: u16, by: i32) -> u16 {
 pub enum Panel {
     Tuning,
     Hidden,
+    Board,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -160,6 +184,10 @@ pub struct Context {
     pub look: Look,
     pub hidden: bool,
     pub panel: Option<Panel>,
+    pub board: f32,
+    pub profile: Option<Profile>,
+    pub profile_shown: f32,
+    pub duel: Option<u64>,
     pub greet: bool,
     pub ticked: bool,
 }
@@ -307,6 +335,7 @@ pub enum Anchor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Placed {
+    pub glide: f32,
     pub key: &'static str,
     pub anchor: Anchor,
     pub x: f32,
@@ -322,6 +351,7 @@ fn stacked(key: [&'static str; 2], anchor: Anchor, from: f32, nodes: Vec<Node>) 
         .map(|(node, key)| {
             let high = node.measure().1;
             let placed = Placed {
+            glide: 1.0,
                 key,
                 anchor,
                 x: EDGE,
@@ -339,6 +369,7 @@ const GAP: f32 = 8.0;
 fn top_centre(key: &'static str, node: Node) -> Placed {
     let wide = node.measure().0;
     Placed {
+            glide: 1.0,
         key,
         anchor: Anchor::TopCentre,
         x: -wide / 2.0,
@@ -365,6 +396,18 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
     if context.panel == Some(Panel::Tuning) && !playing {
         placed.push(top_centre("tuning", plates::tuning(look.scale, lang)));
     }
+    let board = context.board > 0.01;
+    if board {
+        let node = plates::board(&context.notices, lang);
+        placed.push(Placed {
+            glide: context.board,
+            key: "board",
+            anchor: Anchor::TopRight,
+            x: EDGE,
+            y: EDGE,
+            node,
+        });
+    }
     let tick = context.ticked.then_some(stage.tick);
     let mut corner = vec![("tile", plates::tile(lang, stage.greeted(), tick))];
     match screen {
@@ -372,7 +415,7 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
             let notices: Vec<Node> = context
                 .notices
                 .iter()
-                .filter(|_| look.notices)
+                .filter(|_| look.notices && !board)
                 .take(2)
                 .map(plates::notice)
                 .collect();
@@ -384,6 +427,9 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
             ));
         }
         Screen::Selection => {
+            // Where the ceiling stands does not depend on the chat's top, which comes later than the map:
+            // a plate that has been dragged is placed from this spot, and it must not move when the top arrives.
+            let above = EDGE + plates::card_height() + GAP;
             if let Some(node) = context
                 .card
                 .as_ref()
@@ -391,11 +437,46 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
                 .and_then(|card| plates::card(card, lang))
             {
                 placed.push(Placed {
+                    glide: 1.0,
                     key: "card",
                     anchor: Anchor::BottomLeft,
                     x: EDGE,
                     y: EDGE,
                     node,
+                });
+            }
+            if let Some(pp) = view
+                .snapshot
+                .beatmap
+                .as_ref()
+                .and_then(|map| map.max_pp)
+                .filter(|pp| pp.is_finite() && *pp > 0.0 && look.maxpp)
+            {
+                let mods = view.snapshot.beatmap.as_ref().map_or(0, |map| map.max_pp_mods);
+                placed.push(Placed {
+                    glide: 1.0,
+                    key: "maxpp",
+                    anchor: Anchor::BottomLeft,
+                    x: EDGE,
+                    y: above,
+                    node: plates::max_pp(pp, mods, lang),
+                });
+            }
+            if let Some(combo) = view
+                .snapshot
+                .beatmap
+                .as_ref()
+                .and_then(|map| map.max_combo)
+                .filter(|combo| *combo > 0 && look.maxcombo)
+            {
+                // Beside the ceiling, at a place of its own that depends on nothing else on the screen.
+                placed.push(Placed {
+                    glide: 1.0,
+                    key: "maxcombo",
+                    anchor: Anchor::BottomLeft,
+                    x: EDGE + plates::MAX_PP_WIDE + GAP,
+                    y: above,
+                    node: plates::max_combo(combo, lang),
                 });
             }
         }
@@ -409,6 +490,7 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
                     let node = plates::rate(rate, lang, meter.scale);
                     let wide = node.measure().0;
                     placed.push(Placed {
+            glide: 1.0,
                         key: "rate",
                         anchor: Anchor::BottomCentre,
                         x: -wide / 2.0,
@@ -427,10 +509,38 @@ pub fn plan(view: Option<&View>, context: &Context, stage: &Stage) -> Vec<Placed
         }
         _ => {}
     }
+    if let Some(profile) = context.profile.as_ref().filter(|_| look.profile) {
+        let glide = context.profile_shown.max(context.board);
+        if glide > 0.01 {
+            placed.push(Placed {
+                glide,
+                key: "profile",
+                anchor: Anchor::TopLeft,
+                x: EDGE,
+                y: EDGE,
+                node: plates::profile(profile, lang),
+            });
+        }
+    }
+    if let Some(seconds) = context.duel.filter(|_| look.duel && !playing) {
+        let tuning = context.panel == Some(Panel::Tuning);
+        let node = plates::duel(seconds, lang);
+        let wide = node.measure().0;
+        let drop = if tuning { 130.0 } else { 0.0 };
+        placed.push(Placed {
+            glide: 1.0,
+            key: "duel",
+            anchor: Anchor::TopCentre,
+            x: -wide / 2.0,
+            y: EDGE + drop,
+            node,
+        });
+    }
     let mut pen = EDGE;
     for (key, node) in corner {
         let high = node.measure().1;
         placed.push(Placed {
+            glide: 1.0,
             key,
             anchor: Anchor::BottomRight,
             x: EDGE,
@@ -450,17 +560,51 @@ pub struct Sprite {
     pub width: u32,
     pub height: u32,
     pub pixels: Vec<u8>,
+    /// Where the cross that closes the plate is, as its centre and radius in the sprite's pixels.
+    pub cross: Option<(i32, i32, i32)>,
+}
+
+/// The plates that have a cross on them while the panel is open, as they are named by their keys.
+pub fn closable(key: &str) -> bool {
+    matches!(key, "pp" | "rate" | "notice-1" | "notice-2" | "card" | "maxpp" | "maxcombo" | "profile" | "duel" | "board")
+}
+
+/// The switch in `Look` that a plate answers to, or none for the plates that have no switch.
+pub fn switch_of(key: &str) -> Option<&'static str> {
+    match key {
+        "pp" => Some("pp"),
+        "rate" => Some("rate"),
+        "notice-1" | "notice-2" => Some("notices"),
+        "card" => Some("card"),
+        "maxpp" => Some("maxpp"),
+        "maxcombo" => Some("maxcombo"),
+        "profile" => Some("profile"),
+        "duel" => Some("duel"),
+        _ => None,
+    }
 }
 
 pub fn unit(viewport: Viewport, look: Look) -> f32 {
     (viewport.height as f32 / REFERENCE_HIGH * SIZE * look.share()).clamp(0.4, 5.0)
 }
 
-pub fn paint(placed: &Placed, viewport: Viewport, unit: f32) -> Option<Sprite> {
+pub fn paint(placed: &Placed, viewport: Viewport, unit: f32, crossed: bool) -> Option<Sprite> {
     let (wide, high) = placed.node.measure();
     let room = 12.0;
     let mut canvas = draw::Canvas::new(wide + room * 2.0, high + room * 2.0, unit)?;
+    canvas.set_alpha(placed.glide);
     placed.node.draw(&mut canvas, room, room, wide);
+    let cross = (crossed && closable(placed.key)).then(|| {
+        let (cx, cy, radius) = (room + wide - 3.0, room + 3.0, 8.0);
+        canvas.disc(cx, cy, radius, draw::rgb(0x3a1216, 0.96));
+        canvas.line(&[(cx - 3.0, cy - 3.0), (cx + 3.0, cy + 3.0)], 1.6, draw::rgb(0xf4e9e6, 1.0));
+        canvas.line(&[(cx - 3.0, cy + 3.0), (cx + 3.0, cy - 3.0)], 1.6, draw::rgb(0xf4e9e6, 1.0));
+        (
+            (cx * unit).round() as i32,
+            (cy * unit).round() as i32,
+            (radius * unit).round().max(6.0) as i32,
+        )
+    });
     let (frame_wide, frame_high) = (viewport.width as f32 / unit, viewport.height as f32 / unit);
     let (left, top) = match placed.anchor {
         Anchor::TopLeft => (placed.x, placed.y),
@@ -470,6 +614,13 @@ pub fn paint(placed: &Placed, viewport: Viewport, unit: f32) -> Option<Sprite> {
         Anchor::BottomCentre => (frame_wide / 2.0 + placed.x, frame_high - placed.y - high),
         Anchor::TopCentre => (frame_wide / 2.0 + placed.x, placed.y),
     };
+    let slide = (1.0 - placed.glide.clamp(0.0, 1.0)) * SLIDE;
+    let (left, top) = match placed.anchor {
+        Anchor::TopRight | Anchor::BottomRight => (left + slide, top),
+        Anchor::TopLeft | Anchor::BottomLeft => (left - slide, top),
+        Anchor::TopCentre => (left, top - slide),
+        Anchor::BottomCentre => (left, top + slide),
+    };
     Some(Sprite {
         key: placed.key,
         x: ((left - room) * unit).round() as i32,
@@ -477,6 +628,7 @@ pub fn paint(placed: &Placed, viewport: Viewport, unit: f32) -> Option<Sprite> {
         width: canvas.pixmap.width(),
         height: canvas.pixmap.height(),
         pixels: canvas.pixmap.take(),
+        cross,
     })
 }
 
@@ -489,7 +641,7 @@ pub fn sprites(
     let unit = unit(viewport, context.look);
     plan(view, context, stage)
         .iter()
-        .filter_map(|placed| paint(placed, viewport, unit))
+        .filter_map(|placed| paint(placed, viewport, unit, context.board > 0.01))
         .collect()
 }
 
@@ -906,5 +1058,143 @@ mod tests {
         assert_eq!(bare, Context::default());
         let (view, _) = frame("play");
         assert_eq!(keys(&view, &bare), ["tile"]);
+    }
+
+    #[test]
+    fn song_select_shows_the_ceiling_of_the_map_and_other_screens_do_not() {
+        let (mut view, context) = frame("select");
+        assert!(!keys(&view, &context).contains(&"maxpp"), "a map without a ceiling shows none");
+        view.snapshot.beatmap = Some(dossier_overlay::Beatmap {
+            md5: "a".repeat(32),
+            title: String::new(),
+            artist: String::new(),
+            difficulty: String::new(),
+            max_pp: Some(412.6),
+            max_pp_mods: 0,
+            max_combo: None,
+        });
+        assert!(keys(&view, &context).contains(&"maxpp"));
+        let off = Context { look: Look { maxpp: false, ..Look::default() }, ..context.clone() };
+        assert!(!keys(&view, &off).contains(&"maxpp"), "its own switch turns it off");
+        let (mut menu, menu_context) = frame("menu");
+        menu.snapshot.beatmap = view.snapshot.beatmap.clone();
+        assert!(!keys(&menu, &menu_context).contains(&"maxpp"));
+    }
+
+    #[test]
+    fn the_profile_is_one_plate_and_fades_with_its_glide() {
+        let (view, context) = frame("menu");
+        let shown = Context {
+            profile: Some(Profile { name: "hmosha".into(), rank: 6546, ..Profile::default() }),
+            profile_shown: 0.5,
+            ..context.clone()
+        };
+        let plates = plan(Some(&view), &shown, &Stage::settled(Some(&view), &shown));
+        let mine: Vec<_> = plates.iter().filter(|p| p.key == "profile").collect();
+        assert_eq!(mine.len(), 1);
+        assert!((mine[0].glide - 0.5).abs() < 1e-6);
+        let closed = Context { profile_shown: 0.0, ..shown };
+        assert!(!keys(&view, &closed).contains(&"profile"));
+    }
+
+    #[test]
+    fn the_profile_opens_with_the_board_as_well_as_on_its_own_key() {
+        let (view, context) = frame("menu");
+        let base = Context { profile: Some(Profile { name: "a".into(), ..Profile::default() }), ..context };
+        assert!(!keys(&view, &base).contains(&"profile"), "neither is open");
+        let board = Context { board: 1.0, ..base.clone() };
+        assert!(keys(&view, &board).contains(&"profile"));
+        let own = Context { profile_shown: 1.0, ..base };
+        assert!(keys(&view, &own).contains(&"profile"));
+    }
+
+    #[test]
+    fn the_ceiling_stands_still_when_the_chats_top_arrives() {
+        let (mut view, context) = frame("select");
+        view.snapshot.beatmap = Some(dossier_overlay::Beatmap {
+            md5: "a".repeat(32),
+            title: String::new(),
+            artist: String::new(),
+            difficulty: String::new(),
+            max_pp: Some(300.0),
+            max_pp_mods: 0,
+            max_combo: None,
+        });
+        let at = |context: &Context| {
+            plan(Some(&view), context, &Stage::settled(Some(&view), context))
+                .into_iter()
+                .find(|placed| placed.key == "maxpp")
+                .map(|placed| (placed.x, placed.y))
+        };
+        let without = Context { card: None, ..context.clone() };
+        assert!(context.card.is_some(), "the sample has a top");
+        assert_eq!(at(&without), at(&context));
+    }
+
+    #[test]
+    fn crosses_are_drawn_only_while_the_panel_is_open_and_only_on_plates_that_can_be_closed() {
+        let (view, context) = frame("menu");
+        let sprites = |context: &Context| {
+            let viewport = Viewport { width: 1280, height: 720, scale: 1.0 };
+            sprites(Some(&view), context, &Stage::settled(Some(&view), context), viewport)
+        };
+        assert!(sprites(&context).iter().all(|sprite| sprite.cross.is_none()), "no panel, no crosses");
+        let open = Context { board: 1.0, ..context.clone() };
+        let drawn = sprites(&open);
+        for sprite in &drawn {
+            assert_eq!(sprite.cross.is_some(), closable(sprite.key), "{}", sprite.key);
+        }
+        assert!(drawn.iter().any(|sprite| sprite.key == "board" && sprite.cross.is_some()));
+        assert!(drawn.iter().any(|sprite| sprite.key == "tile" && sprite.cross.is_none()), "the tile has no switch");
+        let (x, y, radius) = drawn.iter().find(|sprite| sprite.key == "board").and_then(|sprite| sprite.cross).unwrap();
+        assert!(x > 0 && y > 0 && radius >= 6);
+    }
+
+    #[test]
+    fn a_duel_search_shows_its_time_unless_switched_off_or_in_a_play() {
+        let (view, context) = frame("menu");
+        let searching = Context { duel: Some(65), ..context };
+        assert!(keys(&view, &searching).contains(&"duel"));
+        let off = Context { look: Look { duel: false, ..Look::default() }, ..searching.clone() };
+        assert!(!keys(&view, &off).contains(&"duel"));
+        let (play, _) = frame("play");
+        assert!(!keys(&play, &searching).contains(&"duel"), "a play is not interrupted by the queue");
+    }
+
+    #[test]
+    fn every_closable_plate_but_the_panel_has_a_switch() {
+        for key in ["pp", "rate", "notice-1", "notice-2", "card", "maxpp", "maxcombo", "profile", "duel"] {
+            assert!(closable(key) && switch_of(key).is_some(), "{key}");
+        }
+        assert!(closable("board") && switch_of("board").is_none());
+        assert!(!closable("tile") && switch_of("tile").is_none());
+    }
+
+    #[test]
+    fn the_max_combo_stands_beside_the_ceiling_and_has_its_own_switch() {
+        let (mut view, context) = frame("select");
+        view.snapshot.beatmap = Some(dossier_overlay::Beatmap {
+            md5: "a".repeat(32),
+            title: String::new(),
+            artist: String::new(),
+            difficulty: String::new(),
+            max_pp: Some(300.0),
+            max_pp_mods: 0,
+            max_combo: Some(1843),
+        });
+        let find = |context: &Context, key: &str| {
+            plan(Some(&view), context, &Stage::settled(Some(&view), context)).into_iter().find(|placed| placed.key == key)
+        };
+        let (pp, combo) = (find(&context, "maxpp").unwrap(), find(&context, "maxcombo").unwrap());
+        assert_eq!(pp.y, combo.y, "they stand on one line");
+        assert!(combo.x >= pp.x + pp.node.measure().0, "and do not overlap");
+        let without_pp = Context { look: Look { maxpp: false, ..Look::default() }, ..context.clone() };
+        assert_eq!(find(&without_pp, "maxcombo").map(|placed| placed.x), Some(combo.x), "it does not move when the ceiling is switched off");
+        let off = Context { look: Look { maxcombo: false, ..Look::default() }, ..context.clone() };
+        assert!(find(&off, "maxcombo").is_none());
+        let mut unknown = view.clone();
+        unknown.snapshot.beatmap.as_mut().unwrap().max_combo = None;
+        let plates = plan(Some(&unknown), &context, &Stage::settled(Some(&unknown), &context));
+        assert!(plates.iter().all(|placed| placed.key != "maxcombo"), "a map without a known combo shows none");
     }
 }

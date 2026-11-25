@@ -246,6 +246,10 @@ impl Canvas {
         }
     }
 
+    pub fn set_alpha(&mut self, alpha: f32) {
+        self.alpha = alpha.clamp(0.0, 1.0);
+    }
+
     pub fn disc(&mut self, x: f32, y: f32, radius: f32, fill: Rgba) {
         self.plate(
             x - radius,

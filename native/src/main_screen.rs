@@ -1193,10 +1193,22 @@ impl Main {
         }
     }
 
+    fn overlay_profile(&self) -> Option<dossier_hud::Profile> {
+        let osu = self.osu_card.clone().or_else(crate::osu_profile::load);
+        let community = self.community_card.clone().or_else(crate::community::wire::load_card);
+        crate::witness::overlay_profile(osu.as_ref(), community.as_ref())
+    }
+
     fn overlay_dressed(&self) {
         if let Some(control) = &self.witness_control {
             let look = self.settings.overlay_look();
-            control.dress(|extras| extras.look = Some(look));
+            let profile = self.overlay_profile();
+            let duel = self.duels.searching.map(|since| since.max(0) as u64 * 1000);
+            control.dress(|extras| {
+                extras.look = Some(look);
+                extras.profile = profile;
+                extras.duel_since_ms = duel;
+            });
         }
     }
 
@@ -1211,7 +1223,13 @@ impl Main {
         let control = std::sync::Arc::new(crate::witness::Control::default());
         control.show(self.witness_overlay());
         let look = self.settings.overlay_look();
-        control.dress(|extras| extras.look = Some(look));
+        let profile = self.overlay_profile();
+        let duel = self.duels.searching.map(|since| since.max(0) as u64 * 1000);
+        control.dress(|extras| {
+            extras.look = Some(look);
+            extras.profile = profile;
+            extras.duel_since_ms = duel;
+        });
         control.stream_cursor(self.duel_cursor.clone());
         self.witness_control = Some(control.clone());
         let untold = self.witness.untold;
@@ -1330,6 +1348,25 @@ impl Main {
 
     fn overlay_task(&mut self, event: &crate::witness::Event) -> Task<Message> {
         use crate::witness::Event;
+        if let Event::OverlayShut(mask) = event {
+            for (name, bit) in crate::witness::PLATE_BITS {
+                if mask & bit != 0 {
+                    match name {
+                        "pp" => self.settings.overlay_pp = false,
+                        "rate" => self.settings.overlay_rate = false,
+                        "notices" => self.settings.overlay_notices = false,
+                        "card" => self.settings.overlay_card = false,
+                        "maxpp" => self.settings.overlay_maxpp = false,
+                        "maxcombo" => self.settings.overlay_maxcombo = false,
+                        "profile" => self.settings.overlay_profile = false,
+                        _ => self.settings.overlay_duel = false,
+                    }
+                }
+            }
+            let _ = self.settings.save();
+            self.overlay_dressed();
+            return Task::none();
+        }
         if let Event::OverlayScale(scale) = event {
             self.settings.overlay_scale = *scale;
             let _ = self.settings.save();
@@ -3917,7 +3954,11 @@ impl Main {
                             effects.extend(self.duels.update(crate::duels_screen::Message::PreviewEnded, unix_now()));
                         }
                         self.now_unix = unix_now();
+                        let was_searching = self.duels.searching;
                         effects.extend(self.duels.update(inner, self.now_unix));
+                        if self.duels.searching != was_searching {
+                            self.overlay_dressed();
+                        }
                         return self.duels_work(effects);
                     }
                     C::Desk(inner) => {
@@ -4602,6 +4643,7 @@ impl Main {
                 card.remember_country_rank(self.community_card.as_ref(), unix_now());
                 crate::community::wire::save_card(&card);
                 self.community_card = Some(card);
+                self.overlay_dressed();
                 self.remerge();
                 let pictures = self.community_pictures_task();
                 Task::batch([pictures, self.pools_work(Vec::new())])
@@ -7218,12 +7260,20 @@ impl Main {
                     "notices" => "overlay-show-notices",
                     "card" => "overlay-show-card",
                     "pp" => "overlay-show-pp",
+                    "maxpp" => "overlay-show-maxpp",
+                    "maxcombo" => "overlay-show-maxcombo",
+                    "profile" => "overlay-show-profile",
+                    "duel" => "overlay-show-duel",
                     _ => "overlay-show-rate",
                 }, on);
                 let shown = match key {
                     "notices" => &mut self.settings.overlay_notices,
                     "card" => &mut self.settings.overlay_card,
                     "pp" => &mut self.settings.overlay_pp,
+                    "maxpp" => &mut self.settings.overlay_maxpp,
+                    "maxcombo" => &mut self.settings.overlay_maxcombo,
+                    "profile" => &mut self.settings.overlay_profile,
+                    "duel" => &mut self.settings.overlay_duel,
                     _ => &mut self.settings.overlay_rate,
                 };
                 *shown = on;

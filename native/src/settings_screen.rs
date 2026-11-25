@@ -710,6 +710,10 @@ fn one<'a>(ground: &Ground<'a>, tile: Tile) -> Element<'a, Message> {
                 ("card", "overlay-show-card", s.overlay_card),
                 ("pp", "overlay-show-pp", s.overlay_pp),
                 ("rate", "overlay-show-rate", s.overlay_rate),
+                ("maxpp", "overlay-show-maxpp", s.overlay_maxpp),
+                ("maxcombo", "overlay-show-maxcombo", s.overlay_maxcombo),
+                ("profile", "overlay-show-profile", s.overlay_profile),
+                ("duel", "overlay-show-duel", s.overlay_duel),
             ];
             for (at, (key, words, on)) in shows.into_iter().enumerate() {
                 panel = panel.push(container(pill(ground, words, w.t(words), on, Message::OverlayShows(key, !on))).padding(Padding::ZERO.top(if at == 0 { 10.0 } else { 4.0 })));

@@ -64,10 +64,27 @@ while the game is in front (`dossier_hud::hold::Chords`, one action per press):
   writes `{"event":"look","scale":N}` on its output; Dossier keeps it in the
   settings and sends it back with the packet. Until that packet arrives, at most
   three seconds, the overlay keeps its own value.
+- **Ctrl+Shift+D** opens and closes the Dossier panel, a Discord-style column in the
+  top right corner that lists Dossier's recent notices (the chat's top has a plate of its
+  own). Unlike a note it stays until the key is pressed again, and it is
+  closed together with the plates by Ctrl+Shift+H. While it is open the menu's own
+  notices are not drawn a second time. The panel is read-only; it takes no clicks, and unlike the size keys it opens during a play too.
+  While it is open every plate takes the mouse: drag one with the left button, send
+  it back to its place with the right one. The places are kept in
+  `witness-overlay-layout.txt` in the user's temporary folder (usually `%TEMP%`
+  on Windows, or the Wine prefix's temporary folder), as offsets from
+  where each plate would otherwise stand, and a plate cannot be dragged out of the
+  game's picture.
+- **Ctrl+Shift+P** opens and closes the profile: one plate at the top left with the
+  player's name, world and country rank, and below them PP, accuracy, play count and level.
+  It is Dossier's own osu! profile, the one it keeps in `osu-profile.json`, sent in
+  the context packet (`packet.profile`). It works during a play and does not take the
+  mouse. The same plate is shown whenever the Dossier panel (Ctrl+Shift+D) is open, so
+  that the panel also lets one move it.
 - **Ctrl+Shift+H** hides every plate and brings them back. A short note says
   how to bring them back; while hidden, the send key does nothing.
 
-None of them works during a play but the hiding, because stable reads + and −
+None of them works during a play but the hiding and the panel, because stable reads + and −
 there for the offset.
 
 ## Context
@@ -303,3 +320,41 @@ the user's report, were not seen over the game, which ran in a window there.
 
 No host draws these sprites inside a client: Witness shows them from outside.
 Avatars and map covers are placeholders.
+
+
+## Glide and the ceiling
+
+The panel and the profile glide in and out instead of jumping: the overlay eases
+`Context::board` and `Context::profile_shown` over `GLIDE_SECONDS` and a plate's
+`Placed::glide` fades it and slides it `SLIDE` units from its edge. While the mouse is in
+use the overlay loop runs every 8 ms, so that a dragged plate keeps up.
+
+On song select a plate shows the most PP the map can give: a perfect play with the mods
+ticked on the screen, worked out by Witness from the map's file once per map and set of
+mods (`Beatmap::max_pp` and `max_pp_mods`, absent for other rulesets or when the file cannot
+be read) and shown while the PP switch is on. The ticked mods are read from the game
+(`stable::menu_mods`) by the instruction that sets a flag beside them (`MENU_MODS`). The
+signature has not been measured against a running client yet: a value that cannot be a set
+of mods is not believed, and with no value the plate falls back to no mods.
+
+## The duel search and the crosses
+
+While Dossier is searching for a duel, a plate at the top centre shows the time in the queue,
+counting up as minutes and seconds (`plates::duel`). Dossier sends the moment the search began
+in the packet (`packet.duel_since_ms`, from `duels.searching`); the overlay does the counting, so the
+number moves without new packets. A play is not interrupted by it, and it has its own switch.
+
+While the panel (Ctrl+Shift+D) is open, every plate that has a switch gets a cross at its top
+right corner (`closable`, `switch_of`), and the panel itself has one that closes it. Pressing a cross
+switches the plate off in the overlay at once and writes `{"event":"off","plate":"<name>"}` on its
+output; Dossier turns off the matching tick in its settings (overlay section) and sends the look back. If
+Dossier does not agree within `SHUT_FOR` the plate returns, so that the overlay never differs from the
+settings for long. The names are `pp`, `rate`, `notices` (both notices), `card`, `maxpp`, `profile`
+and `duel`; the tile and the offer have no switch and no cross.
+
+## The map's max combo
+
+Beside the ceiling on song select stands a plate with the most combo the map allows
+(`Beatmap::max_combo`, from the same reading of the map's file as the ceiling, with the mods ticked).
+It stands at a place of its own to the right of the ceiling, so that it does not move when the ceiling
+or the chat's top come or go, and it has its own switch (`maxcombo`) and cross.

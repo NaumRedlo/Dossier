@@ -25,8 +25,16 @@ const CTRL: i32 = 0x11;
 const ALT: i32 = 0x12;
 const WINDOWS: [i32; 2] = [0x5B, 0x5C];
 const HIDE_KEY: i32 = 0x48;
+const BOARD_KEY: i32 = 0x44;
+const PROFILE_KEY: i32 = 0x50;
 const BIGGER: [i32; 2] = [0xBB, 0x6B];
 const SMALLER: [i32; 2] = [0xBD, 0x6D];
+const LEFT_BUTTON: i32 = 0x01;
+const RIGHT_BUTTON: i32 = 0x02;
+const EX_STYLE: i32 = -20;
+const NO_SIZE_NO_ORDER_NO_ACTIVATE: u32 = 0x0001 | 0x0004 | 0x0010;
+const KEPT_IN_SIGHT: i32 = 48;
+const LAYOUT_FILE: &str = "witness-overlay-layout.txt";
 
 #[repr(C)]
 #[derive(Default)]
@@ -106,6 +114,9 @@ extern "system" {
     fn IsWindowVisible(window: isize) -> i32;
     fn SetProcessDPIAware() -> i32;
     fn GetWindow(window: isize, relation: u32) -> isize;
+    fn GetCursorPos(point: *mut Point) -> i32;
+    fn GetWindowLongPtrW(window: isize, index: i32) -> isize;
+    fn SetWindowLongPtrW(window: isize, index: i32, value: isize) -> isize;
     fn SetWindowPos(window: isize, after: isize, x: i32, y: i32, wide: i32, high: i32, flags: u32) -> i32;
 }
 
@@ -173,6 +184,8 @@ pub fn chord() -> Chord {
     Chord {
         ctrl_shift: down(CTRL) && down(SHIFT) && !down(ALT) && !WINDOWS.into_iter().any(down),
         hide: down(HIDE_KEY),
+        board: down(BOARD_KEY),
+        profile: down(PROFILE_KEY),
         bigger: BIGGER.into_iter().any(down),
         smaller: SMALLER.into_iter().any(down),
     }
@@ -191,6 +204,8 @@ struct Pane {
     size: (u32, u32),
     at: (i32, i32),
     pixels: Vec<u8>,
+    base: (i32, i32),
+    cross: Option<(i32, i32, i32)>,
     shown: bool,
 }
 
@@ -203,7 +218,7 @@ impl Pane {
             return None;
         }
         let memory = unsafe { CreateCompatibleDC(screen) };
-        Some(Pane { window, memory, bitmap: 0, bits: std::ptr::null_mut(), size: (0, 0), at: (0, 0), pixels: Vec::new(), shown: false })
+        Some(Pane { window, memory, bitmap: 0, bits: std::ptr::null_mut(), size: (0, 0), at: (0, 0), pixels: Vec::new(), base: (0, 0), cross: None, shown: false })
     }
 
     fn sized(&mut self, wide: u32, high: u32) -> bool {
@@ -248,6 +263,30 @@ impl Pane {
         done != 0
     }
 
+    fn grabbable(&self, on: bool) {
+        let style = unsafe { GetWindowLongPtrW(self.window, EX_STYLE) };
+        let wanted = if on { style & !(TRANSPARENT as isize) } else { style | TRANSPARENT as isize };
+        if wanted != style {
+            unsafe { SetWindowLongPtrW(self.window, EX_STYLE, wanted) };
+        }
+    }
+
+    fn crossed(&self, point: (i32, i32)) -> bool {
+        let Some((x, y, radius)) = self.cross.filter(|_| self.shown) else {
+            return false;
+        };
+        let (dx, dy) = (point.0 - (self.at.0 + x), point.1 - (self.at.1 + y));
+        dx * dx + dy * dy <= radius * radius
+    }
+
+    fn holds(&self, point: (i32, i32)) -> bool {
+        let (x, y) = (point.0 - self.at.0, point.1 - self.at.1);
+        if !self.shown || x < 0 || y < 0 || x >= self.size.0 as i32 || y >= self.size.1 as i32 {
+            return false;
+        }
+        self.pixels.get((y as usize * self.size.0 as usize + x as usize) * 4 + 3).is_some_and(|alpha| *alpha > 0)
+    }
+
     fn hide(&mut self) {
         if self.shown {
             unsafe { ShowWindow(self.window, HIDE) };
@@ -271,6 +310,39 @@ impl Drop for Pane {
 pub struct Panes {
     screen: isize,
     held: HashMap<&'static str, Pane>,
+    offsets: HashMap<String, (i32, i32)>,
+    grabbing: bool,
+    drag: Option<(&'static str, (i32, i32))>,
+    pressed: (bool, bool),
+}
+
+/// What the mouse did to the plates in one look: whether any was moved, and which one, if any, had its cross pressed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Touched {
+    pub moved: bool,
+    pub closed: Option<&'static str>,
+}
+
+fn layout_path() -> std::path::PathBuf {
+    std::env::temp_dir().join(LAYOUT_FILE)
+}
+
+fn load_layout() -> HashMap<String, (i32, i32)> {
+    let Ok(text) = std::fs::read_to_string(layout_path()) else {
+        return HashMap::new();
+    };
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            Some((parts.next()?.to_owned(), (parts.next()?.parse().ok()?, parts.next()?.parse().ok()?)))
+        })
+        .collect()
+}
+
+fn cursor() -> (i32, i32) {
+    let mut point = Point::default();
+    unsafe { GetCursorPos(&mut point) };
+    (point.x, point.y)
 }
 
 impl Default for Panes {
@@ -282,7 +354,7 @@ impl Default for Panes {
 impl Panes {
     pub fn new() -> Panes {
         unsafe { SetProcessDPIAware() };
-        Panes { screen: unsafe { GetDC(0) }, held: HashMap::new() }
+        Panes { screen: unsafe { GetDC(0) }, held: HashMap::new(), offsets: load_layout(), grabbing: false, drag: None, pressed: (false, false) }
     }
 
     pub fn show(&mut self, origin: (i32, i32), sprites: &[Sprite]) -> usize {
@@ -296,7 +368,11 @@ impl Panes {
                 self.held.insert(sprite.key, pane);
             }
             let pane = self.held.get_mut(sprite.key).expect("the pane was just made");
-            if pane.show(self.screen, (origin.0 + sprite.x, origin.1 + sprite.y), sprite) {
+            pane.grabbable(self.grabbing);
+            pane.base = (origin.0 + sprite.x, origin.1 + sprite.y);
+            pane.cross = sprite.cross;
+            let (dx, dy) = self.offsets.get(sprite.key).copied().unwrap_or_default();
+            if pane.show(self.screen, (pane.base.0 + dx, pane.base.1 + dy), sprite) {
                 drawn += 1;
             }
         }
@@ -305,6 +381,67 @@ impl Panes {
 
     pub fn hide(&mut self) {
         self.held.values_mut().for_each(Pane::hide);
+    }
+
+    /// Whether the mouse is in use, which is when the loop has to run quickly to keep up with it.
+    pub fn busy(&self) -> bool {
+        self.grabbing || self.drag.is_some()
+    }
+
+    fn save_layout(&self) {
+        let mut lines: Vec<String> = self.offsets.iter().filter(|(_, at)| **at != (0, 0)).map(|(key, at)| format!("{key} {} {}", at.0, at.1)).collect();
+        lines.sort();
+        let _ = std::fs::write(layout_path(), lines.join("\n"));
+    }
+
+    /// While `on`, the plates take the mouse: the left button drags one, the right button sends it home.
+    /// Tells whether any plate was put somewhere else, so that the plates are drawn again.
+    pub fn interact(&mut self, on: bool, area: (i32, i32, i32, i32)) -> Touched {
+        if on != self.grabbing {
+            self.grabbing = on;
+            self.held.values().for_each(|pane| pane.grabbable(on));
+        }
+        if !on {
+            self.drag = None;
+            self.pressed = (false, false);
+            return Touched::default();
+        }
+        let down = |key: i32| unsafe { GetAsyncKeyState(key) } < 0;
+        let (left, right) = (down(LEFT_BUTTON), down(RIGHT_BUTTON));
+        let (was_left, was_right) = std::mem::replace(&mut self.pressed, (left, right));
+        let at = cursor();
+        let under = self.held.iter().find(|(_, pane)| pane.holds(at)).map(|(key, pane)| (*key, pane.at));
+        let mut changed = false;
+        let mut closed = None;
+        if right && !was_right {
+            if let Some((key, _)) = under {
+                changed = self.offsets.remove(key).is_some();
+                if changed {
+                    self.save_layout();
+                }
+            }
+        }
+        if left && !was_left {
+            closed = self.held.iter().find(|(_, pane)| pane.crossed(at)).map(|(key, _)| *key);
+            self.drag = under.filter(|_| closed.is_none()).map(|(key, pane_at)| (key, (at.0 - pane_at.0, at.1 - pane_at.1)));
+        }
+        if left {
+            if let Some((key, grip)) = self.drag {
+                if let Some(pane) = self.held.get_mut(key) {
+                    let (ax, ay, wide, high) = area;
+                    let x = (at.0 - grip.0).clamp(ax + KEPT_IN_SIGHT - pane.size.0 as i32, ax + wide - KEPT_IN_SIGHT);
+                    let y = (at.1 - grip.1).clamp(ay + KEPT_IN_SIGHT - pane.size.1 as i32, ay + high - KEPT_IN_SIGHT);
+                    if (x, y) != pane.at {
+                        unsafe { SetWindowPos(pane.window, 0, x, y, 0, 0, NO_SIZE_NO_ORDER_NO_ACTIVATE) };
+                        pane.at = (x, y);
+                        self.offsets.insert(key.to_owned(), (x - pane.base.0, y - pane.base.1));
+                    }
+                }
+            }
+        } else if self.drag.take().is_some() {
+            self.save_layout();
+        }
+        Touched { moved: changed, closed }
     }
 
     pub fn count(&self) -> usize {

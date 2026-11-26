@@ -1,2 +1,5 @@
 [advisories]
 unmaintained = "workspace"
+ignore = [
+    { id = "RUSTSEC-2026-0543", reason = "Existing chrono dependency is unmaintained. Migrate date and timezone handling separately from the overlay change." },
+]

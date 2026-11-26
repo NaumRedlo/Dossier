@@ -57,6 +57,7 @@ jobs:
         with:
           manifest-path: native/Cargo.toml
           command: check advisories
+          command-arguments: --config deny.toml
 
   tools:
     name: tools (python)

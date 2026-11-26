@@ -180,7 +180,8 @@ pub fn area(window: isize) -> Option<(i32, i32, i32, i32)> {
 }
 
 fn key_down(key: i32) -> bool {
-    // SAFETY: GetAsyncKeyState takes a virtual-key code by value.
+    // SAFETY: callers pass Win32 virtual-key constants. No pointers cross the FFI boundary.
+    // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
     (unsafe { GetAsyncKeyState(key) }) < 0
 }
 
@@ -270,10 +271,12 @@ impl Pane {
 
     fn grabbable(&self, on: bool) {
         // SAFETY: this Pane owns the window, and EX_STYLE selects its extended style.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         let style = unsafe { GetWindowLongPtrW(self.window, EX_STYLE) };
         let wanted = if on { style & !(TRANSPARENT as isize) } else { style | TRANSPARENT as isize };
         if wanted != style {
             // SAFETY: the window is still owned by this Pane and only WS_EX_TRANSPARENT changes.
+            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             unsafe { SetWindowLongPtrW(self.window, EX_STYLE, wanted) };
         }
     }
@@ -350,6 +353,7 @@ fn load_layout() -> HashMap<String, (i32, i32)> {
 fn cursor() -> Option<(i32, i32)> {
     let mut point = Point::default();
     // SAFETY: point is a writable Win32 POINT for the duration of this call.
+    // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
     (unsafe { GetCursorPos(&mut point) } != 0).then_some((point.x, point.y))
 }
 
@@ -362,7 +366,10 @@ impl Default for Panes {
 impl Panes {
     pub fn new() -> Panes {
         unsafe { SetProcessDPIAware() };
-        Panes { screen: unsafe { GetDC(0) }, held: HashMap::new(), offsets: load_layout(), grabbing: false, drag: None, pressed: (false, false) }
+        // SAFETY: a null HWND requests the screen DC. The overlay uses and releases it on this thread.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
+        let screen = unsafe { GetDC(0) };
+        Panes { screen, held: HashMap::new(), offsets: load_layout(), grabbing: false, drag: None, pressed: (false, false) }
     }
 
     pub fn show(&mut self, origin: (i32, i32), sprites: &[Sprite]) -> usize {
@@ -445,6 +452,7 @@ impl Panes {
                     let x = (at.0 - grip.0).clamp(ax + keep_x - pane.size.0 as i32, ax + wide - keep_x);
                     let y = (at.1 - grip.1).clamp(ay + keep_y - pane.size.1 as i32, ay + high - keep_y);
                     // SAFETY: Pane owns this window, and the flags preserve its size and order.
+                    // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
                     if (x, y) != pane.at && unsafe { SetWindowPos(pane.window, 0, x, y, 0, 0, NO_SIZE_NO_ORDER_NO_ACTIVATE) } != 0 {
                         pane.at = (x, y);
                         self.offsets.insert(key.to_owned(), (x - pane.base.0, y - pane.base.1));

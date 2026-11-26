@@ -1,4 +1,4 @@
-use crate::{Card, Context, Lang, Look, Notice};
+use crate::{Card, Context, Lang, Look, Notice, Profile};
 use dossier_overlay::View;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -21,6 +21,10 @@ pub struct Packet {
     pub notices: Vec<Notice>,
     #[serde(default)]
     pub look: Option<Look>,
+    #[serde(default)]
+    pub profile: Option<Profile>,
+    #[serde(default)]
+    pub duel_since_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -59,6 +63,8 @@ impl Packet {
             lang: self.lang,
             card: if matches { self.card.clone() } else { None },
             notices: self.notices.clone(),
+            profile: self.profile.clone(),
+            duel: self.duel_since_ms.map(|since| now_ms.saturating_sub(since) / 1000),
             ..Context::default()
         })
     }
@@ -119,6 +125,8 @@ mod tests {
             card: None,
             notices: Vec::new(),
             look: None,
+            profile: None,
+            duel_since_ms: None,
         };
         write(&path, &packet).unwrap();
         assert_eq!(read(&path).unwrap(), packet);
@@ -141,6 +149,9 @@ mod tests {
             title: String::new(),
             artist: String::new(),
             difficulty: String::new(),
+            max_pp: None,
+            max_pp_mods: 0,
+            max_combo: None,
         });
         let mut packet = Packet {
             version: 1,
@@ -154,6 +165,8 @@ mod tests {
             }),
             notices: Vec::new(),
             look: None,
+            profile: None,
+            duel_since_ms: None,
         };
         packet.notices = vec![Notice { title: "Готово".into(), ..Notice::default() }];
         let told = packet.context(&view, 1001).unwrap();

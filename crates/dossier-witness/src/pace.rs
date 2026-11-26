@@ -26,6 +26,11 @@ impl Pace {
         Some(Pace { map, mods, whole, part: None })
     }
 
+    /// The most combo the map allows with these mods.
+    pub fn max_combo(&self) -> u32 {
+        self.whole.max_combo
+    }
+
     pub fn objects(&self) -> usize {
         self.map.objects.len()
     }

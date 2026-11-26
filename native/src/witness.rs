@@ -158,7 +158,7 @@ impl Sittings {
                 self.begin_if_none(now, zone);
                 self.moved(now)
             }
-            Event::Loading | Event::Alive | Event::Overlay(_) | Event::Screen(_) | Event::Cursor(_) | Event::SendAsked | Event::OverlayScale(_) => None,
+            Event::Loading | Event::Alive | Event::Overlay(_) | Event::Screen(_) | Event::Cursor(_) | Event::SendAsked | Event::OverlayScale(_) | Event::OverlayShut(_) => None,
         }
     }
 
@@ -301,6 +301,8 @@ pub enum Event {
     SendAsked,
     #[serde(skip)]
     OverlayScale(u16),
+    #[serde(skip)]
+    OverlayShut(u32),
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -381,7 +383,7 @@ impl Seen {
             }
             Event::Overlay(on) => self.overlay = *on,
             Event::Screen(screen) => self.screen = screen.clone(),
-            Event::Alive | Event::Cursor(_) | Event::SendAsked | Event::OverlayScale(_) => {}
+            Event::Alive | Event::Cursor(_) | Event::SendAsked | Event::OverlayScale(_) | Event::OverlayShut(_) => {}
         }
     }
 }
@@ -606,6 +608,8 @@ pub struct Extras {
     pub notices: Vec<dossier_hud::Notice>,
     pub places: Option<(String, Vec<dossier_hud::Place>)>,
     pub look: Option<dossier_hud::Look>,
+    pub profile: Option<dossier_hud::Profile>,
+    pub duel_since_ms: Option<u64>,
 }
 
 pub fn replay_hash(kept: &Kept) -> Option<String> {
@@ -711,24 +715,34 @@ struct Said {
     version: u32,
     #[serde(default)]
     scale: u16,
+    #[serde(default)]
+    plate: String,
 }
+
+/// The plates that can be closed from the overlay, each with its bit in what the overlay says.
+pub const PLATE_BITS: [(&str, u32); 8] = [("pp", 1), ("rate", 2), ("notices", 4), ("card", 8), ("maxpp", 16), ("profile", 32), ("duel", 64), ("maxcombo", 128)];
 
 pub const OVERLAY_SPEAKS: u32 = 2;
 
-fn listen_overlay(output: std::process::ChildStdout, asked: &std::sync::atomic::AtomicU32, looked: &std::sync::atomic::AtomicU32, ready: &AtomicBool) {
+fn listen_overlay(output: std::process::ChildStdout, asked: &std::sync::atomic::AtomicU32, looked: &std::sync::atomic::AtomicU32, shut: &std::sync::atomic::AtomicU32, ready: &AtomicBool) {
     for line in std::io::BufReader::new(output).lines() {
         let Ok(line) = line else { return };
-        heard_overlay(&line, asked, looked, ready);
+        heard_overlay(&line, asked, looked, shut, ready);
     }
 }
 
-fn heard_overlay(line: &str, asked: &std::sync::atomic::AtomicU32, looked: &std::sync::atomic::AtomicU32, ready: &AtomicBool) {
+fn heard_overlay(line: &str, asked: &std::sync::atomic::AtomicU32, looked: &std::sync::atomic::AtomicU32, shut: &std::sync::atomic::AtomicU32, ready: &AtomicBool) {
     let Ok(said) = serde_json::from_str::<Said>(line) else { return };
     match said.event.as_str() {
         "send" => {
             asked.fetch_add(1, Ordering::SeqCst);
         }
         "ready" if said.version >= OVERLAY_SPEAKS => ready.store(true, Ordering::SeqCst),
+        "off" => {
+            if let Some((_, bit)) = PLATE_BITS.iter().find(|(name, _)| *name == said.plate) {
+                shut.fetch_or(*bit, Ordering::SeqCst);
+            }
+        }
         "look" if said.scale > 0 => looked.store(u32::from(said.scale), Ordering::SeqCst),
         _ => {}
     }
@@ -764,6 +778,7 @@ pub struct Control {
     extras: Mutex<Extras>,
     asked: Arc<std::sync::atomic::AtomicU32>,
     looked: Arc<std::sync::atomic::AtomicU32>,
+    shut: Arc<std::sync::atomic::AtomicU32>,
     pid: std::sync::atomic::AtomicU32,
     cursor: Mutex<Option<std::sync::mpsc::Sender<Cursor>>>,
 }
@@ -795,7 +810,7 @@ impl Control {
                     pool: Some(pool.name.clone()), stars: slot.measure.as_ref().filter(|_| slot.mods == crate::pools::Mod::Nm).map(|measure| measure.stars), places: Vec::new(),
                 })
             }));
-            dossier_hud::context::Packet { version: 1, pid, at_ms: 0, lang: if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, map_md5, card, notices: Vec::new(), look: None }
+            dossier_hud::context::Packet { version: 1, pid, at_ms: 0, lang: if english { dossier_hud::Lang::En } else { dossier_hud::Lang::Ru }, map_md5, card, notices: Vec::new(), look: None, profile: None, duel_since_ms: None }
         });
         drop(held);
         self.tell_overlay();
@@ -811,6 +826,8 @@ impl Control {
         let extras = self.extras.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
         packet.notices = extras.notices;
         packet.look = extras.look;
+        packet.profile = extras.profile;
+        packet.duel_since_ms = extras.duel_since_ms;
         if let Some((hash, places)) = extras.places.filter(|(hash, places)| !places.is_empty() && packet.map_md5.as_ref().is_some_and(|known| known.eq_ignore_ascii_case(hash))) {
             let _ = hash;
             packet.card.get_or_insert_with(dossier_hud::Card::default).places = places;
@@ -844,6 +861,10 @@ impl Control {
 
     fn forward(&self, line: &str, push: &mut dyn FnMut(Event) -> bool) -> bool {
         if self.asked.swap(0, Ordering::SeqCst) > 0 && !push(Event::SendAsked) {
+            return false;
+        }
+        let shut = self.shut.swap(0, Ordering::SeqCst);
+        if shut > 0 && !push(Event::OverlayShut(shut)) {
             return false;
         }
         let scale = self.looked.swap(0, Ordering::SeqCst);
@@ -883,8 +904,8 @@ impl Control {
                         };
                         let ready = Arc::new(AtomicBool::new(false));
                         if let Some(output) = child.stdout.take() {
-                            let (asked, looked, ready) = (self.asked.clone(), self.looked.clone(), ready.clone());
-                            std::thread::spawn(move || listen_overlay(output, &asked, &looked, &ready));
+                            let (asked, looked, shut, ready) = (self.asked.clone(), self.looked.clone(), self.shut.clone(), ready.clone());
+                            std::thread::spawn(move || listen_overlay(output, &asked, &looked, &shut, &ready));
                         }
                         let (frames, queue) = std::sync::mpsc::sync_channel(OVERLAY_QUEUE);
                         std::thread::spawn(move || write_frames(input, queue));
@@ -1181,18 +1202,31 @@ mod tests {
         let control = Control::default();
         let ready = AtomicBool::new(false);
         for line in [r#"{"event":"ready","version":1}"#, "not json", r#"{"event":"look","scale":0}"#, r#"{"event":"later"}"#] {
-            heard_overlay(line, &control.asked, &control.looked, &ready);
+            heard_overlay(line, &control.asked, &control.looked, &control.shut, &ready);
         }
         assert!(!ready.load(Ordering::SeqCst), "an overlay older than the context lines is never told them");
         assert_eq!((control.asked.load(Ordering::SeqCst), control.looked.load(Ordering::SeqCst)), (0, 0));
-        heard_overlay(r#"{"event":"ready","version":2}"#, &control.asked, &control.looked, &ready);
-        heard_overlay(r#"{"event":"look","scale":115}"#, &control.asked, &control.looked, &ready);
-        heard_overlay(r#"{"event":"send"}"#, &control.asked, &control.looked, &ready);
+        heard_overlay(r#"{"event":"ready","version":2}"#, &control.asked, &control.looked, &control.shut, &ready);
+        heard_overlay(r#"{"event":"look","scale":115}"#, &control.asked, &control.looked, &control.shut, &ready);
+        heard_overlay(r#"{"event":"send"}"#, &control.asked, &control.looked, &control.shut, &ready);
         assert!(ready.load(Ordering::SeqCst));
         let mut heard = Vec::new();
         assert!(control.forward("{}", &mut |event| { heard.push(event); true }));
         assert!(control.forward("{}", &mut |event| { heard.push(event); true }));
         assert_eq!(heard, vec![Event::SendAsked, Event::OverlayScale(115)]);
+    }
+
+    #[test]
+    fn a_plate_closed_in_the_overlay_reaches_dossier_once_as_one_set_of_switches() {
+        let control = Control::default();
+        let ready = AtomicBool::new(true);
+        for line in [r#"{"event":"off","plate":"pp"}"#, r#"{"event":"off","plate":"duel"}"#, r#"{"event":"off","plate":"nothing"}"#, r#"{"event":"off"}"#] {
+            heard_overlay(line, &control.asked, &control.looked, &control.shut, &ready);
+        }
+        let mut heard = Vec::new();
+        assert!(control.forward("{}", &mut |event| { heard.push(event); true }));
+        assert!(control.forward("{}", &mut |event| { heard.push(event); true }));
+        assert_eq!(heard, vec![Event::OverlayShut(1 | 64)]);
     }
 
     #[test]
@@ -1507,4 +1541,19 @@ mod tests {
         control.stop();
         assert!(!follow(std::io::Cursor::new(said), &control, &mut |_| true));
     }
+}
+
+/// The profile the overlay shows: the player's own osu! page, or the community's card when there is none.
+pub fn overlay_profile(osu: Option<&crate::community::wire::Card>, community: Option<&crate::community::wire::Card>) -> Option<dossier_hud::Profile> {
+    let card = osu.filter(|card| !card.username.trim().is_empty()).or(community.filter(|card| !card.username.trim().is_empty()))?;
+    Some(dossier_hud::Profile {
+        name: card.username.clone(),
+        pp: card.pp,
+        rank: card.global_rank.max(0.0) as u64,
+        country: card.country.clone(),
+        country_rank: card.country_rank.max(0.0) as u64,
+        accuracy: card.accuracy,
+        plays: card.play_count.max(0.0) as u64,
+        level: card.level,
+    })
 }

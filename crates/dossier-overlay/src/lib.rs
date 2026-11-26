@@ -41,6 +41,12 @@ pub struct Beatmap {
     pub title: String,
     pub artist: String,
     pub difficulty: String,
+    #[serde(default)]
+    pub max_pp: Option<f64>,
+    #[serde(default)]
+    pub max_pp_mods: u32,
+    #[serde(default)]
+    pub max_combo: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -154,9 +154,9 @@ mod tests {
     #[test]
     fn a_state_names_the_screen_and_the_map_when_there_is_one() {
         let map = Map { md5: "0123456789abcdef0123456789abcdef".into(), id: 7, set: 8, artist: "xi".into(), title: "FREEDOM \"DiVE\"".into(), version: "FOUR".into(), creator: "N".into(), ..Map::default() };
-        let seen = Glance { raw_mode: 5, mode: Some(Mode::SelectPlay), time_ms: 1, map: Some(map), play: None, watching: None };
+        let seen = Glance { raw_mode: 5, mode: Some(Mode::SelectPlay), time_ms: 1, map: Some(map), play: None, watching: None, menu_mods: None };
         assert_eq!(state(&seen, None), "{\"event\":\"state\",\"mode\":\"SelectPlay\",\"md5\":\"0123456789abcdef0123456789abcdef\",\"id\":7,\"set\":8,\"artist\":\"xi\",\"title\":\"FREEDOM \\\"DiVE\\\"\",\"version\":\"FOUR\",\"creator\":\"N\"}");
-        let bare = Glance { raw_mode: 77, mode: None, time_ms: 0, map: None, play: None, watching: None };
+        let bare = Glance { raw_mode: 77, mode: None, time_ms: 0, map: None, play: None, watching: None, menu_mods: None };
         assert_eq!(state(&bare, None), "{\"event\":\"state\",\"mode\":\"Other77\"}");
         assert_eq!(plain("waiting"), "{\"event\":\"waiting\"}");
         assert_eq!(attached(436, &Client::default()), "{\"event\":\"attached\",\"pid\":436,\"build\":\"\",\"player\":\"\"}");
@@ -179,7 +179,7 @@ mod tests {
         let facts = Facts { id: 7, set: 8, status: "ranked", stars: 6.25, base_stars: 4.5, ar: 9.0, cs: 4.0, od: 8.5, hp: 5.0, bpm: 180.0, length: 120, objects: 300 };
         let said = kept(&take, "a.osr", &[], Some(&facts));
         assert!(said.contains("\"watched\":null,\"facts\":{\"id\":7,\"set\":8,\"status\":\"ranked\",\"stars\":6.25,\"base_stars\":4.5,\"ar\":9,\"cs\":4,\"od\":8.5,\"hp\":5,\"bpm\":180,\"length\":120,\"objects\":300},\"osr\":\"\""), "{said}");
-        let seen = Glance { raw_mode: 5, mode: Some(Mode::SelectPlay), time_ms: 1, map: Some(take.map.clone()), play: None, watching: None };
+        let seen = Glance { raw_mode: 5, mode: Some(Mode::SelectPlay), time_ms: 1, map: Some(take.map.clone()), play: None, watching: None, menu_mods: None };
         assert!(state(&seen, Some(&facts)).ends_with("\"creator\":\"N\",\"facts\":{\"id\":7,\"set\":8,\"status\":\"ranked\",\"stars\":6.25,\"base_stars\":4.5,\"ar\":9,\"cs\":4,\"od\":8.5,\"hp\":5,\"bpm\":180,\"length\":120,\"objects\":300}}"));
         let odd = Facts { stars: f32::NAN, bpm: f32::INFINITY, ..facts };
         assert!(facts_of(&odd).contains("\"stars\":0,") && facts_of(&odd).contains("\"bpm\":0,"), "a number that is no number is told as nothing");

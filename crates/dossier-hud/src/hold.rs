@@ -51,6 +51,8 @@ impl Hold {
 pub struct Chord {
     pub ctrl_shift: bool,
     pub hide: bool,
+    pub board: bool,
+    pub profile: bool,
     pub bigger: bool,
     pub smaller: bool,
 }
@@ -58,6 +60,8 @@ pub struct Chord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Asked {
     Hide,
+    Board,
+    Profile,
     Bigger,
     Smaller,
 }
@@ -75,6 +79,8 @@ impl Chords {
         }
         [
             (now.hide, was.hide, Asked::Hide),
+            (now.board, was.board, Asked::Board),
+            (now.profile, was.profile, Asked::Profile),
             (now.bigger, was.bigger, Asked::Bigger),
             (now.smaller, was.smaller, Asked::Smaller),
         ]

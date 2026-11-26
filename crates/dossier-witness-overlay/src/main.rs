@@ -88,6 +88,18 @@ mod shown {
             }
             self.fresh |= self.hud.take_dirty();
             let place = self.window.and_then(panes::area).filter(|_| keys.front);
+            let grab = self.hud.board_open() && place.is_some();
+            let rect = place.unwrap_or_default();
+            let touched = self.panes.interact(grab, rect);
+            self.fresh |= touched.moved;
+            if let Some(key) = touched.closed {
+                self.hud.close(key, now);
+                self.fresh = true;
+            }
+            for plate in self.hud.take_off() {
+                let told = super::tell(&format!("{{\"event\":\"off\",\"plate\":\"{plate}\"}}"));
+                eprintln!("witness overlay: the {plate} plate was closed; {}", if told { "Dossier is told" } else { "Dossier could not be told" });
+            }
             let said = match (place, self.window) {
                 (Some((x, y, wide, high)), Some(window)) => {
                     if self.fresh || self.place != place || self.hud.moving() {
@@ -143,7 +155,7 @@ mod shown {
         }
 
         pub fn pause(&self) -> Duration {
-            Duration::from_millis(if self.moving() { 16 } else { 50 })
+            Duration::from_millis(if self.panes.busy() { 8 } else if self.moving() { 16 } else { 50 })
         }
     }
 }

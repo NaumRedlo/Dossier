@@ -11,6 +11,38 @@ pub const HIDDEN_NOTE_FOR: Duration = Duration::from_secs(3);
 pub const OWN_SCALE_FOR: Duration = Duration::from_secs(3);
 pub const GREET_FOR: Duration = Duration::from_secs(5);
 pub const TICK_FOR: Duration = Duration::from_secs(3);
+pub const SHUT_FOR: Duration = Duration::from_secs(4);
+
+fn has(look: &Look, flag: &str) -> bool {
+    match flag {
+        "pp" => look.pp,
+        "rate" => look.rate,
+        "notices" => look.notices,
+        "card" => look.card,
+        "maxpp" => look.maxpp,
+        "maxcombo" => look.maxcombo,
+        "profile" => look.profile,
+        _ => look.duel,
+    }
+}
+
+fn switch(look: &mut Look, flag: &str, on: bool) {
+    match flag {
+        "pp" => look.pp = on,
+        "rate" => look.rate = on,
+        "notices" => look.notices = on,
+        "card" => look.card = on,
+        "maxpp" => look.maxpp = on,
+        "maxcombo" => look.maxcombo = on,
+        "profile" => look.profile = on,
+        _ => look.duel = on,
+    }
+}
+
+fn eased(k: f32) -> f32 {
+    let k = k.clamp(0.0, 1.0);
+    k * k * (3.0 - 2.0 * k)
+}
 
 pub struct Hud {
     context: Context,
@@ -24,6 +56,12 @@ pub struct Hud {
     packet: Option<Packet>,
     chords: Chords,
     hidden: bool,
+    profile_open: bool,
+    shut: Vec<(&'static str, Instant)>,
+    told_off: Vec<&'static str>,
+    duel_secs: Option<u64>,
+    board_k: f32,
+    profile_k: f32,
     panel: Option<(Panel, Instant)>,
     own_scale: Option<(u16, Instant)>,
     told_scale: Option<u16>,
@@ -34,7 +72,7 @@ pub struct Hud {
 
 impl Hud {
     pub fn new(lang: Lang, offers: bool) -> Hud {
-        Hud { context: Context { lang, ..Context::default() }, view: None, stage: Stage::default(), hold: Hold::default(), offers, last: None, receiver: Receiver::default(), dirty: false, packet: None, chords: Chords::default(), hidden: false, panel: None, own_scale: None, told_scale: None, greeted: false, greeting: None, saved_at: None }
+        Hud { context: Context { lang, ..Context::default() }, view: None, stage: Stage::default(), hold: Hold::default(), offers, last: None, receiver: Receiver::default(), dirty: false, packet: None, chords: Chords::default(), hidden: false, profile_open: false, shut: Vec::new(), told_off: Vec::new(), duel_secs: None, board_k: 0.0, profile_k: 0.0, panel: None, own_scale: None, told_scale: None, greeted: false, greeting: None, saved_at: None }
     }
 
     pub fn told(&mut self, frame: &Frame) -> bool {
@@ -97,7 +135,28 @@ impl Hud {
         if let Some((scale, _)) = self.own_scale {
             look.scale = scale;
         }
+        for (flag, _) in &self.shut {
+            switch(&mut look, flag, false);
+        }
         look
+    }
+
+    /// Closes the plate called `key` at the press of its cross. The panel closes itself; any other plate is
+    /// switched off here at once and Dossier is told, to leave its own switch off.
+    pub fn close(&mut self, key: &'static str, now: Instant) {
+        if key == "board" {
+            self.panel = None;
+        } else if let Some(flag) = dossier_hud::switch_of(key) {
+            if !self.shut.iter().any(|(held, _)| *held == flag) {
+                self.shut.push((flag, now));
+                self.told_off.push(flag);
+            }
+        }
+        self.dirty = true;
+    }
+
+    pub fn take_off(&mut self) -> Vec<&'static str> {
+        std::mem::take(&mut self.told_off)
     }
 
     pub fn chord(&mut self, chord: Chord, front: bool, now: Instant) {
@@ -110,7 +169,15 @@ impl Hud {
                 self.hidden = !self.hidden;
                 self.panel = self.hidden.then_some((Panel::Hidden, now));
             }
+            Asked::Profile if !self.hidden => {
+                self.profile_open = !self.profile_open;
+            }
+            Asked::Board if !self.hidden => {
+                let open = matches!(self.panel, Some((Panel::Board, _)));
+                self.panel = (!open).then_some((Panel::Board, now));
+            }
             _ if playing || self.hidden => return,
+            Asked::Board | Asked::Profile => return,
             Asked::Bigger | Asked::Smaller => {
                 let scale = dossier_hud::scale_step(self.look().scale, if asked == Asked::Bigger { 1 } else { -1 });
                 self.own_scale = Some((scale, now));
@@ -121,12 +188,17 @@ impl Hud {
         self.dirty = true;
     }
 
+    pub fn board_open(&self) -> bool {
+        matches!(self.panel, Some((Panel::Board, _))) && !self.hidden
+    }
+
     pub fn take_scale(&mut self) -> Option<u16> {
         self.told_scale.take()
     }
 
     fn settle(&mut self, now: Instant) {
         let lasting = match self.panel {
+            Some((Panel::Board, _)) => Duration::MAX,
             Some((Panel::Tuning, _)) => TUNING_FOR,
             _ => HIDDEN_NOTE_FOR,
         };
@@ -134,7 +206,13 @@ impl Hud {
             self.panel = None;
             self.dirty = true;
         }
-        let told = self.packet.as_ref().and_then(|packet| packet.look).map(|look| look.scale);
+        let told_look = self.packet.as_ref().and_then(|packet| packet.look);
+        let before = self.shut.len();
+        self.shut.retain(|(flag, at)| now.saturating_duration_since(*at) < SHUT_FOR && told_look.is_none_or(|look| has(&look, flag)));
+        if self.shut.len() != before {
+            self.dirty = true;
+        }
+        let told = told_look.map(|look| look.scale);
         if self.own_scale.is_some_and(|(scale, at)| told == Some(scale) || now.saturating_duration_since(at) >= OWN_SCALE_FOR) {
             self.own_scale = None;
             self.dirty = true;
@@ -154,10 +232,14 @@ impl Hud {
         shown.look = self.look();
         shown.hidden = self.hidden;
         shown.panel = self.panel.map(|(panel, _)| panel);
+        shown.board = eased(self.board_k);
+        shown.profile_shown = eased(self.profile_k);
         let told = self.packet.as_ref().zip(self.view.as_ref()).and_then(|(packet, view)| packet.context(view, dossier_hud::context::now_ms()));
         shown.greet = self.greeting.is_some();
         shown.ticked = self.saved_at.is_some();
         if let Some(told) = told {
+            shown.profile = told.profile;
+            shown.duel = told.duel;
             shown.card = told.card;
             shown.notices = told.notices;
         }
@@ -185,7 +267,20 @@ impl Hud {
         self.settle(now);
         let seconds = self.last.map_or(0.0, |was| now.saturating_duration_since(was).as_secs_f32()).min(0.25);
         self.last = Some(now);
+        let (board_open, profile_open) = (self.board_open(), self.profile_open && !self.hidden);
+        for (k, open) in [(&mut self.board_k, board_open), (&mut self.profile_k, profile_open)] {
+            let aim = if open { 1.0 } else { 0.0 };
+            if *k != aim {
+                let step = seconds / dossier_hud::GLIDE_SECONDS;
+                *k = if *k < aim { (*k + step).min(aim) } else { (*k - step).max(aim) };
+                self.dirty = true;
+            }
+        }
         let shown = self.shown();
+        if shown.duel != self.duel_secs {
+            self.duel_secs = shown.duel;
+            self.dirty = true;
+        }
         self.stage.advance(self.view.as_ref(), &shown, now);
         let results = self.view.as_ref().is_some_and(|view| view.snapshot.screen == Screen::Results);
         let Some(outcome) = self.context.outcome.as_mut().filter(|outcome| !self.hidden && results && outcome.saved && outcome.offer.is_some()) else {
@@ -201,7 +296,7 @@ impl Hud {
     }
 
     pub fn moving(&self) -> bool {
-        self.stage.moving(self.view.as_ref(), &self.shown()) || self.hold.share() > 0.0
+        self.stage.moving(self.view.as_ref(), &self.shown()) || self.hold.share() > 0.0 || self.board_k != f32::from(u8::from(self.board_open())) || self.profile_k != f32::from(u8::from(self.profile_open && !self.hidden))
     }
 
     pub fn sprites(&self, viewport: Viewport) -> Vec<Sprite> {
@@ -280,7 +375,7 @@ mod tests {
     fn packet() -> Packet {
         Packet {
             version: 1, pid: 7, at_ms: dossier_hud::context::now_ms(), lang: Lang::Ru, map_md5: None, card: None,
-            notices: vec![dossier_hud::Notice { title: "Видео готово".into(), ..dossier_hud::Notice::default() }], look: None,
+            notices: vec![dossier_hud::Notice { title: "Видео готово".into(), ..dossier_hud::Notice::default() }], look: None, profile: None, duel_since_ms: None,
         }
     }
 
@@ -397,7 +492,7 @@ mod tests {
         assert_eq!(keys(&hud), ["tile"], "an older score opened from song select is not this play");
     }
 
-    const CHORD: Chord = Chord { ctrl_shift: true, hide: false, bigger: false, smaller: false };
+    const CHORD: Chord = Chord { ctrl_shift: true, hide: false, board: false, profile: false, bigger: false, smaller: false };
 
     fn press(hud: &mut Hud, chord: Chord, now: Instant) {
         hud.chord(CHORD, true, now);
@@ -453,5 +548,154 @@ mod tests {
         hud.told_at(&frame(3, Screen::Results, false), later);
         press(&mut hud, Chord { hide: true, ..CHORD }, later);
         assert_eq!(keys(&hud), ["tile", "offer"]);
+    }
+
+    fn glide(hud: &mut Hud, now: Instant) -> Instant {
+        let later = now + Duration::from_millis(400);
+        hud.step(UP, later);
+        hud.step(UP, later + Duration::from_millis(400));
+        later + Duration::from_millis(400)
+    }
+
+    #[test]
+    fn the_board_opens_and_closes_on_its_key_and_stays_until_asked_to_close() {
+        let mut hud = connected(Lang::Ru, false);
+        let now = Instant::now();
+        hud.told_at(&frame(1, Screen::Menu, false), now);
+        press(&mut hud, Chord { board: true, ..CHORD }, now);
+        let now = glide(&mut hud, now);
+        assert_eq!(keys(&hud), ["board", "tile"]);
+        let later = now + Duration::from_secs(600);
+        hud.told_at(&frame(2, Screen::Menu, false), later);
+        hud.step(UP, later);
+        assert_eq!(keys(&hud), ["board", "tile"], "unlike a note, the board does not close by itself");
+        press(&mut hud, Chord { board: true, ..CHORD }, later);
+        glide(&mut hud, later);
+        assert_eq!(keys(&hud), ["tile"]);
+    }
+
+    #[test]
+    fn the_board_fades_in_and_out_instead_of_jumping() {
+        let mut hud = connected(Lang::Ru, false);
+        let now = Instant::now();
+        hud.told_at(&frame(1, Screen::Menu, false), now);
+        press(&mut hud, Chord { board: true, ..CHORD }, now);
+        hud.step(UP, now);
+        assert!(hud.moving(), "the board has started to open");
+        hud.step(UP, now + Duration::from_millis(100));
+        let half = hud.shown().board;
+        assert!(half > 0.05 && half < 0.95, "{half}");
+        let now = glide(&mut hud, now);
+        assert_eq!(hud.shown().board, 1.0);
+        assert!(!hud.moving());
+        press(&mut hud, Chord { board: true, ..CHORD }, now);
+        hud.step(UP, now + Duration::from_millis(100));
+        assert!(hud.shown().board > 0.0 && hud.shown().board < 1.0, "it is still on its way out");
+        assert!(keys(&hud).contains(&"board"));
+    }
+
+    #[test]
+    fn the_profile_opens_over_a_play_without_the_board_and_closes_again() {
+        let mut hud = connected(Lang::Ru, false);
+        let now = Instant::now();
+        hud.told_at(&frame(1, Screen::Playing, false), now);
+        let mut told = packet();
+        told.profile = Some(dossier_hud::Profile { name: "hmosha".into(), pp: 10326.5, rank: 6546, country: "RU".into(), country_rank: 596, accuracy: 99.08, plays: 101_118, level: 101.0, ..Default::default() });
+        hud.heard(told);
+        let (_, now) = run(&mut hud, UP, now, 0.5);
+        press(&mut hud, Chord { profile: true, ..CHORD }, now);
+        let now = glide(&mut hud, now);
+        assert!(keys(&hud).contains(&"profile"), "{:?}", keys(&hud));
+        assert!(!hud.board_open(), "the profile does not take the mouse");
+        press(&mut hud, Chord { profile: true, ..CHORD }, now);
+        glide(&mut hud, now);
+        assert!(!keys(&hud).contains(&"profile"));
+    }
+
+    #[test]
+    fn hiding_the_overlay_takes_the_board_with_it() {
+        let mut hud = connected(Lang::Ru, false);
+        let now = Instant::now();
+        hud.told_at(&frame(1, Screen::Menu, false), now);
+        press(&mut hud, Chord { board: true, ..CHORD }, now);
+        press(&mut hud, Chord { hide: true, ..CHORD }, now);
+        assert_eq!(keys(&hud), ["hidden"]);
+        press(&mut hud, Chord { board: true, ..CHORD }, now);
+        assert_eq!(keys(&hud), ["hidden"], "a hidden overlay has no board to open");
+    }
+
+    #[test]
+    fn the_board_can_be_opened_over_a_play_and_closed_again() {
+        let mut hud = connected(Lang::Ru, false);
+        let now = Instant::now();
+        hud.told_at(&frame(1, Screen::Playing, false), now);
+        let (_, now) = run(&mut hud, UP, now, 0.5);
+        press(&mut hud, Chord { board: true, ..CHORD }, now);
+        let now = glide(&mut hud, now);
+        assert!(keys(&hud).contains(&"board"));
+        assert!(hud.board_open());
+        press(&mut hud, Chord { board: true, ..CHORD }, now);
+        glide(&mut hud, now);
+        assert!(!keys(&hud).contains(&"board"));
+    }
+
+    #[test]
+    fn a_closed_plate_goes_at_once_and_comes_back_only_if_dossier_does_not_agree() {
+        let mut hud = connected(Lang::Ru, false);
+        let now = Instant::now();
+        hud.told_at(&frame(1, Screen::Menu, false), now);
+        hud.heard(packet());
+        assert_eq!(keys(&hud), ["notice-1", "tile"]);
+        hud.close("notice-1", now);
+        hud.close("notice-1", now);
+        assert_eq!(hud.take_off(), vec!["notices"], "Dossier is told once");
+        assert!(hud.take_off().is_empty());
+        assert_eq!(keys(&hud), ["tile"], "the notices go without waiting for Dossier");
+        let mut told = packet();
+        told.look = Some(Look { notices: false, ..Look::default() });
+        hud.heard(told);
+        hud.step(UP, now + Duration::from_secs(1));
+        assert!(hud.shut.is_empty(), "Dossier has agreed, its word is enough now");
+        assert_eq!(keys(&hud), ["tile"]);
+        let mut again = packet();
+        again.look = Some(Look::default());
+        hud.heard(again);
+        hud.close("notice-1", now);
+        hud.take_off();
+        let later = now + SHUT_FOR + Duration::from_secs(1);
+        hud.told_at(&frame(2, Screen::Menu, false), later);
+        hud.step(UP, later);
+        assert_eq!(keys(&hud), ["notice-1", "tile"], "a plate Dossier did not switch off returns");
+    }
+
+    #[test]
+    fn the_panel_has_no_switch_and_closes_itself_with_its_cross() {
+        let mut hud = connected(Lang::Ru, false);
+        let now = Instant::now();
+        hud.told_at(&frame(1, Screen::Menu, false), now);
+        press(&mut hud, Chord { board: true, ..CHORD }, now);
+        let now = glide(&mut hud, now);
+        assert!(hud.board_open());
+        hud.close("board", now);
+        assert!(!hud.board_open());
+        assert!(hud.take_off().is_empty(), "nothing is switched off in Dossier for the panel");
+    }
+
+    #[test]
+    fn a_duel_search_shows_its_time_and_ticks_each_second() {
+        let mut hud = connected(Lang::Ru, false);
+        let now = Instant::now();
+        hud.told_at(&frame(1, Screen::Menu, false), now);
+        let mut told = packet();
+        told.duel_since_ms = Some(dossier_hud::context::now_ms().saturating_sub(65_000));
+        hud.heard(told);
+        hud.step(UP, now);
+        assert!(keys(&hud).contains(&"duel"));
+        let first = hud.shown().duel.unwrap();
+        assert!((64..=67).contains(&first), "{first}");
+        hud.take_dirty();
+        std::thread::sleep(Duration::from_millis(1100));
+        hud.step(UP, now + Duration::from_secs(2));
+        assert!(hud.take_dirty(), "a new second has to be drawn");
     }
 }

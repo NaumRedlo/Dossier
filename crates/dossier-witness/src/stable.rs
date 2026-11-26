@@ -5,6 +5,7 @@ pub const BASE: &str = "F8 01 74 04 83 65";
 pub const STATUS: &str = "48 83 F8 04 73 1E";
 pub const PLAY_TIME: &str = "5E 5F 5D C3 A1 ?? ?? ?? ?? 89 ?? 04";
 pub const RULESETS: &str = "7D 15 A1 ?? ?? ?? ?? 85 C0";
+pub const MENU_MODS: &str = "C8 FF ?? ?? ?? ?? ?? 81 0D ?? ?? ?? ?? 00 08 00 00";
 pub const REPLAY: &str = "55 8B EC 80 3D ?? ?? ?? ?? 00 75 26 80 3D";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +15,7 @@ pub struct Anchors {
     pub play_time: u64,
     pub rulesets: u64,
     pub replay: Option<u64>,
+    pub menu_mods: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +28,19 @@ pub enum Lost {
 
 pub fn anchors(memory: &dyn Memory) -> Result<Anchors, Lost> {
     let seek = |said: &str, lost: Lost| Pattern::parse(said).and_then(|pattern| scan::find(memory, &pattern)).ok_or(lost);
-    Ok(Anchors { base: seek(BASE, Lost::Base)?, status: seek(STATUS, Lost::Status)?, play_time: seek(PLAY_TIME, Lost::PlayTime)?, rulesets: seek(RULESETS, Lost::Rulesets)?, replay: seek(REPLAY, Lost::Rulesets).ok() })
+    Ok(Anchors { base: seek(BASE, Lost::Base)?, status: seek(STATUS, Lost::Status)?, play_time: seek(PLAY_TIME, Lost::PlayTime)?, rulesets: seek(RULESETS, Lost::Rulesets)?, replay: seek(REPLAY, Lost::Rulesets).ok(), menu_mods: seek(MENU_MODS, Lost::Rulesets).ok() })
+}
+
+/// Every mod stable has but the mania keys and the like: a value above this is not a set of mods.
+const MODS_MOST: u32 = 1 << 23;
+
+/// The mods ticked on the song select screen. The place is found by the instruction that sets
+/// a flag beside it; the value is read as it stands and, failing that, through one more
+/// pointer, and only a value that can be a set of mods is believed.
+pub fn menu_mods(memory: &dyn Memory, anchors: &Anchors) -> Option<u32> {
+    let at = memory.pointer(anchors.menu_mods? + 0x9)?;
+    let plausible = |value: &u32| *value < MODS_MOST;
+    memory.u32(at).filter(plausible).or_else(|| memory.pointer(at).and_then(|held| memory.u32(held)).filter(plausible))
 }
 
 pub fn watching(memory: &dyn Memory, anchors: &Anchors) -> Option<bool> {
@@ -151,6 +165,7 @@ pub struct Glance {
     pub map: Option<Map>,
     pub play: Option<Play>,
     pub watching: Option<bool>,
+    pub menu_mods: Option<u32>,
 }
 
 fn is_md5(said: &str) -> bool {
@@ -395,7 +410,7 @@ pub fn glance(memory: &dyn Memory, anchors: &Anchors) -> Option<Glance> {
     let raw_mode = memory.u32(memory.pointer(anchors.status - 0x4)?)?;
     let time_ms = memory.pointer(anchors.play_time + 0x5).and_then(|at| memory.i32(at)).unwrap_or(0);
     let mode = Mode::of(raw_mode);
-    Some(Glance { raw_mode, mode, time_ms, map: map(memory, anchors), play: if mode == Some(Mode::Play) || mode == Some(Mode::Rank) { play(memory, anchors) } else { None }, watching: watching(memory, anchors) })
+    Some(Glance { raw_mode, mode, time_ms, map: map(memory, anchors), play: if mode == Some(Mode::Play) || mode == Some(Mode::Rank) { play(memory, anchors) } else { None }, watching: watching(memory, anchors), menu_mods: menu_mods(memory, anchors) })
 }
 
 #[cfg(test)]
@@ -418,7 +433,7 @@ pub(crate) mod tests {
         place(&mut code, 0x340, &[0x55, 0x8B, 0xEC, 0x80, 0x3D, 0, 0, 0, 0, 0x00, 0x75, 0x26, 0x80, 0x3D]);
         fake.put(CODE, &code, true);
         fake.room(DATA, 0x4000);
-        let anchors = Anchors { base: CODE + 0x100, status: CODE + 0x200, play_time: CODE + 0x280, rulesets: CODE + 0x300, replay: Some(CODE + 0x340) };
+        let anchors = Anchors { base: CODE + 0x100, status: CODE + 0x200, play_time: CODE + 0x280, rulesets: CODE + 0x300, replay: Some(CODE + 0x340), menu_mods: None };
         fake.set_u32(CODE + 0x340 + 0x46, (DATA + 0x28) as u32);
 
         fake.set_u32(anchors.status - 0x4, (DATA + 0x10) as u32);
@@ -697,5 +712,22 @@ pub(crate) mod tests {
         assert!(glance(&fake, &anchors).expect("a glance").map.is_none());
         fake.set_u32(DATA + 0x10, 77);
         assert_eq!(glance(&fake, &anchors).expect("a glance").mode, None);
+    }
+
+    #[test]
+    fn the_mods_ticked_on_song_select_are_read_and_a_pointer_is_not_taken_for_mods() {
+        let (mut fake, mut anchors) = staged();
+        let at = CODE + 0x3A0;
+        fake.set_u32(at + 0x9, (DATA + 0x50) as u32);
+        anchors.menu_mods = Some(at);
+        fake.set_u32(DATA + 0x50, 8 | 64);
+        assert_eq!(menu_mods(&fake, &anchors), Some(72));
+        fake.set_u32(DATA + 0x50, (DATA + 0x60) as u32);
+        fake.set_u32(DATA + 0x60, 16);
+        assert_eq!(menu_mods(&fake, &anchors), Some(16), "one more pointer is followed when the first value cannot be mods");
+        fake.set_u32(DATA + 0x60, 0xFFFF_FFFF);
+        assert_eq!(menu_mods(&fake, &anchors), None, "nothing that cannot be mods is believed");
+        anchors.menu_mods = None;
+        assert_eq!(menu_mods(&fake, &anchors), None);
     }
 }

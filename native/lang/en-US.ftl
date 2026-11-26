@@ -1167,7 +1167,11 @@ overlay-show-notices = Notices in the menu
 overlay-show-card = Chat top in song select
 overlay-show-pp = PP while playing
 overlay-show-rate = UR over the hit error meter
-overlay-keys = In game: Ctrl+Shift+= and Ctrl+Shift+− change the size, Ctrl+Shift+H hides the overlay.
+overlay-show-maxpp = The map's most PP before playing
+overlay-show-maxcombo = The map's max combo before playing
+overlay-show-profile = Your profile
+overlay-show-duel = Time spent searching for a duel
+overlay-keys = In game: Ctrl+Shift+= and Ctrl+Shift+− change the size, Ctrl+Shift+D opens the Dossier panel and your profile, Ctrl+Shift+P only the profile, Ctrl+Shift+H hides the overlay.
 overlay-off-note = The overlay runs with Witness. Turn Witness on first.
 witness-experimental = experimental
 overlay-running = The overlay is in the game now

@@ -1204,7 +1204,11 @@ overlay-show-notices = Уведомления в меню
 overlay-show-card = Топ беседы при выборе карты
 overlay-show-pp = PP во время игры
 overlay-show-rate = UR над шкалой попаданий
-overlay-keys = В игре: Ctrl+Shift+= и Ctrl+Shift+− меняют размер, Ctrl+Shift+H прячет оверлей.
+overlay-show-maxpp = Максимум PP карты до игры
+overlay-show-maxcombo = Максимум комбо карты до игры
+overlay-show-profile = Ваш профиль
+overlay-show-duel = Время поиска дуэли
+overlay-keys = В игре: Ctrl+Shift+= и Ctrl+Shift+− меняют размер, Ctrl+Shift+D открывает панель Dossier и профиль, Ctrl+Shift+P только профиль, Ctrl+Shift+H прячет оверлей.
 overlay-off-note = Оверлей работает вместе с Witness. Сначала включите его.
 witness-experimental = эксперимент
 overlay-running = Оверлей сейчас в игре

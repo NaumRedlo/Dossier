@@ -18,6 +18,7 @@ struct Chart {
     pace: Option<(u32, Option<Pace>)>,
     reach: Option<(Instant, Counts, u32, Reach)>,
     record: Option<Option<f64>>,
+    ceiling: Option<(u32, Option<f64>, Option<u32>)>,
 }
 
 struct Config {
@@ -132,9 +133,24 @@ impl Publisher {
                 pace: None,
                 reach: None,
                 record: None,
+                ceiling: None,
             });
         }
         self.chart.as_mut().expect("the chart was just read")
+    }
+
+    /// The PP of a perfect play with the given mods, worked out once per map and set of mods from the map's file.
+    fn ceiling_of(&mut self, map: &Map, mods: u32) -> (Option<f64>, Option<u32>) {
+        let chart = self.chart_of(map);
+        if chart.ceiling.is_none_or(|(held, ..)| held != mods) {
+            let pace = chart.text.as_deref().and_then(|text| Pace::of(text, mods));
+            chart.ceiling = Some((
+                mods,
+                pace.as_ref().map(|pace| pace.clean(Counts::default())).filter(|pp| pp.is_finite() && *pp > 0.0),
+                pace.as_ref().map(Pace::max_combo).filter(|combo| *combo > 0),
+            ));
+        }
+        chart.ceiling.map_or((None, None), |(_, pp, combo)| (pp, combo))
     }
 
     fn reach_of(&mut self, map: &Map, play: &Play) -> Option<Reach> {
@@ -210,6 +226,12 @@ impl Publisher {
             .filter(|play| play.ruleset == 0)
             .zip(seen.map.as_ref())
             .and_then(|(_, map)| self.record_of(map, starting));
+        let chosen = seen.menu_mods.unwrap_or(0);
+        let (ceiling, combo) = seen
+            .map
+            .as_ref()
+            .filter(|_| screen == Screen::Selection)
+            .map_or((None, None), |map| self.ceiling_of(map, chosen));
         let (meter, display) = self.configured();
         let gameplay = playing
             .map(|play| {
@@ -247,6 +269,9 @@ impl Publisher {
                     title: short(&map.title),
                     artist: short(&map.artist),
                     difficulty: short(&map.version),
+                    max_pp: ceiling,
+                    max_pp_mods: chosen,
+                    max_combo: combo,
                 }),
                 gameplay,
                 watching_replay: seen.watching,
@@ -283,6 +308,7 @@ mod tests {
             time_ms: 123,
             map: None,
             watching: Some(false),
+            menu_mods: None,
             play: Some(Play {
                 ruleset: 0,
                 combo: 2,
@@ -323,6 +349,7 @@ mod tests {
                 ..Default::default()
             }),
             watching: None,
+            menu_mods: None,
             play: Some(Play {
                 ruleset: 3,
                 ..Default::default()
@@ -363,6 +390,7 @@ mod tests {
                 ..Map::default()
             }),
             watching: Some(false),
+            menu_mods: None,
             play: Some(Play {
                 mods: DT,
                 errors: vec![-10, 10, -10, 10],
@@ -413,6 +441,7 @@ mod tests {
                 ..Map::default()
             }),
             watching: Some(false),
+            menu_mods: None,
             play: Some(Play::default()),
         };
         let told = |publisher: &mut Publisher, seen: &Glance| {
@@ -510,6 +539,7 @@ mod tests {
             time_ms: 500,
             map: Some(Map { md5: "f".repeat(32), folder: "set".into(), file: "map.osu".into(), ..Map::default() }),
             watching: Some(false),
+            menu_mods: None,
             play: Some(Play::default()),
         };
         let told = |publisher: &mut Publisher, seen: &Glance| {
@@ -536,7 +566,7 @@ mod tests {
         std::fs::write(&file, "ScoreMeter = Error\nScoreMeterScale = 1\nFullscreen = 0\n").unwrap();
         let mut publisher = Publisher::new(1).knowing(Some(Meter { shown: true, scale: 1.0 }), None).shown(Some(Display::Window)).watching(Some(file.clone()), None, "");
         publisher.config_gap = Duration::ZERO;
-        let seen = Glance { raw_mode: 0, mode: Some(Mode::Menu), time_ms: 0, map: None, watching: None, play: None };
+        let seen = Glance { raw_mode: 0, mode: Some(Mode::Menu), time_ms: 0, map: None, watching: None, play: None, menu_mods: None };
         let said = |publisher: &mut Publisher| {
             let Message::Snapshot { snapshot } = publisher.snapshot(&seen).message else {
                 panic!()

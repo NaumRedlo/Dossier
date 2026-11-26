@@ -71,8 +71,8 @@ while the game is in front (`dossier_hud::hold::Chords`, one action per press):
   notices are not drawn a second time. The panel is read-only; it takes no clicks, and unlike the size keys it opens during a play too.
   While it is open every plate takes the mouse: drag one with the left button, send
   it back to its place with the right one. The places are kept in
-  `witness-overlay-layout.txt` in the user's temporary folder (usually `%TEMP%`
-  on Windows, or the Wine prefix's temporary folder), as offsets from
+  `%LOCALAPPDATA%/Dossier/witness-overlay-layout.txt` (inside the Wine prefix
+  when running under Wine), as offsets from
   where each plate would otherwise stand, and a plate cannot be dragged out of the
   game's picture.
 - **Ctrl+Shift+P** opens and closes the profile: one plate at the top left with the

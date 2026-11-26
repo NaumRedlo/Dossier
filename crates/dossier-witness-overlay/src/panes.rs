@@ -179,8 +179,13 @@ pub fn area(window: isize) -> Option<(i32, i32, i32, i32)> {
     (rect.right > 0 && rect.bottom > 0).then_some((corner.x, corner.y, rect.right, rect.bottom))
 }
 
+fn key_down(key: i32) -> bool {
+    // SAFETY: GetAsyncKeyState takes a virtual-key code by value.
+    (unsafe { GetAsyncKeyState(key) }) < 0
+}
+
 pub fn chord() -> Chord {
-    let down = |key: i32| unsafe { GetAsyncKeyState(key) } < 0;
+    let down = key_down;
     Chord {
         ctrl_shift: down(CTRL) && down(SHIFT) && !down(ALT) && !WINDOWS.into_iter().any(down),
         hide: down(HIDE_KEY),
@@ -192,7 +197,7 @@ pub fn chord() -> Chord {
 }
 
 pub fn keys(window: isize) -> Keys {
-    let down = |key: i32| unsafe { GetAsyncKeyState(key) } < 0;
+    let down = key_down;
     Keys { key: down(TAB), other: OTHERS.into_iter().any(down), front: unsafe { GetForegroundWindow() } == window }
 }
 
@@ -264,9 +269,11 @@ impl Pane {
     }
 
     fn grabbable(&self, on: bool) {
+        // SAFETY: this Pane owns the window, and EX_STYLE selects its extended style.
         let style = unsafe { GetWindowLongPtrW(self.window, EX_STYLE) };
         let wanted = if on { style & !(TRANSPARENT as isize) } else { style | TRANSPARENT as isize };
         if wanted != style {
+            // SAFETY: the window is still owned by this Pane and only WS_EX_TRANSPARENT changes.
             unsafe { SetWindowLongPtrW(self.window, EX_STYLE, wanted) };
         }
     }
@@ -323,12 +330,13 @@ pub struct Touched {
     pub closed: Option<&'static str>,
 }
 
-fn layout_path() -> std::path::PathBuf {
-    std::env::temp_dir().join(LAYOUT_FILE)
+fn layout_path() -> Option<std::path::PathBuf> {
+    let dir = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA")?);
+    dir.is_absolute().then(|| dir.join("Dossier").join(LAYOUT_FILE))
 }
 
 fn load_layout() -> HashMap<String, (i32, i32)> {
-    let Ok(text) = std::fs::read_to_string(layout_path()) else {
+    let Some(text) = layout_path().and_then(|path| std::fs::read_to_string(path).ok()) else {
         return HashMap::new();
     };
     text.lines()
@@ -339,10 +347,10 @@ fn load_layout() -> HashMap<String, (i32, i32)> {
         .collect()
 }
 
-fn cursor() -> (i32, i32) {
+fn cursor() -> Option<(i32, i32)> {
     let mut point = Point::default();
-    unsafe { GetCursorPos(&mut point) };
-    (point.x, point.y)
+    // SAFETY: point is a writable Win32 POINT for the duration of this call.
+    (unsafe { GetCursorPos(&mut point) } != 0).then_some((point.x, point.y))
 }
 
 impl Default for Panes {
@@ -389,9 +397,13 @@ impl Panes {
     }
 
     fn save_layout(&self) {
+        let Some(path) = layout_path() else { return };
+        if std::fs::create_dir_all(path.parent().expect("layout has a parent")).is_err() {
+            return;
+        }
         let mut lines: Vec<String> = self.offsets.iter().filter(|(_, at)| **at != (0, 0)).map(|(key, at)| format!("{key} {} {}", at.0, at.1)).collect();
         lines.sort();
-        let _ = std::fs::write(layout_path(), lines.join("\n"));
+        let _ = std::fs::write(path, lines.join("\n"));
     }
 
     /// While `on`, the plates take the mouse: the left button drags one, the right button sends it home.
@@ -406,10 +418,9 @@ impl Panes {
             self.pressed = (false, false);
             return Touched::default();
         }
-        let down = |key: i32| unsafe { GetAsyncKeyState(key) } < 0;
-        let (left, right) = (down(LEFT_BUTTON), down(RIGHT_BUTTON));
+        let Some(at) = cursor() else { return Touched::default() };
+        let (left, right) = (key_down(LEFT_BUTTON), key_down(RIGHT_BUTTON));
         let (was_left, was_right) = std::mem::replace(&mut self.pressed, (left, right));
-        let at = cursor();
         let under = self.held.iter().find(|(_, pane)| pane.holds(at)).map(|(key, pane)| (*key, pane.at));
         let mut changed = false;
         let mut closed = None;
@@ -429,10 +440,12 @@ impl Panes {
             if let Some((key, grip)) = self.drag {
                 if let Some(pane) = self.held.get_mut(key) {
                     let (ax, ay, wide, high) = area;
-                    let x = (at.0 - grip.0).clamp(ax + KEPT_IN_SIGHT - pane.size.0 as i32, ax + wide - KEPT_IN_SIGHT);
-                    let y = (at.1 - grip.1).clamp(ay + KEPT_IN_SIGHT - pane.size.1 as i32, ay + high - KEPT_IN_SIGHT);
-                    if (x, y) != pane.at {
-                        unsafe { SetWindowPos(pane.window, 0, x, y, 0, 0, NO_SIZE_NO_ORDER_NO_ACTIVATE) };
+                    let keep_x = KEPT_IN_SIGHT.min(wide / 2);
+                    let keep_y = KEPT_IN_SIGHT.min(high / 2);
+                    let x = (at.0 - grip.0).clamp(ax + keep_x - pane.size.0 as i32, ax + wide - keep_x);
+                    let y = (at.1 - grip.1).clamp(ay + keep_y - pane.size.1 as i32, ay + high - keep_y);
+                    // SAFETY: Pane owns this window, and the flags preserve its size and order.
+                    if (x, y) != pane.at && unsafe { SetWindowPos(pane.window, 0, x, y, 0, 0, NO_SIZE_NO_ORDER_NO_ACTIVATE) } != 0 {
                         pane.at = (x, y);
                         self.offsets.insert(key.to_owned(), (x - pane.base.0, y - pane.base.1));
                     }

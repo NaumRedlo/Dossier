@@ -208,3 +208,14 @@ advisories job reports unmaintained crates only among direct dependencies
 (`unmaintained = "workspace"` in `deny.toml`), so these do not fail it, while any
 vulnerability does. We wait for a new iced; our copy of `iced_wgpu` in
 `native/vendor` has to be compared again on that update.
+
+### Date library maintenance (27 November 2026)
+
+RustSec RUSTSEC-2026-0543 reports that all versions of `chrono` are
+unmaintained; it does not report a vulnerability or offer a patched version.
+Dossier uses it for local dates and RFC 3339 timestamps, and `trash` also
+depends on it. `native/deny.toml` records only this advisory as an exception;
+security advisories remain errors. In 0.98.3, migrate date handling to a
+maintained library and review the version of `trash` before removing the
+exception. The `url` vulnerability RUSTSEC-2026-0592 is fixed by the lockfile
+update to 2.5.9 in 0.98.2.

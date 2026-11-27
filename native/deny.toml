@@ -1,2 +1,7 @@
 [advisories]
 unmaintained = "workspace"
+ignore = [
+    # Maintenance notice only; chrono is also required by trash. Migrate date
+    # handling and review trash's dependency in the 0.98.3 maintenance work.
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, not a reported vulnerability; replacement tracked in docs/debt.md for 0.98.3" },
+]
